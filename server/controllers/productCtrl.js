@@ -1199,8 +1199,9 @@ const getAllProductsWithHistorySummary = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // ✅ Fetch products
-    let products = await Product.find(filter).lean();
-
+ let products = await Product.find(filter)
+      .populate("category", "categoryName") // populate only categoryName
+      .lean();
     // ✅ Add summary for each product
     let productsWithSummary = products.map(product => {
       const hasDateFilter = fromDate || toDate;
@@ -1253,6 +1254,7 @@ const getAllProductsWithHistorySummary = async (req, res) => {
 
       return {
         ...product,
+        categoryName: product?.category?.categoryName || "", 
         summary: {
           totalPurchase,
           totalSell,
