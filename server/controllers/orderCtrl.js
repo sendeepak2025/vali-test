@@ -624,7 +624,7 @@ const getAllOrderCtrl = async (req, res) => {
 const getOrderForStoreCtrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await orderModel.findById(id);
+    const order = await orderModel.findById(id).populate("store", "storeName ownerName");  ;
     return res.status(200).json({
       success: true,
       order,

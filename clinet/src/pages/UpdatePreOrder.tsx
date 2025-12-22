@@ -901,10 +901,10 @@ const UpdatePreOrder = () => {
                         <span>Subtotal ({orderItems.length} items)</span>
                         <span>${subtotal.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between text-sm">
+                      {/* <div className="flex justify-between text-sm">
                         <span>Shipping</span>
                         <span>${shippingCost.toFixed(2)}</span>
-                      </div>
+                      </div> */}
                       <div className="flex justify-between font-bold text-lg border-t pt-2">
                         <span>Total</span>
                         <span className="text-orange-600">${total.toFixed(2)}</span>

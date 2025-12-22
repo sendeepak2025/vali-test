@@ -500,10 +500,10 @@ const EditOrder = () => {
                           <User className="h-3 w-3" /> {order.store?.ownerName || 'Owner Name'}
                         </div>
                         <div className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {order.store?.address || 'Address'}, {order.store?.city || 'City'}
+                          <MapPin className="h-3 w-3" /> {order.billingAddress?.address || 'Address'}, {order.billingAddress?.city || 'City'}
                         </div>
                         <div className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" /> {order.store?.phone || 'Phone'}
+                          <Phone className="h-3 w-3" /> {order.billingAddress?.phone || 'Phone'}
                         </div>
                       </div>
                     </div>
