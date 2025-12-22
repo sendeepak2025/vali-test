@@ -51,7 +51,7 @@ import {
   Edit3,
 } from "lucide-react";
 import { getAllProductAPI } from "@/services2/operations/product";
-import { getSinglePreOrderAPI, updatePreOrderAPI } from "@/services2/operations/preOrder";
+import { getSinglePreOrderAPI, updatePreOrderAPI, confirmPreOrderAPI } from "@/services2/operations/preOrder";
 import { cn } from "@/lib/utils";
 
 interface ProductType {
@@ -121,6 +121,7 @@ const UpdatePreOrder = () => {
   const [products, setProducts] = useState<ProductType[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   
   // Order data
   const [order, setOrder] = useState<Order | null>(null);
@@ -394,6 +395,66 @@ const UpdatePreOrder = () => {
       toast({ title: "Error", description: "Failed to update pre-order", variant: "destructive" });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Confirm pre-order and create regular order
+  const handleConfirmPreOrder = async () => {
+    if (!id) return;
+    
+    if (orderItems.length === 0) {
+      toast({ title: "Error", description: "Please add at least one product", variant: "destructive" });
+      return;
+    }
+
+    const requiredFields = ["name", "email", "phone", "address", "city", "postalCode", "country"];
+    const checkEmptyFields = (address: any) =>
+      requiredFields.some((field) => !address?.[field]);
+
+    const billingInvalid = checkEmptyFields(billingAddress);
+    const shippingInvalid = sameAsBilling ? false : checkEmptyFields(shippingAddress);
+
+    if (billingInvalid || shippingInvalid) {
+      toast({
+        title: "Incomplete Address",
+        description: "Please fill all required address fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      // First update the pre-order with current data
+      const finalData = {
+        items: orderItems,
+        billingAddress,
+        shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
+        total: total,
+        subtotal: subtotal,
+        status: orderStatus,
+        date: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
+        store: order?.store?.id || order?.store?._id || order?.store,
+        shippinCost: shippingCost,
+      };
+
+      await updatePreOrderAPI(finalData, token, id);
+      
+      // Then confirm the pre-order (creates regular order)
+      const confirmResponse = await confirmPreOrderAPI(token, id);
+      
+      if (confirmResponse) {
+        toast({
+          title: "Pre-Order Confirmed!",
+          description: `Pre-Order has been confirmed and converted to a regular order successfully`,
+        });
+        navigate("/admin/orders"); // Navigate to orders instead of pre-orders
+      }
+    } catch (error) {
+      console.error("Error confirming pre-order:", error);
+      toast({ title: "Error", description: "Failed to confirm pre-order", variant: "destructive" });
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -856,7 +917,7 @@ const UpdatePreOrder = () => {
                         className="w-full bg-orange-600 hover:bg-orange-700" 
                         size="lg"
                         onClick={handleSubmit}
-                        disabled={submitting || orderItems.length === 0}
+                        disabled={submitting || confirming || orderItems.length === 0}
                       >
                         {submitting ? (
                           <>
@@ -872,10 +933,29 @@ const UpdatePreOrder = () => {
                       </Button>
 
                       <Button 
+                        className="w-full bg-green-600 hover:bg-green-700 text-white" 
+                        size="lg"
+                        onClick={handleConfirmPreOrder}
+                        disabled={submitting || confirming || orderItems.length === 0}
+                      >
+                        {confirming ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Confirming...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                            Confirm Pre-Order
+                          </>
+                        )}
+                      </Button>
+
+                      <Button 
                         variant="outline" 
                         className="w-full"
                         onClick={handleCancel}
-                        disabled={submitting}
+                        disabled={submitting || confirming}
                       >
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Cancel
@@ -885,6 +965,14 @@ const UpdatePreOrder = () => {
                     {orderItems.length === 0 && (
                       <div className="text-xs text-center text-muted-foreground">
                         <p>• Add at least one product to update</p>
+                      </div>
+                    )}
+
+                    {orderItems.length > 0 && (
+                      <div className="text-xs text-center text-muted-foreground space-y-1">
+                        <p className="font-medium">💡 Tip:</p>
+                        <p>• <strong>Update Pre-Order:</strong> Save changes to pre-order</p>
+                        <p>• <strong>Confirm Pre-Order:</strong> Convert to regular order</p>
                       </div>
                     )}
                   </CardContent>
