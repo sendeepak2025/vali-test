@@ -812,13 +812,13 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
         >
           Regular Orders
         </button>
-        <button
+        {/* <button
           className={cn("px-4 py-2 text-sm font-medium border-b-2 -mb-px",
             activeTab === "NextWeek" ? "border-primary text-primary" : "border-transparent text-muted-foreground")}
           onClick={() => { setActiveTab("NextWeek"); setCurrentPage(1) }}
         >
           Next Week Orders
-        </button>
+        </button> */}
       </div>
 
       {/* Orders Table */}

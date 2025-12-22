@@ -120,6 +120,11 @@ const NewOrderEnhanced = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
   const [productSearch, setProductSearch] = useState("")
   const [showProductModal, setShowProductModal] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>("all")
+  const [displayedProducts, setDisplayedProducts] = useState<ProductType[]>([])
+  const [productsPerPage] = useState(20)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [categories, setCategories] = useState<string[]>([])
   
   const [orderStatus, setOrderStatus] = useState("pending")
   const [orderNumber, setOrderNumber] = useState("")
@@ -152,9 +157,17 @@ const NewOrderEnhanced = () => {
           .map((s: any) => ({ ...s, id: s._id }))
         setStores(filteredStores)
         
-        const formattedProducts = productsData.map((p: any) => ({ ...p, id: p._id }))
+        const formattedProducts: ProductType[] = productsData.map((p: any) => ({ ...p, id: p._id }))
         setProducts(formattedProducts)
         console.log(formattedProducts, "product data")
+
+        // Extract unique categories
+        const uniqueCategories: string[] = formattedProducts
+          .filter((p: ProductType) => p.category && typeof p.category === 'string')
+          .map((p: ProductType) => p.category as string)
+          .filter((cat, index, arr) => arr.indexOf(cat) === index) // Remove duplicates
+          .sort()
+        setCategories(uniqueCategories)
 
         // Check if clientId is in URL params
         const clientId = searchParams.get('clientId')
@@ -209,15 +222,58 @@ const NewOrderEnhanced = () => {
     )
   }, [stores, storeSearch])
 
-  // Filter products based on search
+  // Filter products based on search and category
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return products
-    const search = productSearch.toLowerCase()
-    return products.filter(p => 
-      p.name?.toLowerCase().includes(search) ||
-      p.category?.toLowerCase().includes(search)
-    )
-  }, [products, productSearch])
+    let filtered = products
+    
+    // Filter by category
+    if (selectedCategory !== "all") {
+      filtered = filtered.filter(p => p.category === selectedCategory)
+    }
+    
+    // Filter by search
+    if (productSearch) {
+      const search = productSearch.toLowerCase()
+      filtered = filtered.filter(p => 
+        p.name?.toLowerCase().includes(search) ||
+        p.category?.toLowerCase().includes(search)
+      )
+    }
+    
+    return filtered
+  }, [products, productSearch, selectedCategory])
+
+  // Update displayed products when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+    setDisplayedProducts(filteredProducts.slice(0, productsPerPage))
+  }, [filteredProducts, productsPerPage])
+
+  // Load more products (infinite scroll)
+  const loadMoreProducts = () => {
+    const nextPage = currentPage + 1
+    const startIndex = (nextPage - 1) * productsPerPage
+    const endIndex = startIndex + productsPerPage
+    const newProducts = filteredProducts.slice(startIndex, endIndex)
+    
+    if (newProducts.length > 0) {
+      setDisplayedProducts(prev => [...prev, ...newProducts])
+      setCurrentPage(nextPage)
+    }
+  }
+
+  // Handle scroll in product modal
+  const handleProductModalScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    
+    // Load more when scrolled to bottom (with 100px threshold)
+    if (scrollHeight - scrollTop <= clientHeight + 100) {
+      const hasMore = displayedProducts.length < filteredProducts.length
+      if (hasMore) {
+        loadMoreProducts()
+      }
+    }
+  }
 
   // Add product to order
   const addProduct = (product: ProductType, pricingType: "box" | "unit" = "box") => {
@@ -246,6 +302,15 @@ const NewOrderEnhanced = () => {
   });
 
     setProductSearch("")
+  }
+
+  // Reset modal state when opening
+  const openProductModal = () => {
+    setShowProductModal(true)
+    setProductSearch("")
+    setSelectedCategory("all")
+    setCurrentPage(1)
+    setDisplayedProducts(products.slice(0, productsPerPage))
   }
 
   // Update item quantity
@@ -435,7 +500,7 @@ const NewOrderEnhanced = () => {
                         <Package className="h-4 w-4" />
                         Order Items ({orderItems.length})
                       </CardTitle>
-                      <Button size="sm" onClick={() => setShowProductModal(true)}>
+                      <Button size="sm" onClick={openProductModal}>
                         <Plus className="h-4 w-4 mr-1" /> Add Product
                       </Button>
                     </div>
@@ -449,7 +514,7 @@ const NewOrderEnhanced = () => {
                           variant="outline" 
                           size="sm" 
                           className="mt-2"
-                          onClick={() => setShowProductModal(true)}
+                          onClick={openProductModal}
                         >
                           <Plus className="h-4 w-4 mr-1" /> Add First Product
                         </Button>
@@ -516,7 +581,7 @@ const NewOrderEnhanced = () => {
                         <Button 
                           variant="outline" 
                           className="w-full border-dashed border-2 hover:border-primary hover:bg-primary/5"
-                          onClick={() => setShowProductModal(true)}
+                          onClick={openProductModal}
                         >
                           <Plus className="h-4 w-4 mr-2" /> Add Another Product
                         </Button>
@@ -742,33 +807,110 @@ const NewOrderEnhanced = () => {
 
       {/* Product Selection Modal */}
       <Dialog open={showProductModal} onOpenChange={setShowProductModal}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Add Product</DialogTitle>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Add Product</span>
+              <Badge variant="outline" className="text-xs">
+                {displayedProducts.length} of {filteredProducts.length} products
+              </Badge>
+            </DialogTitle>
           </DialogHeader>
           
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products..."
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
-              className="pl-9"
-              autoFocus
-            />
+          {/* Search and Filter Row */}
+          <div className="space-y-2">
+            <div className="flex gap-3 items-center">
+              {/* Search Bar */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search products..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="pl-9"
+                  autoFocus
+                />
+              </div>
+
+              {/* Category Dropdown */}
+              <div className="w-52">
+                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                  <SelectTrigger className="h-10">
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-muted-foreground" />
+                      <SelectValue placeholder="All Categories" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      <div className="flex items-center gap-2">
+                        <span>All Categories</span>
+                        <Badge variant="outline" className="text-xs ml-auto">
+                          {products.length}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                    {categories.map(cat => {
+                      const categoryCount = products.filter(p => p.category === cat).length
+                      return (
+                        <SelectItem key={cat} value={cat}>
+                          <div className="flex items-center justify-between w-full">
+                            <span>{cat}</span>
+                            <Badge variant="outline" className="text-xs ml-2">
+                              {categoryCount}
+                            </Badge>
+                          </div>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Filter Status */}
+            {(selectedCategory !== "all" || productSearch) && (
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                <span>
+                  Showing {filteredProducts.length} of {products.length} products
+                </span>
+                {selectedCategory !== "all" && (
+                  <Badge variant="outline" className="text-xs">
+                    {selectedCategory}
+                  </Badge>
+                )}
+                {productSearch && (
+                  <Badge variant="outline" className="text-xs">
+                    "{productSearch}"
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="flex-1 overflow-auto mt-4">
+          {/* Products List with Infinite Scroll */}
+          <div 
+            className="flex-1 overflow-auto mt-4" 
+            onScroll={handleProductModalScroll}
+          >
             <div className="grid grid-cols-1 gap-2">
-              {filteredProducts.slice(0, 20).map(product => (
+              {displayedProducts.map(product => (
                 <div 
                   key={product.id}
                   className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group"
                 >
                   <div className="flex-1">
                     <div className="font-medium">{product.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      Box: ${product.pricePerBox?.toFixed(2)} | Unit: ${product.price?.toFixed(2)}
+                    <div className="text-sm text-muted-foreground flex items-center gap-2">
+                      <span>Box: ${product.pricePerBox?.toFixed(2)} | Unit: ${product.price?.toFixed(2)}</span>
+                      {product.category && (
+                        <>
+                          <span className="text-gray-300">•</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {product.category}
+                          </Badge>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -791,11 +933,29 @@ const NewOrderEnhanced = () => {
                   </div>
                 </div>
               ))}
+              
+              {/* Loading indicator */}
+              {displayedProducts.length < filteredProducts.length && (
+                <div className="text-center py-4 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                  <p className="text-sm">Scroll down to load more products...</p>
+                </div>
+              )}
+              
+              {/* No products found */}
               {filteredProducts.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-2 opacity-20" />
                   <p>No products found</p>
-                  <p className="text-sm">Try a different search term</p>
+                  <p className="text-sm">Try a different search term or category</p>
+                </div>
+              )}
+              
+              {/* All products loaded */}
+              {displayedProducts.length > 0 && displayedProducts.length === filteredProducts.length && (
+                <div className="text-center py-4 text-muted-foreground">
+                  <CheckCircle2 className="h-5 w-5 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">All products loaded ({filteredProducts.length} total)</p>
                 </div>
               )}
             </div>
@@ -806,7 +966,7 @@ const NewOrderEnhanced = () => {
       {/* Floating Add Product Button - Always visible */}
       <Button
         className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50 hover:scale-110 transition-transform"
-        onClick={() => setShowProductModal(true)}
+        onClick={openProductModal}
       >
         <Plus className="h-6 w-6" />
       </Button>
