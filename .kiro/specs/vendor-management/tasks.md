@@ -1,0 +1,322 @@
+# Implementation Plan: Vendor Management System
+
+## Overview
+
+This implementation plan breaks down the comprehensive Vendor Management System into discrete, incremental tasks. The approach prioritizes core functionality first (enhanced vendor model, invoice management, credit memos) before adding advanced features (three-way matching, scorecards, aging reports). Each task builds on previous work to ensure no orphaned code.
+
+## Tasks
+
+- [x] 1. Enhance Vendor Model and Backend
+  - [x] 1.1 Update Vendor MongoDB schema with payment terms, status tracking, and performance thresholds
+    - Add `paymentTerms` object with type, customDays, earlyPaymentDiscount
+    - Add `status` enum and `statusReason` fields
+    - Add `performanceThresholds` object
+    - _Requirements: 1.1, 1.2, 1.3, 1.6_
+  - [x] 1.2 Create vendor payment terms API endpoint
+    - `PUT /api/vendors/:id/payment-terms`
+    - Validate payment term types and discount values
+    - _Requirements: 1.2, 1.3_
+  - [x] 1.3 Create vendor status update API endpoint
+    - `PUT /api/vendors/:id/status`
+    - Track status change with reason and timestamp
+    - _Requirements: 1.6_
+  - [ ]* 1.4 Write property test for vendor data persistence
+    - **Property 1: Vendor Data Persistence**
+    - **Validates: Requirements 1.1, 1.2, 1.3**
+
+- [x] 2. Create Invoice Model and Basic CRUD
+  - [x] 2.1 Create Invoice MongoDB model
+    - Define schema with invoiceNumber, vendorId, linkedPurchaseOrders, lineItems, status, matchingResults
+    - Add indexes for efficient querying
+    - _Requirements: 4.1, 4.5_
+  - [x] 2.2 Create invoice controller with CRUD operations
+    - `POST /api/invoices` - Create invoice with auto-generated number
+    - `GET /api/invoices` - List with filters (vendor, status, date range)
+    - `GET /api/invoices/:id` - Get single invoice
+    - _Requirements: 4.1, 4.5_
+  - [x] 2.3 Create invoice routes and wire to controller
+    - _Requirements: 4.1_
+
+- [x] 3. Implement Three-Way Matching
+  - [x] 3.1 Create matching service function
+    - Compare PO quantities vs received quantities vs invoice quantities
+    - Compare PO prices vs invoice prices
+    - Calculate variance amount and percentage
+    - _Requirements: 4.2, 4.3_
+  - [x] 3.2 Create matching API endpoint
+    - `PUT /api/invoices/:id/match`
+    - Store matching results in invoice document
+    - Flag discrepancies
+    - _Requirements: 4.2, 4.3_
+  - [x] 3.3 Implement approval threshold logic
+    - Check if variance exceeds configurable tolerance
+    - Set `approvalRequired` flag when threshold exceeded
+    - _Requirements: 4.4_
+  - [ ]* 3.4 Write property test for three-way matching accuracy
+    - **Property 8: Three-Way Matching Accuracy**
+    - **Validates: Requirements 4.2, 4.3**
+  - [ ]* 3.5 Write property test for approval threshold enforcement
+    - **Property 9: Approval Threshold Enforcement**
+    - **Validates: Requirements 4.4**
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 5. Create Credit Memo Model and CRUD
+  - [x] 5.1 Create CreditMemo MongoDB model
+    - Define schema with memoNumber, type, vendorId, linkedPO/Invoice, reasonCategory, amount, status
+    - Add auto-increment for memo numbers
+    - _Requirements: 5.1, 5.2, 5.4_
+  - [x] 5.2 Create credit memo controller
+    - `POST /api/credit-memos` - Create with validation
+    - `GET /api/credit-memos` - List with filters
+    - `PUT /api/credit-memos/:id/approve` - Approve memo
+    - `PUT /api/credit-memos/:id/apply` - Apply to payment
+    - _Requirements: 5.1, 5.3, 5.4, 5.5_
+  - [x] 5.3 Create unapplied credits endpoint
+    - `GET /api/vendors/:id/unapplied-credits`
+    - Calculate sum of approved but unapplied credit memos
+    - _Requirements: 5.6_
+  - [ ]* 5.4 Write property test for unique credit memo numbers
+    - **Property 10: Unique Credit Memo Number Generation**
+    - **Validates: Requirements 5.2**
+  - [ ]* 5.5 Write property test for credit memo balance reduction
+    - **Property 11: Credit Memo Balance Reduction**
+    - **Validates: Requirements 5.3**
+
+- [x] 6. Create Vendor Payment Model and Enhanced Payment Flow
+  - [x] 6.1 Create VendorPayment MongoDB model
+    - Define schema with paymentNumber, vendorId, invoiceIds, amount, method, appliedCredits, earlyPaymentDiscountTaken
+    - _Requirements: 6.1, 6.7_
+  - [x] 6.2 Create vendor payment controller
+    - `POST /api/vendor-payments` - Record payment with credit application
+    - `GET /api/vendor-payments` - List payments with filters
+    - `PUT /api/vendor-payments/:id/check-status` - Update check clearance
+    - _Requirements: 6.1, 6.2, 6.4, 6.5, 6.7_
+  - [x] 6.3 Implement early payment discount calculation
+    - Calculate discount based on vendor terms and payment date
+    - Apply discount to payment amount
+    - _Requirements: 6.3_
+  - [ ]* 6.4 Write property test for partial payment balance
+    - **Property 13: Partial Payment Balance**
+    - **Validates: Requirements 6.2**
+  - [ ]* 6.5 Write property test for early payment discount calculation
+    - **Property 14: Early Payment Discount Calculation**
+    - **Validates: Requirements 6.3**
+
+- [x] 7. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 8. Create Dispute Model and Management
+  - [x] 8.1 Create Dispute MongoDB model
+    - Define schema with disputeNumber, vendorId, linkedPO/Invoice, type, status, communications, resolution
+    - _Requirements: 9.1, 9.2_
+  - [x] 8.2 Create dispute controller
+    - `POST /api/disputes` - Create dispute
+    - `GET /api/disputes` - List with filters
+    - `PUT /api/disputes/:id/status` - Update status
+    - `POST /api/disputes/:id/communication` - Add communication
+    - `PUT /api/disputes/:id/resolve` - Resolve with notes
+    - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
+  - [x] 8.3 Implement invoice hold on dispute
+    - When dispute created with hold flag, update linked invoices
+    - _Requirements: 9.3_
+
+- [x] 9. Create Reports and Analytics Endpoints
+  - [x] 9.1 Create aging report endpoint
+    - `GET /api/reports/aging`
+    - Calculate outstanding balances in buckets (Current, 1-30, 31-60, 61-90, 90+)
+    - Support filtering by vendor, date range, amount threshold
+    - _Requirements: 7.1, 7.2, 7.3_
+  - [x] 9.2 Create vendor statement endpoint
+    - `GET /api/vendors/:id/statement`
+    - Generate all transactions within date range
+    - _Requirements: 7.5_
+  - [x] 9.3 Create vendor performance scorecard endpoint
+    - `GET /api/vendors/:id/performance`
+    - Calculate on-time delivery rate, quality acceptance rate, fill rate
+    - _Requirements: 8.1, 8.2, 8.4_
+  - [ ]* 9.4 Write property test for aging report bucket accuracy
+    - **Property 15: Aging Report Bucket Accuracy**
+    - **Validates: Requirements 7.1**
+  - [ ]* 9.5 Write property test for vendor outstanding total
+    - **Property 16: Vendor Outstanding Total**
+    - **Validates: Requirements 7.3**
+  - [ ]* 9.6 Write property test for on-time delivery rate calculation
+    - **Property 17: On-Time Delivery Rate Calculation**
+    - **Validates: Requirements 8.1**
+  - [ ]* 9.7 Write property test for quality acceptance rate calculation
+    - **Property 18: Quality Acceptance Rate Calculation**
+    - **Validates: Requirements 8.2**
+
+- [x] 10. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 11. Create Frontend API Services
+  - [x] 11.1 Create invoice API service functions
+    - createInvoice, getAllInvoices, getInvoice, matchInvoice, approveInvoice, disputeInvoice
+    - _Requirements: 4.1, 4.2, 4.5, 4.6_
+  - [x] 11.2 Create credit memo API service functions
+    - createCreditMemo, getAllCreditMemos, approveCreditMemo, applyCreditMemo, getUnappliedCredits
+    - _Requirements: 5.1, 5.3, 5.6_
+  - [x] 11.3 Create vendor payment API service functions
+    - createVendorPayment, getAllVendorPayments, updateCheckStatus
+    - _Requirements: 6.1, 6.5, 6.7_
+  - [x] 11.4 Create dispute API service functions
+    - createDispute, getAllDisputes, updateDisputeStatus, addCommunication, resolveDispute
+    - _Requirements: 9.1, 9.2, 9.5_
+  - [x] 11.5 Create reports API service functions
+    - getAgingReport, getVendorStatement, getVendorPerformance, getVendorComparison
+    - _Requirements: 7.1, 7.5, 8.1_
+
+- [x] 12. Enhance VendorsEnhanced Page - Dashboard Tab
+  - [x] 12.1 Create enhanced dashboard with KPI cards
+    - Total purchases, total paid, outstanding balance
+    - Payment progress visualization
+    - PO count by status
+    - Overdue payments alert
+    - Top vendors by volume
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
+  - [x] 12.2 Add clickable metrics navigation
+    - Navigate to filtered views on metric click
+    - _Requirements: 10.6_
+
+- [x] 13. Enhance VendorsEnhanced Page - Vendors Tab
+  - [x] 13.1 Add payment terms display and edit modal
+    - Show payment terms in vendor table
+    - Modal to edit payment terms with early discount
+    - _Requirements: 1.2, 1.3_
+  - [x] 13.2 Add vendor status management
+    - Status badge in table
+    - Status change modal with reason
+    - _Requirements: 1.6_
+  - [x] 13.3 Add vendor performance indicators
+    - Mini scorecard in vendor row
+    - Flag vendors below thresholds
+    - _Requirements: 8.7_
+
+- [x] 14. Create Invoices Tab Component
+  - [x] 14.1 Create InvoicesTab component with table
+    - List invoices with filters (vendor, status, date range)
+    - Show matching status indicators
+    - _Requirements: 4.1, 4.5_
+  - [x] 14.2 Create invoice upload/create modal
+    - Form to create invoice with PO linking
+    - File upload for invoice document
+    - _Requirements: 4.1_
+  - [x] 14.3 Create three-way matching view
+    - Side-by-side comparison of PO, Received, Invoice
+    - Highlight discrepancies
+    - Approve/Dispute actions
+    - _Requirements: 4.2, 4.3, 4.6_
+
+- [x] 15. Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 16. Create Credit Memos Tab Component
+  - [x] 16.1 Create CreditMemosTab component with table
+    - List credit/debit memos with filters
+    - Show status and applied amount
+    - _Requirements: 5.4_
+  - [x] 16.2 Create credit memo creation modal
+    - Form with PO/Invoice linking
+    - Reason category selection (including produce-specific)
+    - Line items with amounts
+    - _Requirements: 5.1, 5.5_
+  - [x] 16.3 Add approval and application workflow
+    - Approve button for pending memos
+    - Apply to payment selection
+    - _Requirements: 5.3, 5.4_
+
+- [x] 17. Create Payments Tab Component
+  - [x] 17.1 Create PaymentsTab component with table
+    - List payments with filters
+    - Show payment method, check status
+    - _Requirements: 6.6_
+  - [x] 17.2 Create payment recording modal
+    - Invoice selection with outstanding amounts
+    - Payment method selection
+    - Credit memo application
+    - Early payment discount display
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - [x] 17.3 Add check clearance management
+    - Update check status (pending/cleared/bounced)
+    - _Requirements: 6.7_
+
+- [x] 18. Create Reports Tab Component
+  - [x] 18.1 Create aging report view
+    - Table with aging buckets
+    - Filters for vendor, date, amount
+    - Export functionality
+    - _Requirements: 7.1, 7.2_
+  - [x] 18.2 Create vendor statement view
+    - Date range selector
+    - Transaction list with running balance
+    - PDF export
+    - _Requirements: 7.5_
+  - [x] 18.3 Create vendor scorecard view
+    - Performance metrics with trend charts
+    - Vendor comparison table
+    - _Requirements: 8.1, 8.2, 8.4, 8.5, 8.6_
+
+- [x] 19. Create Disputes Tab Component
+  - [x] 19.1 Create DisputesTab component with table
+    - List disputes with filters
+    - Show status and linked documents
+    - _Requirements: 9.2_
+  - [x] 19.2 Create dispute creation modal
+    - PO/Invoice linking
+    - Type selection
+    - Hold invoices option
+    - _Requirements: 9.1, 9.3_
+  - [x] 19.3 Create dispute detail view with communication
+    - Communication history timeline
+    - Add message form
+    - Resolution form
+    - _Requirements: 9.4, 9.5_
+
+- [x] 20. Enhance Quality Control with Produce Features
+  - [x] 20.1 Add produce-specific rejection reasons
+    - Spoilage, Bruising, Size Variance, Temperature Damage, Pest Damage, Ripeness Issues
+    - _Requirements: 11.2_
+  - [x] 20.2 Add lot/batch number tracking
+    - Input field in receiving form
+    - Display in quality control view
+    - _Requirements: 11.3_
+  - [x] 20.3 Add weight variance flagging
+    - Calculate expected vs actual weight
+    - Flag items exceeding tolerance
+    - Suggest credit memo for variance
+    - _Requirements: 11.5_
+  - [ ]* 20.4 Write property test for weight-based pricing calculation
+    - **Property 21: Weight-Based Pricing Calculation**
+    - **Validates: Requirements 11.1**
+  - [ ]* 20.5 Write property test for weight variance flagging
+    - **Property 22: Weight Variance Flagging**
+    - **Validates: Requirements 11.5**
+
+- [x] 21. Final Integration and Polish
+  - [x] 21.1 Wire all tabs into VendorsEnhanced page
+    - Add tab navigation
+    - Ensure consistent styling
+    - _Requirements: All_
+  - [x] 21.2 Add overdue payment highlighting
+    - Calculate due dates based on payment terms
+    - Highlight overdue invoices
+    - _Requirements: 7.4_
+  - [x] 21.3 Add credit memo suggestion on quality rejection
+    - Auto-suggest credit memo when items rejected
+    - Pre-fill amount based on rejected quantity
+    - _Requirements: 3.5_
+
+- [x] 22. Final Checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+## Notes
+
+- Tasks marked with `*` are optional property-based tests that can be skipped for faster MVP
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate universal correctness properties
+- Unit tests validate specific examples and edge cases
+- The implementation follows the existing codebase patterns (React + TypeScript, Node.js + Express, MongoDB)
