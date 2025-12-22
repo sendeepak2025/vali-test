@@ -627,73 +627,154 @@ const EditOrder = () => {
                   </CardHeader>
                   
                   {showAddressSection && (
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-sm font-medium">Name</label>
-                          <Input 
-                            value={billingAddress.name}
-                            onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})}
-                            placeholder="Full name"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">Phone</label>
-                          <Input 
-                            value={billingAddress.phone}
-                            onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})}
-                            placeholder="Phone number"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">Email</label>
-                          <Input 
-                            value={billingAddress.email}
-                            onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})}
-                            placeholder="Email address"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">Address</label>
-                          <Input 
-                            value={billingAddress.address}
-                            onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})}
-                            placeholder="Street address"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">City</label>
-                          <Input 
-                            value={billingAddress.city}
-                            onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})}
-                            placeholder="City"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">State</label>
-                          <Input 
-                            value={billingAddress.country}
-                            onChange={(e) => setBillingAddress({...billingAddress, country: e.target.value})}
-                            placeholder="State"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium">Postal Code</label>
-                          <Input 
-                            value={billingAddress.postalCode}
-                            onChange={(e) => setBillingAddress({...billingAddress, postalCode: e.target.value})}
-                            placeholder="Postal code"
-                          />
+                    <CardContent className="space-y-6">
+                      {/* Billing Address */}
+                      <div>
+                        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                          <Mail className="h-4 w-4" />
+                          Billing Address
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-sm font-medium">Name</label>
+                            <Input 
+                              value={billingAddress.name}
+                              onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})}
+                              placeholder="Full name"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Phone</label>
+                            <Input 
+                              value={billingAddress.phone}
+                              onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})}
+                              placeholder="Phone number"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Email</label>
+                            <Input 
+                              value={billingAddress.email}
+                              onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})}
+                              placeholder="Email address"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Address</label>
+                            <Input 
+                              value={billingAddress.address}
+                              onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})}
+                              placeholder="Street address"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">City</label>
+                            <Input 
+                              value={billingAddress.city}
+                              onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})}
+                              placeholder="City"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">State</label>
+                            <Input 
+                              value={billingAddress.country}
+                              onChange={(e) => setBillingAddress({...billingAddress, country: e.target.value})}
+                              placeholder="State"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Postal Code</label>
+                            <Input 
+                              value={billingAddress.postalCode}
+                              onChange={(e) => setBillingAddress({...billingAddress, postalCode: e.target.value})}
+                              placeholder="Postal code"
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      {/* Same as Billing Checkbox */}
+                      <div className="flex items-center gap-2 py-2 border-t border-b">
                         <Checkbox 
                           checked={sameAsBilling} 
-                          onCheckedChange={(checked) => setSameAsBilling(checked as boolean)}
+                          onCheckedChange={(checked) => {
+                            setSameAsBilling(checked as boolean);
+                            if (checked) {
+                              setShippingAddress(billingAddress);
+                            }
+                          }}
                         />
-                        <label className="text-sm">Shipping address same as billing</label>
+                        <label className="text-sm font-medium">Shipping address same as billing</label>
                       </div>
+
+                      {/* Shipping Address - Only show when not same as billing */}
+                      {!sameAsBilling && (
+                        <div>
+                          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                            <Package className="h-4 w-4" />
+                            Shipping Address
+                          </h3>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium">Name</label>
+                              <Input 
+                                value={shippingAddress.name}
+                                onChange={(e) => setShippingAddress({...shippingAddress, name: e.target.value})}
+                                placeholder="Full name"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Phone</label>
+                              <Input 
+                                value={shippingAddress.phone}
+                                onChange={(e) => setShippingAddress({...shippingAddress, phone: e.target.value})}
+                                placeholder="Phone number"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Email</label>
+                              <Input 
+                                value={shippingAddress.email}
+                                onChange={(e) => setShippingAddress({...shippingAddress, email: e.target.value})}
+                                placeholder="Email address"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Address</label>
+                              <Input 
+                                value={shippingAddress.address}
+                                onChange={(e) => setShippingAddress({...shippingAddress, address: e.target.value})}
+                                placeholder="Street address"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">City</label>
+                              <Input 
+                                value={shippingAddress.city}
+                                onChange={(e) => setShippingAddress({...shippingAddress, city: e.target.value})}
+                                placeholder="City"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">State</label>
+                              <Input 
+                                value={shippingAddress.country}
+                                onChange={(e) => setShippingAddress({...shippingAddress, country: e.target.value})}
+                                placeholder="State"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Postal Code</label>
+                              <Input 
+                                value={shippingAddress.postalCode}
+                                onChange={(e) => setShippingAddress({...shippingAddress, postalCode: e.target.value})}
+                                placeholder="Postal code"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   )}
                 </Card>
