@@ -115,7 +115,7 @@ const PreOrder = () => {
                           })
                           : "N/A"}
                       </TableCell>
-                      <TableCell>{order.total}</TableCell>
+<TableCell>{Number(order.total).toFixed(2)}</TableCell>
                       <TableCell>{order.status}</TableCell>
                       <TableCell>
                         <button

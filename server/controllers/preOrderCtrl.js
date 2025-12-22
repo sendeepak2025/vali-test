@@ -110,7 +110,10 @@ const getAllPreOrdersCtrl = async (req, res) => {
 const getSinglePreOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const order = await PreOrder.findById(id);
+
+    const order = await PreOrder.findById(id)
+      .populate("store", "storeName ownerName");   // ⬅️ storeName populate
+
     return res.status(200).json({
       success: true,
       order,
@@ -119,10 +122,11 @@ const getSinglePreOrderCtrl = async (req, res) => {
     console.log(error);
     return res.status(500).json({
       success: false,
-      message: "Error in getting  pre order API!",
+      message: "Error in getting pre order API!",
     });
   }
 };
+
 
 const updatePreOrderCtrl = async (req, res) => {
   try {

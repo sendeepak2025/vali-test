@@ -375,7 +375,7 @@ const EditOrder = () => {
         subtotal: subtotal,
         status: orderStatus,
         date: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
-        clientId: { value: order?.store?.id || order?.store?._id },
+        store: order?.store?.id || order?.store?._id || order?.store,
         shippinCost: shippingCost,
       };
 
