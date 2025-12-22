@@ -154,6 +154,7 @@ const NewOrderEnhanced = () => {
         
         const formattedProducts = productsData.map((p: any) => ({ ...p, id: p._id }))
         setProducts(formattedProducts)
+        console.log(formattedProducts, "product data")
 
         // Check if clientId is in URL params
         const clientId = searchParams.get('clientId')
@@ -238,7 +239,12 @@ const NewOrderEnhanced = () => {
         shippinCost: product.shippinCost || 0
       }])
     }
-    setShowProductModal(false)
+    // setShowProductModal(false)
+    toast({
+    title: "Success",
+    description: `${product.name} added successfully!`,
+  });
+
     setProductSearch("")
   }
 

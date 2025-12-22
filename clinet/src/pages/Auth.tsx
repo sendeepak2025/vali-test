@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Store, Mail, KeyRound, LogIn, UserPlus } from "lucide-react";
+import { Store, Mail, KeyRound, LogIn, UserPlus, EyeOff, Eye } from "lucide-react";
 import { signUp, login } from "@/services2/operations/auth";
 
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,9 @@ const Auth = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("login");
+const [showLoginPass, setShowLoginPass] = useState(false);
+const [showSignupPass, setShowSignupPass] = useState(false);
+const [showConfirmPass, setShowConfirmPass] = useState(false);
 
   const dispatch = useDispatch();
   const loginForm = useForm<LoginFormValues>({
@@ -150,29 +153,42 @@ if(res){
                     )}
                   />
 
-                  <FormField
-                    control={loginForm.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <div className="flex">
-                            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                              <KeyRound className="h-4 w-4" />
-                            </span>
-                            <Input
-                              type="password"
-                              placeholder="••••••••"
-                              className="rounded-l-none"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+               <FormField
+  control={loginForm.control}
+  name="password"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Password</FormLabel>
+      <FormControl>
+        <div className="flex relative">
+          <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+            <KeyRound className="h-4 w-4" />
+          </span>
+
+          <Input
+            type={showLoginPass ? "text" : "password"}
+            placeholder="••••••••"
+            className="rounded-l-none pr-10"
+            {...field}
+          />
+
+          <span
+            className="absolute right-3 top-3 cursor-pointer text-gray-500"
+            onClick={() => setShowLoginPass(!showLoginPass)}
+          >
+            {showLoginPass ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </span>
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+
 
                   <Button
                     type="submit"
@@ -233,53 +249,78 @@ if(res){
                     )}
                   />
 
-                  <FormField
-                    control={signupForm.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <div className="flex">
-                            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                              <KeyRound className="h-4 w-4" />
-                            </span>
-                            <Input
-                              type="password"
-                              placeholder="••••••••"
-                              className="rounded-l-none"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <FormField
+  control={signupForm.control}
+  name="password"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Password</FormLabel>
+      <FormControl>
+        <div className="flex relative">
+          <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+            <KeyRound className="h-4 w-4" />
+          </span>
 
-                  <FormField
-                    control={signupForm.control}
-                    name="confirmPassword"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Confirm Password</FormLabel>
-                        <FormControl>
-                          <div className="flex">
-                            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                              <KeyRound className="h-4 w-4" />
-                            </span>
-                            <Input
-                              type="password"
-                              placeholder="••••••••"
-                              className="rounded-l-none"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+          <Input
+            type={showSignupPass ? "text" : "password"}
+            placeholder="••••••••"
+            className="rounded-l-none pr-10"
+            {...field}
+          />
+
+          <span
+            className="absolute right-3 top-2 cursor-pointer text-gray-500"
+            onClick={() => setShowSignupPass(!showSignupPass)}
+          >
+            {showSignupPass ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </span>
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+
+
+<FormField
+  control={signupForm.control}
+  name="confirmPassword"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Confirm Password</FormLabel>
+      <FormControl>
+        <div className="flex relative">
+          <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+            <KeyRound className="h-4 w-4" />
+          </span>
+
+          <Input
+            type={showConfirmPass ? "text" : "password"}
+            placeholder="••••••••"
+            className="rounded-l-none pr-10"
+            {...field}
+          />
+
+          <span
+            className="absolute right-3 top-2 cursor-pointer text-gray-500"
+            onClick={() => setShowConfirmPass(!showConfirmPass)}
+          >
+            {showConfirmPass ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </span>
+        </div>
+      </FormControl>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
 
                   <Button
                     type="submit"
