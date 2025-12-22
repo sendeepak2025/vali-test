@@ -32,7 +32,8 @@ export const exportBillOfLadingToPDF = (
       chargePerPallet: number;
       totalCharge: number;
     };
-  }
+  },
+  printMode: boolean = false
 ) => {
   const doc = new jsPDF();
 const PAGE_WIDTH = doc.internal.pageSize.width;
@@ -290,7 +291,26 @@ doc.addImage(logoUrl, "PNG", xCenter, 0, 0, 23);
     });
   }
 
-  doc.save(`bill-of-lading-${order.id} ${data.consigneeName}.pdf`);
+  // Handle print mode or download mode
+  if (printMode) {
+    // Open PDF in new window for printing
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const printWindow = window.open(pdfUrl, '_blank');
+    
+    if (printWindow) {
+      printWindow.onload = () => {
+        printWindow.print();
+        // Clean up the URL after a delay to allow printing
+        setTimeout(() => {
+          URL.revokeObjectURL(pdfUrl);
+        }, 1000);
+      };
+    }
+  } else {
+    // Download the PDF
+    doc.save(`bill-of-lading-${order.id} ${data.consigneeName}.pdf`);
+  }
 
   return doc;
 };

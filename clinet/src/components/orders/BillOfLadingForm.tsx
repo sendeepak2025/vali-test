@@ -145,11 +145,47 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
-    toast({
-      title: "Print requested",
-      description: "The Bill of Lading has been sent to your printer.",
-    });
+    const formData = form.getValues();
+
+    const bolData: BillOfLadingData = {
+      bolNumber: ` ${order.orderNumber}`,
+
+      shipperName: formData.shipperName,
+      shipperAddress: formData.shipperAddress,
+      shipperCity: formData.shipperCity,
+      shipperState: formData.shipperState,
+      shipperZip: formData.shipperZip,
+      consigneeName: formData.consigneeName,
+      consigneeAddress: formData.consigneeAddress,
+      consigneeCity: formData.consigneeCity,
+      consigneeState: formData.consigneeState,
+      consigneeZip: formData.consigneeZip,
+      consigneePhone: formData.consigneePhone,
+      carrierName: formData.carrierName,
+      trailerNumber: formData.trailerNumber,
+      sealNumber: formData.sealNumber,
+      freightTerms: formData.freightTerms,
+      specialInstructions: formData.specialInstructions,
+      hazardousMaterials: formData.hazardousMaterials || false,
+      signatureShipper: formData.signatureShipper,
+      serviceLevel: formData.serviceLevel,
+      totalQuantity: calculateTotalPieces(),
+    };
+
+    const success = generateBillOfLadingPDF(order, bolData, true); // Pass true for print mode
+
+    if (success) {
+      toast({
+        title: "Print requested",
+        description: "The Bill of Lading has been sent to your printer.",
+      });
+    } else {
+      toast({
+        title: "Print failed",
+        description: "There was an error generating the PDF for printing. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
   const calculateTotalPieces = () => {
     return order.items.reduce((acc, item) => acc + item.quantity, 0);
@@ -182,7 +218,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
       totalQuantity: calculateTotalPieces(),
     };
 
-    const success = generateBillOfLadingPDF(order, bolData);
+    const success = generateBillOfLadingPDF(order, bolData, false); // Pass false for download mode
 
     if (success) {
       toast({

@@ -107,10 +107,11 @@ export const generateTransportationReceiptPDF = (
 
 export const generateBillOfLadingPDF = (
   order: Order,
-  data: BillOfLadingData
+  data: BillOfLadingData,
+  printMode: boolean = false
 ) => {
   try {
-    exportBillOfLadingToPDF(order, data);
+    exportBillOfLadingToPDF(order, data, printMode);
     return true;
   } catch (error) {
     console.error('Error generating bill of lading PDF:', error);
