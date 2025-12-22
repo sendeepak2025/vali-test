@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSelector } from "react-redux"
+import { useDispatch, useSelector } from "react-redux"
 import { useNavigate } from "react-router-dom"
 import { RootState } from "@/redux/store"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,8 @@ import {
 import { getAllOrderAPI, getUserLatestOrdersAPI, getStatement } from "@/services2/operations/order"
 import { getAllProductAPI } from "@/services2/operations/product"
 import { format } from "date-fns"
+import StorePreOrders from "./StorePreOrders"
+import { logout } from "@/services2/operations/auth";
 
 const StoreDashboardEnhanced = () => {
   const { toast } = useToast()
@@ -42,16 +44,25 @@ const StoreDashboardEnhanced = () => {
   const [orderDetailOpen, setOrderDetailOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
+ const dispatch = useDispatch();
 
+  const handleLogout = () => {
+    dispatch(logout(navigate));
+  };
   // Fetch data
   useEffect(() => {
     const fetchData = async () => {
       if (!user?._id) return
       setLoading(true)
       try {
-        // Fetch orders for this store
+        // Fetch orders for this store - API already filters by store
         const ordersRes = await getAllOrderAPI(token)
-        const storeOrders = ordersRes?.filter((o: any) => o.clientId === user._id || o.store === user._id) || []
+        console.log("Orders response:", ordersRes)
+        
+        // Use the orders directly from API response since it's already filtered
+        const storeOrders = ordersRes?.orders || []
+        console.log("Store orders:", storeOrders)
+        console.log("First order structure:", storeOrders[0])
         setOrders(storeOrders)
 
         // Fetch products
@@ -84,15 +95,23 @@ const StoreDashboardEnhanced = () => {
   const balanceDue = totalSpent - totalPaid
 
   // Recent orders (last 5)
-  const recentOrders = [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5)
+  const recentOrders = [...orders].sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.updatedAt || Date.now())
+    const dateB = new Date(b.createdAt || b.updatedAt || Date.now())
+    return dateB.getTime() - dateA.getTime()
+  }).slice(0, 5)
 
   // Filter orders
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.items?.some((i: any) => i.name?.toLowerCase().includes(searchTerm.toLowerCase()))
+                         order.items?.some((i: any) => i.productName?.toLowerCase().includes(searchTerm.toLowerCase()) || i.name?.toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesStatus = filterStatus === "all" || order.status === filterStatus
     return matchesSearch && matchesStatus
-  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }).sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.updatedAt || Date.now())
+    const dateB = new Date(b.createdAt || b.updatedAt || Date.now())
+    return dateB.getTime() - dateA.getTime()
+  })
 
   // Status badge
   const getStatusBadge = (status: string) => {
@@ -128,32 +147,43 @@ const StoreDashboardEnhanced = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-                <Store className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h1 className="font-bold text-lg">{user?.storeName || "My Store"}</h1>
-                <p className="text-xs text-gray-500">{user?.email}</p>
-              </div>
+       <header className="bg-white border-b sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 py-3">
+        <div className="flex items-center justify-between">
+          {/* Store Info */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+              <Store className="h-5 w-5 text-white" />
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => navigate("/store/mobile")}>
-                <ShoppingCart className="h-4 w-4 mr-1" /> New Order
-              </Button>
-              <Button variant="ghost" size="icon">
-                <Bell className="h-5 w-5" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => navigate("/store/settings")}>
-                <Settings className="h-5 w-5" />
-              </Button>
+            <div>
+              <h1 className="font-bold text-lg">{user?.storeName || "My Store"}</h1>
+              <p className="text-xs text-gray-500">{user?.email}</p>
             </div>
           </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/store/mobile")}
+            >
+              <ShoppingCart className="h-4 w-4 mr-1" /> New Order
+            </Button>
+
+            {/* Logout Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+              title="Logout"
+            >
+              <LogOut className="h-5 w-5 text-red-500" />
+            </Button>
+          </div>
         </div>
-      </header>
+      </div>
+    </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Welcome Banner */}
@@ -248,6 +278,9 @@ const StoreDashboardEnhanced = () => {
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="h-4 w-4" /> Profile
             </TabsTrigger>
+            <TabsTrigger value="preOrder" className="flex items-center gap-2">
+              <User className="h-4 w-4" /> PreOrder
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -280,7 +313,7 @@ const StoreDashboardEnhanced = () => {
                             </div>
                             <div>
                               <p className="font-medium">#{order.orderNumber || order._id?.slice(-6)}</p>
-                              <p className="text-xs text-gray-500">{order.items?.length || 0} items • {format(new Date(order.createdAt), "MMM dd, yyyy")}</p>
+                              <p className="text-xs text-gray-500">{order.items?.length || 0} items • {format(new Date(order.createdAt || order.updatedAt || Date.now()), "MMM dd, yyyy")}</p>
                             </div>
                           </div>
                           <div className="text-right">
@@ -391,7 +424,7 @@ const StoreDashboardEnhanced = () => {
                             </div>
                             <div>
                               <p className="font-semibold">Order #{order.orderNumber || order._id?.slice(-6)}</p>
-                              <p className="text-sm text-gray-500">{format(new Date(order.createdAt), "MMMM dd, yyyy 'at' h:mm a")}</p>
+                              <p className="text-sm text-gray-500">{format(new Date(order.createdAt || order.updatedAt || Date.now()), "MMMM dd, yyyy 'at' h:mm a")}</p>
                             </div>
                           </div>
                           <div className="text-right">
@@ -518,7 +551,7 @@ const StoreDashboardEnhanced = () => {
                           </div>
                           <div>
                             <p className="font-medium">Payment for Order #{order.orderNumber || order._id?.slice(-6)}</p>
-                            <p className="text-sm text-gray-500">{format(new Date(order.updatedAt || order.createdAt), "MMM dd, yyyy")}</p>
+                            <p className="text-sm text-gray-500">{format(new Date(order.updatedAt || order.createdAt || Date.now()), "MMM dd, yyyy")}</p>
                           </div>
                         </div>
                         <span className="font-bold text-green-600">{formatCurrency(order.total || 0)}</span>
@@ -545,7 +578,7 @@ const StoreDashboardEnhanced = () => {
                           </div>
                           <div>
                             <p className="font-medium">Order #{order.orderNumber || order._id?.slice(-6)}</p>
-                            <p className="text-sm text-gray-500">{format(new Date(order.createdAt), "MMM dd, yyyy")}</p>
+                            <p className="text-sm text-gray-500">{format(new Date(order.createdAt || order.updatedAt || Date.now()), "MMM dd, yyyy")}</p>
                           </div>
                         </div>
                         <span className="font-bold text-red-600">{formatCurrency(order.total || 0)}</span>
@@ -649,6 +682,10 @@ const StoreDashboardEnhanced = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
+            <TabsContent value="preOrder" className="space-y-4">
+            <StorePreOrders/>
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -674,7 +711,7 @@ const StoreDashboardEnhanced = () => {
               {/* Date */}
               <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <span className="text-gray-600">Order Date</span>
-                <span className="font-medium">{format(new Date(selectedOrder.createdAt), "MMMM dd, yyyy")}</span>
+                <span className="font-medium">{format(new Date(selectedOrder.createdAt || selectedOrder.updatedAt || Date.now()), "MMMM dd, yyyy")}</span>
               </div>
 
               {/* Items */}
@@ -684,10 +721,10 @@ const StoreDashboardEnhanced = () => {
                   {selectedOrder.items?.map((item: any, idx: number) => (
                     <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <div>
-                        <p className="font-medium text-sm">{item.name || item.productName}</p>
-                        <p className="text-xs text-gray-500">{item.quantity} × {formatCurrency(item.price || item.unitPrice)}</p>
+                        <p className="font-medium text-sm">{item.productName || item.name}</p>
+                        <p className="text-xs text-gray-500">{item.quantity} × {formatCurrency(item.unitPrice || item.price)}</p>
                       </div>
-                      <span className="font-medium">{formatCurrency(item.total || (item.quantity * (item.price || item.unitPrice)))}</span>
+                      <span className="font-medium">{formatCurrency(item.total || (item.quantity * (item.unitPrice || item.price)))}</span>
                     </div>
                   ))}
                 </div>
@@ -707,7 +744,10 @@ const StoreDashboardEnhanced = () => {
                   <p className="text-sm text-gray-500 mb-1">Shipping Address</p>
                   <p className="font-medium">{selectedOrder.shippingAddress.name}</p>
                   <p className="text-sm text-gray-600">{selectedOrder.shippingAddress.address}</p>
-                  <p className="text-sm text-gray-600">{selectedOrder.shippingAddress.city}, {selectedOrder.shippingAddress.state} {selectedOrder.shippingAddress.postalCode}</p>
+                  <p className="text-sm text-gray-600">{selectedOrder.shippingAddress.city}, {selectedOrder.shippingAddress.country} {selectedOrder.shippingAddress.postalCode}</p>
+                  {selectedOrder.shippingAddress.phone && (
+                    <p className="text-sm text-gray-600">Phone: {selectedOrder.shippingAddress.phone}</p>
+                  )}
                 </div>
               )}
             </div>

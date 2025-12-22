@@ -70,6 +70,7 @@ const createPreOrderCtrl = async (req, res) => {
 
 const getAllPreOrdersCtrl = async (req, res) => {
   try {
+    const storeId = req.query.storeId; 
     const search = req.query.search || "";
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -77,17 +78,19 @@ const getAllPreOrdersCtrl = async (req, res) => {
 
     const searchRegex = new RegExp(search, "i");
 
-    // Filter only by preOrderNumber
-    const filter = search
-      ? { preOrderNumber: searchRegex }
-      : {};
+    // Filter by storeId and optional search
+    const filter = {
+      ...(storeId && { store: storeId }),
+      ...(search && { preOrderNumber: searchRegex }),
+    };
 
     const total = await PreOrder.countDocuments(filter);
 
     const preOrders = await PreOrder.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit).populate("store");
+      .limit(limit)
+      .populate("store");
 
     return res.status(200).json({
       success: true,
@@ -107,12 +110,13 @@ const getAllPreOrdersCtrl = async (req, res) => {
 };
 
 
+
 const getSinglePreOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
 
     const order = await PreOrder.findById(id)
-      .populate("store", "storeName ownerName");   // ⬅️ storeName populate
+      .populate("store", "storeName ");   // ⬅️ storeName populate
 
     return res.status(200).json({
       success: true,

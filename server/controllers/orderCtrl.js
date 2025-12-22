@@ -481,47 +481,52 @@ const getAllOrderCtrl = async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
 
-    const matchStage = {};
+    // Step 1: filterStage applies BEFORE $lookup
+    const filterStage = {};
 
-    // Filter by user role
-    if (user.role === "store") {
-      matchStage.store = mongoose.Types.ObjectId(user.id);
+    // Filter by store
+    if (user.role === "store" && mongoose.Types.ObjectId.isValid(user.id)) {
+      filterStage.store = new mongoose.Types.ObjectId(user.id);
     }
 
-    // Only filter by paymentStatus if it's provided and not "all"
+    // Filter by paymentStatus
     if (paymentStatus && paymentStatus !== "all") {
-      matchStage.paymentStatus = paymentStatus;
+      filterStage.paymentStatus = paymentStatus;
     }
 
-    // Filter by orderType - handle "Regural" to include orders without orderType field
+    // Filter by orderType
     if (orderType && orderType !== "Regural") {
-      matchStage.orderType = orderType;
+      filterStage.orderType = orderType;
     } else if (orderType === "Regural") {
-      matchStage.$or = [
+      filterStage.$or = [
         { orderType: "Regural" },
         { orderType: { $exists: false } },
         { orderType: null },
         { orderType: "" },
       ];
     }
-    // If no orderType specified, don't filter by it (show all orders)
 
-    const startDate = req.query.startDate;
-    const endDate = req.query.endDate;
-
-    if (startDate || endDate) {
-      matchStage.createdAt = {};
-      if (startDate) {
-        matchStage.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        matchStage.createdAt.$lte = new Date(endDate + "T23:59:59.999Z");
-      }
+    // Filter by date
+    if (req.query.startDate || req.query.endDate) {
+      filterStage.createdAt = {};
+      if (req.query.startDate) filterStage.createdAt.$gte = new Date(req.query.startDate);
+      if (req.query.endDate) filterStage.createdAt.$lte = new Date(req.query.endDate + "T23:59:59.999Z");
     }
 
-    const searchRegex = new RegExp(search, "i");
+    // Step 2: searchStage applies AFTER $lookup
+    const searchStage = [];
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+      searchStage.push({
+        $or: [
+          { orderNumber: searchRegex },
+          { "store.storeName": searchRegex },
+        ],
+      });
+    }
 
     const aggregateQuery = [
+      { $match: filterStage }, // first filter orders
       {
         $lookup: {
           from: "auths",
@@ -531,19 +536,7 @@ const getAllOrderCtrl = async (req, res) => {
         },
       },
       { $unwind: "$store" },
-      {
-        $match: {
-          ...matchStage,
-          ...(search
-            ? {
-              $or: [
-                { orderNumber: searchRegex },
-                { "store.storeName": searchRegex },
-              ],
-            }
-            : {}),
-        },
-      },
+      ...(searchStage.length ? [{ $match: { $and: searchStage } }] : []), // apply search if exists
       { $sort: { createdAt: -1, orderNumber: -1 } },
       {
         $facet: {
@@ -589,11 +582,10 @@ const getAllOrderCtrl = async (req, res) => {
 
     const result = await orderModel.aggregate(aggregateQuery);
 
-    const orders = result[0].data;
-    const totalOrders = result[0].totalCount[0]?.count || 0;
+    const orders = result[0]?.data || [];
+    const totalOrders = result[0]?.totalCount[0]?.count || 0;
     const totalPages = Math.ceil(totalOrders / limit);
-
-    const summary = result[0].summary[0] || {
+    const summary = result[0]?.summary[0] || {
       totalOrders: 0,
       totalAmount: 0,
       totalReceived: 0,
@@ -602,9 +594,7 @@ const getAllOrderCtrl = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: orders.length
-        ? "Orders fetched successfully!"
-        : "No orders found!",
+      message: orders.length ? "Orders fetched successfully!" : "No orders found!",
       orders,
       totalOrders,
       totalPages,
@@ -620,6 +610,9 @@ const getAllOrderCtrl = async (req, res) => {
     });
   }
 };
+
+
+
 
 const getOrderForStoreCtrl = async (req, res) => {
   try {

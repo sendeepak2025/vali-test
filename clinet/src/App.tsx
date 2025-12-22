@@ -70,6 +70,7 @@ import StoreChequePaymentEnhanced from "./pages/StoreChequePaymentEnhanced";
 import PreOrder from "./pages/PreOrder";
 import UpdatePreOrder from "./pages/UpdatePreOrder";
 import OrderToPOWorkflow from "./pages/OrderToPOWorkflow";
+import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -266,6 +267,14 @@ export default function App() {
           element={
             <PrivateRoute isStore={isStore}>
               <StoreUsers />
+            </PrivateRoute>
+          }
+        />
+         <Route
+          path="/store/pre-order/:id"
+          element={
+            <PrivateRoute>
+              <UpdatePreOrderByStore />
             </PrivateRoute>
           }
         />

@@ -19,7 +19,7 @@ import { RootState } from "@/redux/store"
 import { useNavigate, useLocation } from "react-router-dom"
 import { getSinglePriceAPI } from "@/services2/operations/priceList"
 import { getUserAPI } from "@/services2/operations/auth"
-import { createPreOrderAPI } from "@/services2/operations/preOrder"
+import { createPreOrderAPI, getAllPreOrderAPI } from "@/services2/operations/preOrder"
 import { getUserLatestOrdersAPI } from "@/services2/operations/order"
 import { exportInvoiceToPDF } from "@/utils/pdf"
 import { getAllProductAPI } from "@/services2/operations/product"
@@ -27,7 +27,7 @@ import { getAllProductAPI } from "@/services2/operations/product"
 const DEMO_MODE = false
 const PALLET_SIZE = 48 // boxes per pallet
 
-type Step = "welcome" | "address" | "products" | "checkout" | "complete"
+type Step = "welcome" | "address" | "products" | "preorders" | "checkout" | "complete"
 type QuantityType = { box: number; unit: number }
 
 const StoreOrderMobile = () => {
@@ -58,9 +58,11 @@ const StoreOrderMobile = () => {
   const [storeLoading, setStoreLoading] = useState(false)
   const [priceCategory, setPriceCategory] = useState("pricePerBox")
   const [lastWeekOrder, setLastWeekOrder] = useState<any[]>([])
+  const [userPreOrders, setUserPreOrders] = useState<any[]>([])
+  const [preOrdersLoading, setPreOrdersLoading] = useState(false)
   
-  const [billingAddress, setBillingAddress] = useState({ name: "", email: "", phone: "", address: "", city: "", postalCode: "", state: "" })
-  const [shippingAddress, setShippingAddress] = useState({ name: "", email: "", phone: "", address: "", city: "", postalCode: "", state: "" })
+  const [billingAddress, setBillingAddress] = useState({ name: "", email: "", phone: "", address: "", street: "", city: "", postalCode: "", state: "", country: "USA" })
+  const [shippingAddress, setShippingAddress] = useState({ name: "", email: "", phone: "", address: "", street: "", city: "", postalCode: "", state: "", country: "USA" })
   const [sameAsBilling, setSameAsBilling] = useState(true)
   const isNextWeek = location.pathname.includes('/nextweek')
 
@@ -124,7 +126,17 @@ const StoreOrderMobile = () => {
       
       setStoreInfo(response)
       setPriceCategory(response.priceCategory === "price" ? "pricePerBox" : response.priceCategory)
-      const addr = { name: response.ownerName || response.storeName || "", email: response.email || "", phone: response.phone || "", address: response.address || "", city: response.city || "", postalCode: response.zipCode || "", state: response.state || "" }
+      const addr = { 
+        name: response.ownerName || response.storeName || "", 
+        email: response.email || "", 
+        phone: response.phone || "", 
+        address: response.address || "", 
+        street: response.address || "",
+        city: response.city || "", 
+        postalCode: response.zipCode || "", 
+        state: response.state || "",
+        country: "USA"
+      }
       setBillingAddress(addr); setShippingAddress(addr)
       
       // Fetch last week's order
@@ -144,11 +156,29 @@ const StoreOrderMobile = () => {
           // Don't auto-fill, just store for reference
         }
       } catch (e) { console.log("No recent orders") }
+
+      // Fetch user preorders
+      await fetchUserPreOrders(response._id)
       
       setCurrentStep("address")
       toast({ title: "Welcome!", description: `Hello, ${response.storeName}` })
     } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to find store." }) }
     finally { setStoreLoading(false) }
+  }
+
+  // Fetch user preorders
+  const fetchUserPreOrders = async (userId: string) => {
+    setPreOrdersLoading(true)
+    try {
+      const queryParams = `clientId=${userId}&confirmed=false`
+      const response = await getAllPreOrderAPI(token, queryParams)
+      setUserPreOrders(response?.preOrders || [])
+    } catch (error) {
+      console.error("Error fetching preorders:", error)
+      setUserPreOrders([])
+    } finally {
+      setPreOrdersLoading(false)
+    }
   }
 
   // Categories
@@ -319,16 +349,24 @@ const StoreOrderMobile = () => {
   // Step Indicator
   const StepIndicator = () => (
     <div className="flex items-center justify-center gap-2 py-3 bg-white border-b">
-      {[{ step: "welcome", label: "Store", icon: Store }, { step: "address", label: "Address", icon: MapPin }, { step: "products", label: "Products", icon: Package }].map((item, idx) => {
+      {[
+        { step: "welcome", label: "Store", icon: Store }, 
+        { step: "address", label: "Address", icon: MapPin }, 
+        { step: "preorders", label: "Pre-Orders", icon: Clock },
+        { step: "products", label: "Products", icon: Package }
+      ].map((item, idx) => {
         const Icon = item.icon
         const isActive = currentStep === item.step
-        const isComplete = (item.step === "welcome" && ["address", "products", "checkout", "complete"].includes(currentStep)) || (item.step === "address" && ["products", "checkout", "complete"].includes(currentStep)) || (item.step === "products" && ["checkout", "complete"].includes(currentStep))
+        const isComplete = (item.step === "welcome" && ["address", "preorders", "products", "checkout", "complete"].includes(currentStep)) || 
+                          (item.step === "address" && ["preorders", "products", "checkout", "complete"].includes(currentStep)) || 
+                          (item.step === "preorders" && ["products", "checkout", "complete"].includes(currentStep)) ||
+                          (item.step === "products" && ["checkout", "complete"].includes(currentStep))
         return (
           <div key={item.step} className="flex items-center">
             <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${isActive ? "bg-blue-600 text-white" : isComplete ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
               {isComplete ? <CheckCircle2 className="h-3 w-3" /> : <Icon className="h-3 w-3" />}<span>{item.label}</span>
             </div>
-            {idx < 2 && <ArrowRight className="h-3 w-3 mx-1 text-gray-300" />}
+            {idx < 3 && <ArrowRight className="h-3 w-3 mx-1 text-gray-300" />}
           </div>
         )
       })}
@@ -443,7 +481,7 @@ const StoreOrderMobile = () => {
                 <Input placeholder="Phone" value={billingAddress.phone} onChange={(e) => setBillingAddress(prev => ({ ...prev, phone: e.target.value }))} />
                 <Input placeholder="Email" value={billingAddress.email} onChange={(e) => setBillingAddress(prev => ({ ...prev, email: e.target.value }))} />
               </div>
-              <Input placeholder="Street Address" value={billingAddress.address} onChange={(e) => setBillingAddress(prev => ({ ...prev, address: e.target.value }))} />
+              <Input placeholder="Street Address" value={billingAddress.address} onChange={(e) => setBillingAddress(prev => ({ ...prev, address: e.target.value, street: e.target.value }))} />
               <div className="grid grid-cols-3 gap-2">
                 <Input placeholder="City" value={billingAddress.city} onChange={(e) => setBillingAddress(prev => ({ ...prev, city: e.target.value }))} />
                 <Input placeholder="State" value={billingAddress.state} onChange={(e) => setBillingAddress(prev => ({ ...prev, state: e.target.value }))} />
@@ -461,7 +499,7 @@ const StoreOrderMobile = () => {
               <div className="space-y-3">
                 <Input placeholder="Name" value={shippingAddress.name} onChange={(e) => setShippingAddress(prev => ({ ...prev, name: e.target.value }))} />
                 <Input placeholder="Phone" value={shippingAddress.phone} onChange={(e) => setShippingAddress(prev => ({ ...prev, phone: e.target.value }))} />
-                <Input placeholder="Street Address" value={shippingAddress.address} onChange={(e) => setShippingAddress(prev => ({ ...prev, address: e.target.value }))} />
+                <Input placeholder="Street Address" value={shippingAddress.address} onChange={(e) => setShippingAddress(prev => ({ ...prev, address: e.target.value, street: e.target.value }))} />
                 <div className="grid grid-cols-3 gap-2">
                   <Input placeholder="City" value={shippingAddress.city} onChange={(e) => setShippingAddress(prev => ({ ...prev, city: e.target.value }))} />
                   <Input placeholder="State" value={shippingAddress.state} onChange={(e) => setShippingAddress(prev => ({ ...prev, state: e.target.value }))} />
@@ -473,12 +511,128 @@ const StoreOrderMobile = () => {
 
           <div className="flex gap-3">
             <Button variant="outline" className="flex-1 py-6" onClick={() => { setCurrentStep("welcome"); setStoreInfo(null) }}>Back</Button>
-            <Button className="flex-1 py-6 text-lg" onClick={() => setCurrentStep("products")}>Continue <ArrowRight className="h-5 w-5 ml-2" /></Button>
+            <Button className="flex-1 py-6 text-lg" onClick={() => setCurrentStep("preorders")}>Continue <ArrowRight className="h-5 w-5 ml-2" /></Button>
           </div>
         </div>
       </div>
     )
   }
+
+  // STEP: Pre-Orders
+  if (currentStep === "preorders") {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <StepIndicator />
+      <div className="p-4 max-w-7xl mx-auto grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+
+        {/* Header */}
+        <div className="text-center mb-6 col-span-full">
+          <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Clock className="h-8 w-8 text-orange-600" />
+          </div>
+          <h2 className="text-xl font-bold">Your Pre-Orders</h2>
+          <p className="text-gray-600 text-sm">Pending pre-orders for {storeInfo?.storeName}</p>
+        </div>
+
+        {/* Loading or Empty State */}
+        {preOrdersLoading ? (
+          <div className="text-center py-8 col-span-full">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600 mb-3" />
+            <p className="text-gray-600">Loading pre-orders...</p>
+          </div>
+        ) : userPreOrders.length === 0 ? (
+          <Card className="shadow-lg col-span-full">
+            <CardContent className="p-6 text-center">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Package className="h-8 w-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No Pre-Orders Found</h3>
+              <p className="text-gray-600 text-sm mb-4">You don't have any pending pre-orders at the moment.</p>
+              <Button className="w-full" onClick={() => setCurrentStep("products")}>
+                <Plus className="h-4 w-4 mr-2" /> Create New Order
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          // Pre-orders list
+          userPreOrders.map((preOrder: any) => (
+            <Card key={preOrder._id} className="shadow-lg border-l-4 border-l-orange-400">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-semibold text-sm">
+                      Pre-Order #{preOrder.preOrderNumber || preOrder._id?.slice(-6)}
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      {new Date(preOrder.createdAt || preOrder.date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                    <Clock className="h-3 w-3 mr-1" /> Pending
+                  </Badge>
+                </div>
+
+                <div className="space-y-2 mb-3">
+                  <div className="text-xs text-gray-600">
+                    <strong>Items:</strong> {preOrder.items?.length || 0} products
+                  </div>
+                  {preOrder.items?.slice(0, 2).map((item: any, idx: number) => (
+                    <div key={idx} className="text-xs bg-gray-50 rounded p-2">
+                      <span className="font-medium">{item.quantity} {item.pricingType}</span>
+                      <span className="text-gray-600"> - {item.name || item.productName}</span>
+                    </div>
+                  ))}
+                  {preOrder.items?.length > 2 && (
+                    <div className="text-xs text-gray-500 text-center">
+                      +{preOrder.items.length - 2} more items
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <div className="text-sm">
+                    <span className="text-gray-600">Total: </span>
+                    <span className="font-bold text-orange-600">
+                      ${preOrder.total?.toFixed(2) || '0.00'}
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(`/store/pre-order/${preOrder._id}`)}
+                    className="text-xs"
+                  >
+                    <Edit2 className="h-3 w-3 mr-1" /> View/Edit
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex gap-3 col-span-full">
+          <Button
+            variant="outline"
+            className="flex-1 py-6"
+            onClick={() => setCurrentStep("address")}
+          >
+            Back
+          </Button>
+          <Button
+            className="flex-1 py-6 text-lg"
+            onClick={() => setCurrentStep("products")}
+          >
+            {userPreOrders.length > 0 ? "New Order" : "Continue"}
+            <ArrowRight className="h-5 w-5 ml-2" />
+          </Button>
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
 
   // STEP: Products
   return (
@@ -490,7 +644,7 @@ const StoreOrderMobile = () => {
         <div className="p-3">
           <div className="flex items-center justify-between mb-2">
             <div><h1 className="font-bold text-lg">{isNextWeek ? "Next Week Order" : "Select Products"}</h1><p className="text-xs text-gray-500">{storeInfo?.storeName}</p></div>
-            <Button variant="outline" size="sm" onClick={() => setCurrentStep("address")}><Edit2 className="h-3 w-3 mr-1" /> Address</Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentStep("preorders")}><Clock className="h-3 w-3 mr-1" /> Pre-Orders</Button>
           </div>
           
           {/* View Toggle: All vs Last Week */}
@@ -545,79 +699,115 @@ const StoreOrderMobile = () => {
         )}
 
         {/* Products Grid */}
-        <div className="space-y-3">
-          {filteredProducts.map((product: any) => {
-            const qty = quantities[product.id] || { box: 0, unit: 0 }
-            const boxPrice = product.pricePerBox || 0
-            const unitPrice = product.pricePerUnit || product.price || 0
-            const isLastWeek = lastWeekProductIds.has(product.id)
-            const lastWeekItem = lastWeekOrder.find((item: any) => (item.productId || item.product) === product.id)
-            const hasQty = qty.box > 0 || qty.unit > 0
-            
-            return (
-              <Card key={product.id} className={`overflow-hidden transition-all ${hasQty ? "ring-2 ring-blue-500 shadow-md" : ""} ${isLastWeek ? "border-l-4 border-l-amber-400" : ""}`}>
-                <CardContent className="p-0">
-                  <div className="flex">
-                    {/* Product Image */}
-                    <div className="w-20 h-full min-h-[120px] bg-gradient-to-br from-gray-100 to-gray-200 flex-shrink-0 flex items-center justify-center relative">
-                      {product.image ? <img src={product.image} alt={product.name} className="w-full h-full object-cover" loading="lazy" /> : <Package className="h-8 w-8 text-gray-400" />}
-                      {isLastWeek && (
-                        <div className="absolute top-1 left-1">
-                          <Badge className="bg-amber-500 text-white text-[10px] px-1 py-0"><History className="h-2.5 w-2.5 mr-0.5" />Last</Badge>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Product Info */}
-                    <div className="flex-1 p-2">
-                      <div className="flex items-start justify-between mb-1">
-                        <div>
-                          <h3 className="font-medium text-sm leading-tight">{product.name}</h3>
-                          <p className="text-xs text-gray-500">{product.category}</p>
-                        </div>
-                      </div>
-                      
-                      {/* Last Week Info */}
-                      {isLastWeek && lastWeekItem && (
-                        <div className="text-xs text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 inline-block mb-1">
-                          Last: {lastWeekItem.quantity} {lastWeekItem.pricingType || "box"}
-                        </div>
-                      )}
-                      
-                      {/* Box Quantity */}
-                      <div className="flex items-center justify-between mb-1.5 bg-gray-50 rounded-lg p-1.5">
-                        <div className="flex items-center gap-1">
-                          <Box className="h-4 w-4 text-blue-600" />
-                          <span className="text-xs font-medium">Box</span>
-                          {!isNextWeek && <span className="text-xs text-blue-600 font-bold">{formatCurrency(boxPrice)}</span>}
-                        </div>
-                        <div className="flex items-center bg-white border rounded-full">
-                          <button onClick={() => updateBoxQuantity(product.id, -1)} className="w-7 h-7 flex items-center justify-center text-blue-600"><Minus className="h-3 w-3" /></button>
-                          <input type="number" value={qty.box} onChange={(e) => setBoxQuantity(product.id, parseInt(e.target.value) || 0)} className="w-10 text-center text-sm font-bold focus:outline-none" />
-                          <button onClick={() => updateBoxQuantity(product.id, 1)} className="w-7 h-7 flex items-center justify-center text-blue-600"><Plus className="h-3 w-3" /></button>
-                        </div>
-                      </div>
-                      
-                      {/* Unit Quantity */}
-                      <div className="flex items-center justify-between bg-gray-50 rounded-lg p-1.5">
-                        <div className="flex items-center gap-1">
-                          <Scale className="h-4 w-4 text-green-600" />
-                          <span className="text-xs font-medium">{product.unit || "Unit"}</span>
-                          {!isNextWeek && <span className="text-xs text-green-600 font-bold">{formatCurrency(unitPrice)}</span>}
-                        </div>
-                        <div className="flex items-center bg-white border rounded-full">
-                          <button onClick={() => updateUnitQuantity(product.id, -1)} className="w-7 h-7 flex items-center justify-center text-green-600"><Minus className="h-3 w-3" /></button>
-                          <input type="number" value={qty.unit} onChange={(e) => setUnitQuantity(product.id, parseInt(e.target.value) || 0)} className="w-10 text-center text-sm font-bold focus:outline-none" />
-                          <button onClick={() => updateUnitQuantity(product.id, 1)} className="w-7 h-7 flex items-center justify-center text-green-600"><Plus className="h-3 w-3" /></button>
-                        </div>
-                      </div>
-                    </div>
+       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  {filteredProducts.map((product: any) => {
+    const qty = quantities[product.id] || { box: 0, unit: 0 }
+    const boxPrice = product.pricePerBox || 0
+    const unitPrice = product.pricePerUnit || product.price || 0
+    const isLastWeek = lastWeekProductIds.has(product.id)
+    const lastWeekItem = lastWeekOrder.find((item: any) => (item.productId || item.product) === product.id)
+    const hasQty = qty.box > 0 || qty.unit > 0
+
+    return (
+      <Card
+        key={product.id}
+        className={`overflow-hidden transition-all rounded-lg shadow-md hover:shadow-lg border ${
+          hasQty ? "ring-2 ring-blue-500" : "border-gray-200"
+        } ${isLastWeek ? "border-l-4 border-l-amber-400" : ""}`}
+      >
+        <CardContent className="p-3">
+          <div className="flex gap-3">
+            {/* Product Image */}
+            <div className="w-24 h-24 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center relative overflow-hidden">
+              {product.image ? (
+                <img src={product.image} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
+              ) : (
+                <Package className="h-8 w-8 text-gray-400" />
+              )}
+              {isLastWeek && lastWeekItem && (
+                <Badge className="absolute top-1 left-1 bg-amber-500 text-white text-[10px] px-1 py-0.5 flex items-center gap-0.5">
+                  <History className="h-2.5 w-2.5" /> Last
+                </Badge>
+              )}
+            </div>
+
+            {/* Product Info */}
+            <div className="flex-1 flex flex-col justify-between">
+              <div>
+                <h3 className="text-sm font-semibold">{product.name}</h3>
+                <p className="text-xs text-gray-500">{product.category}</p>
+                {isLastWeek && lastWeekItem && (
+                  <div className="text-xs text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 inline-block mt-1">
+                    Last: {lastWeekItem.quantity} {lastWeekItem.pricingType || "box"}
                   </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
+                )}
+              </div>
+
+              {/* Box Quantity */}
+              <div className="flex items-center justify-between mt-2 bg-gray-50 rounded-lg p-2">
+                <div className="flex items-center gap-1">
+                  <Box className="h-4 w-4 text-blue-600" />
+                  <span className="text-xs font-medium">Box</span>
+                  {!isNextWeek && <span className="text-xs text-blue-600 font-bold">{formatCurrency(boxPrice)}</span>}
+                </div>
+                <div className="flex items-center bg-white border rounded-full overflow-hidden">
+                  <button
+                    onClick={() => updateBoxQuantity(product.id, -1)}
+                    className="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <input
+                    type="number"
+                    value={qty.box}
+                    onChange={(e) => setBoxQuantity(product.id, parseInt(e.target.value) || 0)}
+                    className="w-10 text-center text-sm font-bold focus:outline-none"
+                  />
+                  <button
+                    onClick={() => updateBoxQuantity(product.id, 1)}
+                    className="w-7 h-7 flex items-center justify-center text-blue-600 hover:bg-blue-50"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Unit Quantity */}
+              <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg p-2">
+                <div className="flex items-center gap-1">
+                  <Scale className="h-4 w-4 text-green-600" />
+                  <span className="text-xs font-medium">{product.unit || "Unit"}</span>
+                  {!isNextWeek && <span className="text-xs text-green-600 font-bold">{formatCurrency(unitPrice)}</span>}
+                </div>
+                <div className="flex items-center bg-white border rounded-full overflow-hidden">
+                  <button
+                    onClick={() => updateUnitQuantity(product.id, -1)}
+                    className="w-7 h-7 flex items-center justify-center text-green-600 hover:bg-green-50"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <input
+                    type="number"
+                    value={qty.unit}
+                    onChange={(e) => setUnitQuantity(product.id, parseInt(e.target.value) || 0)}
+                    className="w-10 text-center text-sm font-bold focus:outline-none"
+                  />
+                  <button
+                    onClick={() => updateUnitQuantity(product.id, 1)}
+                    className="w-7 h-7 flex items-center justify-center text-green-600 hover:bg-green-50"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  })}
+</div>
+
         
         {filteredProducts.length === 0 && (
           <div className="text-center py-12 text-gray-500">

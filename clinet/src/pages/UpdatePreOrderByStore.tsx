@@ -110,7 +110,7 @@ interface Order {
   clientId: string;
 }
 
-const UpdatePreOrder = () => {
+const UpdatePreOrderByStore = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -389,7 +389,7 @@ const UpdatePreOrder = () => {
         title: "Pre-Order Updated",
         description: `Pre-Order ${order?.orderId || id} has been updated successfully`,
       });
-      navigate("/admin/pre-orders");
+      navigate("/store/dashboard");
     } catch (error) {
       console.error("Error updating pre-order:", error);
       toast({ title: "Error", description: "Failed to update pre-order", variant: "destructive" });
@@ -459,7 +459,7 @@ const UpdatePreOrder = () => {
   };
 
   const handleCancel = () => {
-    navigate("/admin/pre-orders");
+    navigate("/store/dashboard");
   };
 
   if (loading) {
@@ -513,9 +513,7 @@ const UpdatePreOrder = () => {
 
   return (
     <div className="flex overflow-hidden">
-      <Sidebar isOpen={isSidebarOpen} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isSidebarOpen={isSidebarOpen} />
         
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <div className="max-w-6xl mx-auto p-4 md:p-6">
@@ -848,72 +846,69 @@ const UpdatePreOrder = () => {
 
               {/* Right Column - Order Summary */}
               <div className="space-y-4">
-                {/* Order Summary Card */}
-                <Card className="sticky top-4">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Pre-Order Summary
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Order Settings */}
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-sm font-medium">Status</label>
-                        <Select value={orderStatus} onValueChange={setOrderStatus}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="confirmed">Confirmed</SelectItem>
-                            <SelectItem value="processing">Processing</SelectItem>
-                            <SelectItem value="ready">Ready</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="cancelled">Cancelled</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div>
-                        <label className="text-sm font-medium">Pre-Order Date</label>
-                        <Input 
-                          type="date" 
-                          value={orderDate}
-                          onChange={(e) => setOrderDate(e.target.value)}
-                        />
-                      </div>
+  {/* Order Summary Card */}
+  <Card className="sticky top-4">
+    <CardHeader className="pb-3">
+      <CardTitle className="text-base flex items-center gap-2">
+        <FileText className="h-4 w-4" />
+        Pre-Order Summary
+      </CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      {/* Order Settings */}
+      <div className="space-y-3">
+        <div>
+          <label className="text-sm font-medium">Status</label>
+          <Select value={orderStatus} onValueChange={setOrderStatus} disabled>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="ready">Ready</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-                      <div>
-                        <label className="text-sm font-medium">Pre-Order ID</label>
-                        <Input 
-                          value={order.preOrderNumber}
-                          disabled
-                          className="bg-gray-50"
-                        />
-                      </div>
-                    </div>
+        <div>
+          <label className="text-sm font-medium">Pre-Order Date</label>
+          <Input 
+            type="date" 
+            value={orderDate}
+            disabled
+            className="bg-gray-50 cursor-not-allowed"
+          />
+        </div>
 
-                    {/* Totals */}
-                    <div className="border-t pt-4 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal ({orderItems.length} items)</span>
-                        <span>${subtotal.toFixed(2)}</span>
-                      </div>
-                      {/* <div className="flex justify-between text-sm">
-                        <span>Shipping</span>
-                        <span>${shippingCost.toFixed(2)}</span>
-                      </div> */}
-                      <div className="flex justify-between font-bold text-lg border-t pt-2">
-                        <span>Total</span>
-                        <span className="text-orange-600">${total.toFixed(2)}</span>
-                      </div>
-                    </div>
+        <div>
+          <label className="text-sm font-medium">Pre-Order ID</label>
+          <Input 
+            value={order.preOrderNumber}
+            disabled
+            className="bg-gray-50 cursor-not-allowed"
+          />
+        </div>
+      </div>
 
-                    {/* Action Buttons */}
-                    <div className="space-y-2">
-                      <Button 
+      {/* Totals */}
+      <div className="border-t pt-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span>Subtotal ({orderItems.length} items)</span>
+          <span>${subtotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between font-bold text-lg border-t pt-2">
+          <span>Total</span>
+          <span className="text-orange-600">${total.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="space-y-2">
+       <Button 
                         className="w-full bg-orange-600 hover:bg-orange-700" 
                         size="lg"
                         onClick={handleSubmit}
@@ -932,52 +927,26 @@ const UpdatePreOrder = () => {
                         )}
                       </Button>
 
-                      <Button 
-                        className="w-full bg-green-600 hover:bg-green-700 text-white" 
-                        size="lg"
-                        onClick={handleConfirmPreOrder}
-                        disabled={submitting || confirming || orderItems.length === 0}
-                      >
-                        {confirming ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Confirming...
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 mr-2" />
-                            Confirm Pre-Order
-                          </>
-                        )}
-                      </Button>
+       
 
-                      <Button 
-                        variant="outline" 
-                        className="w-full"
-                        onClick={handleCancel}
-                        disabled={submitting || confirming}
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Cancel
-                      </Button>
-                    </div>
+        <Button variant="outline" className="w-full" >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Cancel
+        </Button>
+      </div>
 
-                    {orderItems.length === 0 && (
-                      <div className="text-xs text-center text-muted-foreground">
-                        <p>• Add at least one product to update</p>
-                      </div>
-                    )}
+      {/* Tips & info remain unchanged */}
+      {orderItems.length === 0 && (
+        <div className="text-xs text-center text-muted-foreground">
+          <p>• Add at least one product to update</p>
+        </div>
+      )}
 
-                    {orderItems.length > 0 && (
-                      <div className="text-xs text-center text-muted-foreground space-y-1">
-                        <p className="font-medium">💡 Tip:</p>
-                        <p>• <strong>Update Pre-Order:</strong> Save changes to pre-order</p>
-                        <p>• <strong>Confirm Pre-Order:</strong> Convert to regular order</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+      
+    </CardContent>
+  </Card>
+</div>
+
             </div>
           </div>
         </main>
@@ -1152,4 +1121,4 @@ const UpdatePreOrder = () => {
   );
 };
 
-export default UpdatePreOrder;
+export default UpdatePreOrderByStore;
