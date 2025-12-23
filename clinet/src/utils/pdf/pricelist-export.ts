@@ -193,9 +193,12 @@ export const exportPriceListToPDF = (
    bodyData.push(
   ...products.map((product) => [
     {
-      content: `${product.shortCode || ""} ${product.name.toUpperCase()}`,
-      styles: { fontStyle: "bold" },
-    },
+  content: `${product?.shortCode 
+      ? `#${product.shortCode} - ` 
+      : ""}${product.name.toUpperCase()}`,
+  styles: { fontStyle: "bold" },
+},
+
     {
       content: `${formatCurrencyValue(
         product[price as keyof PriceListProduct] as number
