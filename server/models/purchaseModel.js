@@ -120,6 +120,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   purchaseOrderNumber: { type: String, required: true, unique: true },
   purchaseDate: { type: Date, required: true },
   deliveryDate: { type: Date },
+  dueDate: { type: Date }, // Payment due date based on vendor payment terms
   notes: { type: String },
 
   paymentAmount: {
@@ -134,6 +135,15 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: paymentDetailsSchema,
 
   },
+  // Credit/Debit adjustments applied to this order
+  creditAdjustments: [{
+    creditMemoId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorCreditMemo' },
+    amount: { type: Number },
+    appliedAt: { type: Date, default: Date.now },
+    appliedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'auth' },
+    notes: { type: String }
+  }],
+  totalCreditApplied: { type: Number, default: 0 },
   status: { type: String, default: "quality-check" },
   totalAmount: { type: Number },
   items: [purchaseItemSchema],

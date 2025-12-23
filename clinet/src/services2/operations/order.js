@@ -22,7 +22,10 @@ const { CREATE_PRODUCT,
     HARD_DELETE_ORDER,
     UPDATE_ORDER_QUANTITY,
     ASSIGN_PRODUCT_TO_STORE,
-    GET_USER_LATEST_ORDERS
+    GET_USER_LATEST_ORDERS,
+    GET_ORDER_MATRIX,
+    UPDATE_ORDER_MATRIX_ITEM,
+    UPDATE_PREORDER_MATRIX_ITEM
 } = order
 
 
@@ -94,6 +97,14 @@ export const createOrderAPI = async (formData, token) => {
     }
 
     // --- Success ---
+    // Emit event for order creation
+    try {
+        const { emitOrderCreated } = await import("@/utils/orderEvents");
+        emitOrderCreated(data.newOrder);
+    } catch (e) {
+        console.log("Order event emission skipped");
+    }
+    
     toast.success(data.message);
     return data.newOrder || false;
 
@@ -361,6 +372,13 @@ export const updateOrderAPI = async (formData, token,id) => {
             throw new Error(response?.data?.message || "Something went wrong!");
         }
 
+        // Emit event for order update
+        try {
+            const { emitOrderUpdated } = await import("@/utils/orderEvents");
+            emitOrderUpdated(response?.data);
+        } catch (e) {
+            console.log("Order event emission skipped");
+        }
 
         toast.success(response?.data?.message);
 
@@ -649,5 +667,106 @@ export const getUserLatestOrdersAPI = async (storeId, limit = 5) => {
       purchasedProductIds: [],
       message: error?.response?.data?.message || error?.message || "Failed to fetch latest orders"
     };
+  }
+};
+
+
+// Get Order Matrix Data - Store wise product orders with previous purchase history
+export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, limit = 50, search = "") => {
+  try {
+    const params = new URLSearchParams({
+      weekOffset: weekOffset.toString(),
+      page: page.toString(),
+      limit: limit.toString(),
+    });
+    if (search) {
+      params.append("search", search);
+    }
+
+    const response = await apiConnector(
+      "GET",
+      `${GET_ORDER_MATRIX}?${params.toString()}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to fetch order matrix data");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("getOrderMatrixDataAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to fetch order matrix data");
+    return {
+      success: false,
+      data: {
+        matrix: [],
+        stores: [],
+        weekRange: null,
+        pagination: {
+          currentPage: 1,
+          totalPages: 1,
+          totalProducts: 0,
+          limit: 50,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      }
+    };
+  }
+};
+
+// Update or Create Order Item in Matrix
+export const updateOrderMatrixItemAPI = async (formData, token) => {
+  try {
+    const response = await apiConnector(
+      "POST",
+      UPDATE_ORDER_MATRIX_ITEM,
+      formData,
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to update order matrix item");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("updateOrderMatrixItemAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to update order matrix item");
+    return null;
+  }
+};
+
+
+// Update or Create PreOrder Item in Matrix (PREORDER Mode)
+export const updatePreOrderMatrixItemAPI = async (formData, token) => {
+  try {
+    const response = await apiConnector(
+      "POST",
+      UPDATE_PREORDER_MATRIX_ITEM,
+      formData,
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to update preorder matrix item");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("updatePreOrderMatrixItemAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to update preorder matrix item");
+    return null;
   }
 };

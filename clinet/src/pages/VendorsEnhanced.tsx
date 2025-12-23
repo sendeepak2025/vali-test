@@ -322,7 +322,8 @@ const VendorManagementContent = () => {
   const fetchVendors = async () => {
     setVendorLoading(true)
     try {
-      const data = await getAllVendorsAPI()
+      const data = await getAllVendorsAPI();
+      // console.log(data, "all vendors")
       setVendors(data || [])
     } catch (error) {
       console.error("Error fetching vendors:", error)
@@ -454,6 +455,7 @@ const VendorManagementContent = () => {
       if (disputeVendorFilter !== "all") params.vendorId = disputeVendorFilter
       if (disputeSearch) params.search = disputeSearch
       const data = await getAllVendorDisputesAPI(params, token)
+      console.log(data, "disputed data")
       setDisputes(data?.disputes || [])
     } catch (error) {
       console.error("Error fetching disputes:", error)
@@ -628,16 +630,21 @@ const VendorManagementContent = () => {
       totalSpent: data.totalSpent,
       balanceDue: data.balanceDue,
       totalPay: data.totalPay,
+      totalCreditApplied: data.totalCreditApplied || 0,
+      paymentTerms: data.paymentTerms,
       orders: data.purchaseOrders?.map((order: any) => ({
         _id: order._id,
         purchaseOrderNumber: order.purchaseOrderNumber,
         purchaseDate: order.purchaseDate,
         deliveryDate: order.deliveryDate,
+        dueDate: order.dueDate,
         totalAmount: order.totalAmount,
         total: order.totalAmount,
         paymentStatus: order.paymentStatus,
         paymentDetails: order.paymentDetails,
         paymentAmount: order.paymentAmount,
+        totalCreditApplied: order.totalCreditApplied || 0,
+        creditAdjustments: order.creditAdjustments || [],
         notes: order.notes,
         status: order.status,
         createdAt: order.createdAt,
@@ -1504,11 +1511,11 @@ const VendorManagementContent = () => {
           </TabsTrigger>
           <TabsTrigger value="purchases" className="flex items-center gap-2">
             <Package className="h-4 w-4" />
-            Purchases ({purchaseOrders.length})
+            Purchase Orders ({purchaseOrders.length})
           </TabsTrigger>
           <TabsTrigger value="invoices" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
-            Invoices
+            Vendor Bills
           </TabsTrigger>
           <TabsTrigger value="payments" className="flex items-center gap-2">
             <Banknote className="h-4 w-4" />
@@ -1516,7 +1523,7 @@ const VendorManagementContent = () => {
           </TabsTrigger>
           <TabsTrigger value="credits" className="flex items-center gap-2">
             <Scale className="h-4 w-4" />
-            Credits
+            Vendor Credits
           </TabsTrigger>
           <TabsTrigger value="disputes" className="flex items-center gap-2">
             <MessageSquareWarning className="h-4 w-4" />
@@ -1533,9 +1540,9 @@ const VendorManagementContent = () => {
           {/* Main KPI Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatsCard
-              title="Total Invoiced"
+              title="Total Billed"
               value={formatCurrency(dashboardData?.invoices?.totalAmount || 0)}
-              subtitle={`${dashboardData?.invoices?.totalInvoices || 0} invoices`}
+              subtitle={`${dashboardData?.invoices?.totalInvoices || 0} vendor bills`}
               icon={Receipt}
               color="blue"
               clickable
@@ -2071,9 +2078,9 @@ const VendorManagementContent = () => {
           </Card>
         </TabsContent>
 
-        {/* Invoices Tab */}
+        {/* Vendor Bills Tab */}
         <TabsContent value="invoices" className="space-y-4">
-          {/* Invoice Stats */}
+          {/* Bill Stats */}
           {(() => {
             const overdueInvoices = invoices.filter(inv => 
               inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== 'paid'
@@ -2085,23 +2092,23 @@ const VendorManagementContent = () => {
             return (
               <div className="grid gap-4 md:grid-cols-4">
                 <StatsCard
-                  title="Total Invoices"
+                  title="Total Bills"
                   value={invoices.length}
-                  subtitle="All invoices"
+                  subtitle="All vendor bills"
                   icon={Receipt}
                   color="blue"
                 />
                 <StatsCard
                   title="Pending Payment"
                   value={formatCurrency(pendingAmount)}
-                  subtitle={`${pendingInvoices.length} invoices`}
+                  subtitle={`${pendingInvoices.length} bills`}
                   icon={Clock}
                   color="yellow"
                 />
                 <StatsCard
                   title="Overdue"
                   value={formatCurrency(overdueAmount)}
-                  subtitle={`${overdueInvoices.length} invoices overdue`}
+                  subtitle={`${overdueInvoices.length} bills overdue`}
                   icon={AlertTriangle}
                   color={overdueInvoices.length > 0 ? "red" : "green"}
                 />
@@ -2122,7 +2129,7 @@ const VendorManagementContent = () => {
                 <div className="relative w-full sm:max-w-xs">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search invoices..."
+                    placeholder="Search vendor bills..."
                     value={invoiceSearch}
                     onChange={(e) => setInvoiceSearch(e.target.value)}
                     className="pl-9"
@@ -2159,7 +2166,7 @@ const VendorManagementContent = () => {
                   </Button>
                   <Button onClick={openInvoiceCreateModal}>
                     <Plus className="h-4 w-4 mr-2" />
-                    New Invoice
+                    New Bill
                   </Button>
                 </div>
               </div>
@@ -2168,7 +2175,7 @@ const VendorManagementContent = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Bill #</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Due Date</TableHead>
@@ -2182,7 +2189,7 @@ const VendorManagementContent = () => {
                   {filteredInvoices.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        No invoices found
+                        No vendor bills found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -2433,7 +2440,7 @@ const VendorManagementContent = () => {
           </Card>
         </TabsContent>
 
-        {/* Credit Memos Tab */}
+        {/* Vendor Credits Tab */}
         <TabsContent value="credits" className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
@@ -2441,7 +2448,7 @@ const VendorManagementContent = () => {
                 <div className="relative w-full sm:max-w-xs">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search credit memos..."
+                    placeholder="Search vendor credits..."
                     value={creditMemoSearch}
                     onChange={(e) => setCreditMemoSearch(e.target.value)}
                     className="pl-9"
@@ -2488,7 +2495,7 @@ const VendorManagementContent = () => {
                   </Button>
                   <Button onClick={openCreditMemoCreateModal}>
                     <Plus className="h-4 w-4 mr-2" />
-                    New Memo
+                    New Credit
                   </Button>
                 </div>
               </div>
@@ -2497,7 +2504,7 @@ const VendorManagementContent = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Memo #</TableHead>
+                    <TableHead>Credit #</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead>Reason</TableHead>
@@ -2512,7 +2519,7 @@ const VendorManagementContent = () => {
                   {filteredCreditMemos.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                        No credit memos found
+                        No vendor credits found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -2729,19 +2736,23 @@ const VendorManagementContent = () => {
                       filteredDisputes.map((dispute) => (
                         <TableRow key={dispute._id} className="cursor-pointer hover:bg-muted/50" onClick={() => openDisputeDetailModal(dispute)}>
                           <TableCell className="font-medium">{dispute.disputeNumber}</TableCell>
-                          <TableCell>{dispute.vendorId?.name || "N/A"}</TableCell>
+                          <TableCell>{dispute.vendor?.name || "N/A"}</TableCell>
                           <TableCell>{getDisputeTypeBadge(dispute.type)}</TableCell>
                           <TableCell>{getDisputeStatusBadge(dispute.status)}</TableCell>
                           <TableCell>
                             <div className="flex flex-col gap-1 text-xs">
-                              {dispute.linkedPurchaseOrder && (
-                                <span className="text-muted-foreground">PO: {dispute.linkedPurchaseOrder?.purchaseOrderNumber || dispute.linkedPurchaseOrder}</span>
-                              )}
+                              <span className="text-muted-foreground">
+   {dispute?.linkedPurchaseOrder
+        ? (dispute.linkedPurchaseOrder?.purchaseOrderNumber ||
+           dispute.linkedPurchaseOrder)
+        : "None"}
+</span>
+
                               {dispute.linkedInvoice && (
                                 <span className="text-muted-foreground">INV: {dispute.linkedInvoice?.invoiceNumber || dispute.linkedInvoice}</span>
                               )}
                               {!dispute.linkedPurchaseOrder && !dispute.linkedInvoice && (
-                                <span className="text-muted-foreground">-</span>
+                                <span className="text-muted-foreground"></span>
                               )}
                             </div>
                           </TableCell>
@@ -4580,7 +4591,7 @@ const VendorManagementContent = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
                   <p className="text-sm text-muted-foreground">Vendor</p>
-                  <p className="font-medium">{selectedDispute.vendorId?.name || "N/A"}</p>
+                  <p className="font-medium">{selectedDispute.vendor?.name || "N/A"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -4653,9 +4664,7 @@ const VendorManagementContent = () => {
                           <span className="text-xs font-medium capitalize">
                             {comm.direction === 'internal' ? 'Internal Note' : comm.direction === 'outgoing' ? 'Sent to Vendor' : 'From Vendor'}
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(comm.timestamp || comm.createdAt).toLocaleString()}
-                          </span>
+                          
                         </div>
                         <p className="text-sm">{comm.message}</p>
                       </div>

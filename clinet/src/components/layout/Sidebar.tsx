@@ -76,11 +76,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       path: "/admin/pre-orders",
       icon: <ShoppingCart size={18} />,
     },
-    {
-      name: "CRM",
-      path: "/admin/crm",
-      icon: <Briefcase size={18} />,
-    },
+    // {
+    //   name: "CRM",
+    //   path: "/admin/crm",
+    //   icon: <Briefcase size={18} />,
+    // },
     {
       name: "Vendors",
       path: "/vendors",

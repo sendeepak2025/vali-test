@@ -107,6 +107,10 @@ export const order = {
   UPDATE_ORDER_QUANTITY : BASE_URL + "/order/update-quantity", 
   GET_USER_LATEST_ORDERS: BASE_URL + "/order/latest", // append /:storeId when using
 
+  // Order Matrix APIs
+  GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
+  UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
+  UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",
 
 }
 export const crm = {
@@ -165,6 +169,11 @@ export const purchaseOrder = {
   UPDATE_PURCHASE_QAULITY_ORDER: BASE_URL + "/purchase-orders/update-quality", // append /:id when using
   DELETE_PURCHASE_ORDER: BASE_URL + "/purchase-orders/delete", // append /:id when using
   PAYMENT_PURCHASE_ORDER: BASE_URL + "/purchase-orders/update-payment", // append /:id when using
+  // Accounting
+  APPLY_CREDIT: BASE_URL + "/purchase-orders/apply-credit", // append /:purchaseOrderId
+  GET_ACCOUNTING_DETAILS: BASE_URL + "/purchase-orders/accounting", // append /:purchaseOrderId
+  GET_VENDOR_ACCOUNTING: BASE_URL + "/purchase-orders/vendor-accounting", // append /:vendorId
+  UPDATE_DUE_DATE: BASE_URL + "/purchase-orders/due-date", // append /:purchaseOrderId
 };
 
 

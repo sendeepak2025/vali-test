@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,20 +18,13 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import {
   PriceListTemplate,
-  PriceListProduct,
   InvoiceData,
 } from "@/components/inventory/forms/formTypes";
 import { formatCurrency } from "@/utils/formatters";
-import { Check, FileText, Loader2, ShoppingCart } from "lucide-react";
+import { Check, FileText, Loader2, ShoppingCart, Search, Plus, Minus, X, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { exportInvoiceToPDF } from "@/utils/pdf";
 import { getAllStoresAPI } from "@/services2/operations/auth";
@@ -39,10 +32,10 @@ import Select2 from "react-select";
 import { createOrderAPI } from "@/services2/operations/order";
 import { RootState } from "@/redux/store";
 import { useSelector } from "react-redux";
-import { OrderItem } from "@/types";
 import { getUserAPI } from "@/services2/operations/auth";
 import AddressForm from "@/components/AddressFields";
 import { getAllProductAPI } from "@/services2/operations/product"
+import { emitOrderCreated } from "@/utils/orderEvents";
 
 interface CreateOrderModalProps {
   isOpen: boolean;
@@ -74,7 +67,10 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
   const [products, setProducts] = useState([])
 
-  const [storeDetails, setStoreDetails] = useState("");
+  // Search and filter state
+  const [productSearch, setProductSearch] = useState("");
+  const [showOnlySelected, setShowOnlySelected] = useState(false);
+
   const [storeLoading, setStoreLoading] = useState(false);
   const [shippingAddress, setShippingAddress] = useState({
     name: "",
@@ -180,9 +176,31 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
 
 
   const handleQuantityChange = (productId, value) => {
+    const newValue = parseInt(value) || 0;
     setQuantities((prev) => ({
       ...prev,
-      [productId]: parseInt(value) || 0,
+      [productId]: Math.max(0, newValue),
+    }));
+  };
+
+  const incrementQuantity = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: (prev[productId] || 0) + 1,
+    }));
+  };
+
+  const decrementQuantity = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: Math.max(0, (prev[productId] || 0) - 1),
+    }));
+  };
+
+  const removeProduct = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: 0,
     }));
   };
   
@@ -192,6 +210,34 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
       [productId]: value,
     }));
   };
+
+  // Filter products based on search and selection
+  const filteredProducts = useMemo(() => {
+    if (!template?.products) return [];
+    
+    let filtered = template.products;
+    
+    // Filter by search
+    if (productSearch.trim()) {
+      const search = productSearch.toLowerCase();
+      filtered = filtered.filter(p => 
+        p.name?.toLowerCase().includes(search) ||
+        p.category?.toLowerCase().includes(search)
+      );
+    }
+    
+    // Filter to show only selected
+    if (showOnlySelected) {
+      filtered = filtered.filter(p => (quantities[p.id] || 0) > 0);
+    }
+    
+    return filtered;
+  }, [template?.products, productSearch, showOnlySelected, quantities]);
+
+  // Count selected products
+  const selectedCount = useMemo(() => {
+    return Object.values(quantities).filter(q => q > 0).length;
+  }, [quantities]);
 
   const calculateSubtotal = () => {
     if (!template) return 0;
@@ -310,6 +356,11 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
 
     const orderRes = await createOrderAPI(order, token)
 
+    // Emit event so Order Matrix and other components can refresh
+    if (orderRes) {
+      emitOrderCreated(orderRes);
+    }
+
     setOrderDetails(order)
     setOrderConfirmed(true)
 
@@ -347,6 +398,8 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
   const handleClose = () => {
     setSelectedStore({ label: "", value: "" });
     setQuantities({});
+    setProductSearch("");
+    setShowOnlySelected(false);
     setOrderConfirmed(false);
     setOrderDetails(null);
     onClose();
@@ -448,91 +501,178 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                 )}
               </div>
 
-              <div className="border rounded-md overflow-hidden">
+              {/* Product Search and Filter Bar */}
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between bg-gray-50 p-3 rounded-lg border">
+                <div className="relative flex-1 w-full sm:max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search products..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="pl-9 bg-white"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={showOnlySelected ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowOnlySelected(!showOnlySelected)}
+                    className="gap-2"
+                  >
+                    <Package className="h-4 w-4" />
+                    Selected ({selectedCount})
+                  </Button>
+                  {selectedCount > 0 && (
+                    <Badge variant="secondary" className="bg-green-100 text-green-700">
+                      {formatCurrency(calculateSubtotal())}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="border rounded-md overflow-hidden max-h-[400px] overflow-y-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-white z-10">
                     <TableRow>
-                      <TableHead className="w-[300px]">Product</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Price</TableHead>
-                      <TableHead className="w-[150px] text-center">
-                        Quantity
-                      </TableHead>
-                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="w-[280px]">Product</TableHead>
+                      <TableHead className="hidden sm:table-cell">Category</TableHead>
+                      <TableHead className="text-right w-[120px]">Price</TableHead>
+                      <TableHead className="w-[180px] text-center">Quantity</TableHead>
+                      <TableHead className="text-right w-[100px]">Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                        {template?.products.map((product) => {
-                          const quantity = quantities[product.id] || 0;
-                          const selectedType = priceType[product.id] || "box"; // default to box
-                          const price = selectedType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
+                    {filteredProducts.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          {productSearch ? "No products match your search" : "No products selected"}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredProducts.map((product) => {
+                        const quantity = quantities[product.id] || 0;
+                        const selectedType = priceType[product.id] || "box";
+                        const price = selectedType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
+                        const total = price * quantity;
+                        const isSelected = quantity > 0;
 
-                          const total = price * quantity;
-
-                          return (
-                            <TableRow key={product.id}>
-                              <TableCell className="font-medium">
-                                <div className="flex items-center gap-2 sm:gap-4">
-                                  <img
-                                    src={product.image || "/placeholder.svg"}
-                                    alt=""
-                                    className="h-10 sm:h-14 w-auto object-contain"
-                                    loading="lazy"
-                                  />
-                                  <span className="text-xs sm:text-sm">{product.name}</span>
+                        return (
+                          <TableRow key={product.id} className={isSelected ? "bg-green-50/50" : ""}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2 sm:gap-3">
+                                <img
+                                  src={product.image || "/placeholder.svg"}
+                                  alt=""
+                                  className="h-10 w-10 object-contain rounded"
+                                  loading="lazy"
+                                />
+                                <div>
+                                  <span className="text-xs sm:text-sm font-medium block">{product.name}</span>
+                                  <span className="text-xs text-muted-foreground sm:hidden">{product.category}</span>
                                 </div>
-                              </TableCell>
+                              </div>
+                            </TableCell>
 
-                              <TableCell className="hidden sm:table-cell">{product.category}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                              {product.category}
+                            </TableCell>
 
-                              <TableCell className="text-right text-xs sm:text-sm">
-                                <div className="flex flex-col items-end gap-1">
-                                  <select
-                                    value={selectedType}
-                                    onChange={(e) => handlePriceTypeChange(product.id, e.target.value)}
-                                    className="text-xs border rounded px-2 py-1"
-                                  >
-                                    <option value="unit">Per Unit</option>
-                                    <option value="box">Per Box</option>
-                                  </select>
-                                  <span>{formatCurrency(price)}</span>
-                                </div>
-                              </TableCell>
+                            <TableCell className="text-right text-xs sm:text-sm">
+                              <div className="flex flex-col items-end gap-1">
+                                <select
+                                  value={selectedType}
+                                  onChange={(e) => handlePriceTypeChange(product.id, e.target.value)}
+                                  className="text-xs border rounded px-2 py-1 bg-white"
+                                >
+                                  <option value="unit">Per LB</option>
+                                  <option value="box">Per Box</option>
+                                </select>
+                                <span className="font-medium">{formatCurrency(price)}</span>
+                              </div>
+                            </TableCell>
 
-                              <TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => decrementQuantity(product.id)}
+                                  disabled={quantity === 0}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
                                 <Input
                                   type="number"
                                   min="0"
                                   value={quantity || ""}
                                   onChange={(e) => handleQuantityChange(product.id, e.target.value)}
-                                  className="w-16 sm:w-20 mx-auto text-center"
+                                  className="w-14 text-center h-8 px-1"
                                 />
-                              </TableCell>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => incrementQuantity(product.id)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                                {isSelected && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    onClick={() => removeProduct(product.id)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
 
-                              <TableCell className="text-right font-medium text-xs sm:text-sm">
-                                {formatCurrency(total)}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
+                            <TableCell className="text-right font-medium text-xs sm:text-sm">
+                              {isSelected ? (
+                                <span className="text-green-600 font-semibold">{formatCurrency(total)}</span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
                 </Table>
               </div>
 
-              <div className="flex flex-col sm:flex-row justify-end px-3 sm:px-6 py-3 sm:py-4 bg-muted border-t">
-                  <div className="w-full sm:max-w-xl">
-                    <div className="grid grid-cols-3 gap-2 font-medium text-muted-foreground text-xs sm:text-sm mb-1">
-                      <div className="text-center">Subtotal</div>
-                      <div className="text-center">Shipping Cost</div>
-                      <div className="text-center">Total</div>
+              {/* Order Summary - Sticky at bottom */}
+              <div className="flex flex-col sm:flex-row justify-between items-center px-3 sm:px-6 py-3 sm:py-4 bg-muted rounded-lg border">
+                <div className="flex items-center gap-4 mb-2 sm:mb-0">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">{selectedCount} items</span>
+                  </div>
+                </div>
+                <div className="w-full sm:w-auto">
+                  <div className="grid grid-cols-3 gap-4 sm:gap-8">
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Subtotal</div>
+                      <div className="font-semibold">{formatCurrency(calculateSubtotal())}</div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 font-bold text-sm sm:text-lg">
-                      <div className="text-center">{formatCurrency(calculateSubtotal())}</div>
-                      <div className="text-center">{formatCurrency(calculateShipping())}</div>
-                      <div className="text-center text-green-600">{formatCurrency(calculateTotal())}</div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Shipping</div>
+                      <div className="font-semibold">{formatCurrency(calculateShipping())}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Total</div>
+                      <div className="font-bold text-lg text-green-600">{formatCurrency(calculateTotal())}</div>
                     </div>
                   </div>
                 </div>
+              </div>
             </div>
 
             <DialogFooter>
@@ -544,9 +684,10 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                 disabled={
                   !selectedStore || isSubmitting || calculateTotal() === 0
                 }
+                className="gap-2"
               >
-                <ShoppingCart className="mr-2 h-4 w-4" />
-                Create Order
+                <ShoppingCart className="h-4 w-4" />
+                Create Order ({selectedCount} items)
               </Button>
             </DialogFooter>
           </>

@@ -183,3 +183,100 @@ export const updatePurchaseOrderPaymentAPI = async (formData, token, id) => {
       toast.dismiss(toastId);
     }
   };
+
+
+// ==================== ACCOUNTING FUNCTIONS ====================
+
+// Apply Credit to Purchase Order
+export const applyCreditToPurchaseOrderAPI = async (purchaseOrderId, data, token) => {
+  const toastId = toast.loading("Applying credit...");
+  try {
+    const response = await apiConnector(
+      "POST",
+      `${purchaseOrder.APPLY_CREDIT}/${purchaseOrderId}`,
+      data,
+      { Authorization: `Bearer ${token}` }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    toast.success(response?.data?.message || "Credit applied successfully!");
+    return response?.data;
+  } catch (error) {
+    console.error("APPLY Credit API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to apply credit!");
+    return null;
+  } finally {
+    toast.dismiss(toastId);
+  }
+};
+
+// Get Purchase Order Accounting Details
+export const getPurchaseOrderAccountingAPI = async (purchaseOrderId, token) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${purchaseOrder.GET_ACCOUNTING_DETAILS}/${purchaseOrderId}`,
+      null,
+      { Authorization: `Bearer ${token}` }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.data;
+  } catch (error) {
+    console.error("GET Accounting Details API ERROR:", error);
+    return null;
+  }
+};
+
+// Get Vendor Accounting Summary
+export const getVendorAccountingSummaryAPI = async (vendorId, token) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${purchaseOrder.GET_VENDOR_ACCOUNTING}/${vendorId}`,
+      null,
+      { Authorization: `Bearer ${token}` }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.data;
+  } catch (error) {
+    console.error("GET Vendor Accounting API ERROR:", error);
+    return null;
+  }
+};
+
+// Update Purchase Order Due Date
+export const updatePurchaseOrderDueDateAPI = async (purchaseOrderId, dueDate, token) => {
+  const toastId = toast.loading("Updating due date...");
+  try {
+    const response = await apiConnector(
+      "PUT",
+      `${purchaseOrder.UPDATE_DUE_DATE}/${purchaseOrderId}`,
+      { dueDate },
+      { Authorization: `Bearer ${token}` }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    toast.success("Due date updated successfully!");
+    return response?.data;
+  } catch (error) {
+    console.error("UPDATE Due Date API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to update due date!");
+    return null;
+  } finally {
+    toast.dismiss(toastId);
+  }
+};

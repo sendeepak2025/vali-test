@@ -104,7 +104,8 @@ const PriceListTemplate: React.FC<PriceListTemplateProps> = ({
   };
 
   const sendMulti = async () => {
-    const url = `http://valiproduce.shop/store/template?templateId=${template.id}`;
+    // const url = `http://valiproduce.shop/store/template?templateId=${template.id}`;
+    const url = `http://valiproduce.shop/store/mobile`;
     console.log(url);
     await priceListEmailMulti({ url, selectedStore }, token);
   };
@@ -252,7 +253,8 @@ const PriceListTemplate: React.FC<PriceListTemplateProps> = ({
           <div className="flex gap-2">
             <button 
               onClick={() => {
-                const url = `http://valiproduce.shop/store/template?templateId=${template.id}`;
+                // const url = `http://valiproduce.shop/store/template?templateId=${template.id}`;
+                const url = `http://valiproduce.shop/store/mobile`;
                 navigator.clipboard.writeText(url);
                 toast({
                   title: "URL Copied!",
@@ -265,7 +267,7 @@ const PriceListTemplate: React.FC<PriceListTemplateProps> = ({
               Copy URL
             </button>
             
-            <button 
+            {/* <button 
               onClick={() => {
                 const url = `http://valiproduce.shop/store/nextweek?templateId=${template.id}`;
                 navigator.clipboard.writeText(url);
@@ -278,7 +280,7 @@ const PriceListTemplate: React.FC<PriceListTemplateProps> = ({
             >
               <Copy className="h-4 w-4 inline mr-1" />
               Copy Next Week URL
-            </button>
+            </button> */}
           </div>
         </div>
 

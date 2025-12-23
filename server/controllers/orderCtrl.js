@@ -8,6 +8,7 @@ const nodemailer = require("nodemailer");
 const { exportInvoiceToPDFBackend } = require("../templates/exportInvoice");
 const Counter = require("../models/counterModel");
 const Product = require("../models/productModel");
+const PreOrderModel = require("../models/preOrderModel");
 const { validateOrderItems } = require("../utils/orderValidation");
 const { calculatePalletsNeeded } = require("../utils/palletCalculator");
 const notificationService = require("../services/notificationService");
@@ -2778,6 +2779,668 @@ const getEnhancedDashboardData = async (req, res) => {
   }
 };
 
+// Get Order Matrix Data - Store wise product orders with previous purchase history
+const getOrderMatrixDataCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0, page = 1, limit = 50, search = "" } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+    const currentPage = parseInt(page) || 1;
+    const pageLimit = Math.min(parseInt(limit) || 50, 100); // Max 100 products per page
+    const skip = (currentPage - 1) * pageLimit;
+
+    // Calculate week range
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // Previous week for comparison
+    const prevMonday = new Date(monday);
+    prevMonday.setDate(prevMonday.getDate() - 7);
+    const prevSunday = new Date(sunday);
+    prevSunday.setDate(prevSunday.getDate() - 7);
+
+    // Get all orders for current week
+    const currentWeekOrders = await orderModel.find({
+      createdAt: { $gte: monday, $lte: sunday },
+      isDelete: { $ne: true }
+    }).populate("store", "storeName ownerName city state").lean();
+
+    // Get all orders for previous week
+    const previousWeekOrders = await orderModel.find({
+      createdAt: { $gte: prevMonday, $lte: prevSunday },
+      isDelete: { $ne: true }
+    }).lean();
+
+    // Get all PreOrders (pending ones that are not confirmed yet)
+    const preOrders = await PreOrderModel.find({
+      confirmed: { $ne: true },
+      isDelete: { $ne: true },
+      status: "pending"
+    }).populate("store", "storeName ownerName city state").lean();
+
+    // Build product query with search
+    const productQuery = {};
+    if (search) {
+      productQuery.name = { $regex: search, $options: "i" };
+    }
+
+    // Get total count for pagination
+    const totalProducts = await Product.countDocuments(productQuery);
+    const totalPages = Math.ceil(totalProducts / pageLimit);
+
+    // Get paginated products
+    const products = await Product.find(productQuery)
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(pageLimit)
+      .lean();
+
+    // Get all stores (ALL stores, not just approved)
+    const stores = await authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus").lean();
+
+    // Build matrix data
+    const matrixData = {};
+
+    // Initialize matrix with paginated products
+    products.forEach(product => {
+      matrixData[product._id.toString()] = {
+        productId: product._id.toString(),
+        productName: product.name,
+        image: product.image,
+        pricePerBox: product.pricePerBox || 0,
+        storeOrders: {},
+        preOrderTotal: 0,
+        orderTotal: 0,
+        pendingReqTotal: 0
+      };
+    });
+
+    // Fill current week orders FIRST
+    currentWeekOrders.forEach(order => {
+      const storeId = order.store?._id?.toString() || order.store?.toString();
+      if (!storeId) return;
+
+      order.items.forEach((item, itemIndex) => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = {
+            currentQty: 0,
+            previousQty: 0,
+            preOrderQty: 0,
+            pendingReq: 0,
+            preOrderId: null,
+            orderId: null,
+            itemIndex: -1,
+            pricingType: item.pricingType || "box",
+            isPreOrderFulfilled: false
+          };
+        }
+
+        matrixData[productId].storeOrders[storeId].currentQty += item.quantity || 0;
+        matrixData[productId].storeOrders[storeId].orderId = order._id.toString();
+        matrixData[productId].storeOrders[storeId].itemIndex = itemIndex;
+        matrixData[productId].orderTotal += item.quantity || 0;
+      });
+    });
+
+    // Fill previous week orders for comparison
+    previousWeekOrders.forEach(order => {
+      const storeId = order.store?.toString();
+      if (!storeId) return;
+
+      order.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = {
+            currentQty: 0,
+            previousQty: 0,
+            preOrderQty: 0,
+            pendingReq: 0,
+            preOrderId: null,
+            orderId: null,
+            itemIndex: -1,
+            pricingType: item.pricingType || "box",
+            isPreOrderFulfilled: false
+          };
+        }
+
+        matrixData[productId].storeOrders[storeId].previousQty += item.quantity || 0;
+      });
+    });
+
+    // Fill PreOrder data and calculate pending requirements
+    preOrders.forEach(preOrder => {
+      const storeId = preOrder.store?._id?.toString() || preOrder.store?.toString();
+      if (!storeId) return;
+
+      preOrder.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = {
+            currentQty: 0,
+            previousQty: 0,
+            preOrderQty: 0,
+            pendingReq: 0,
+            preOrderId: null,
+            orderId: null,
+            itemIndex: -1,
+            pricingType: item.pricingType || "box",
+            isPreOrderFulfilled: false
+          };
+        }
+
+        const preOrderQty = item.quantity || 0;
+        const currentQty = matrixData[productId].storeOrders[storeId].currentQty || 0;
+        const pendingReq = Math.max(0, preOrderQty - currentQty);
+
+        matrixData[productId].storeOrders[storeId].preOrderQty += preOrderQty;
+        matrixData[productId].storeOrders[storeId].pendingReq = pendingReq;
+        matrixData[productId].storeOrders[storeId].preOrderId = preOrder._id.toString();
+        matrixData[productId].storeOrders[storeId].isPreOrderFulfilled = currentQty >= preOrderQty;
+
+        matrixData[productId].preOrderTotal += preOrderQty;
+        matrixData[productId].pendingReqTotal += pendingReq;
+      });
+    });
+
+    // Calculate stock for each product (week-wise)
+    const isWithinRange = (date) => new Date(date) >= monday && new Date(date) <= sunday;
+
+    for (const productId in matrixData) {
+      const product = products.find(p => p._id.toString() === productId);
+      if (!product) continue;
+
+      const filteredPurchase = (product.purchaseHistory || []).filter(p => isWithinRange(p.date));
+      const filteredSell = (product.salesHistory || []).filter(s => isWithinRange(s.date));
+      const filteredTrash = (product.quantityTrash || []).filter(t => isWithinRange(t.date));
+
+      const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
+      const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
+      const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
+
+      const totalRemaining = Math.max(totalPurchase - totalSell - trashBox + (product.manuallyAddBox?.quantity || 0), 0);
+
+      matrixData[productId].totalStock = totalRemaining;
+      matrixData[productId].totalPurchase = totalPurchase;
+    }
+
+    // Convert to array format
+    const matrixArray = Object.values(matrixData);
+    res.status(200).json({
+      success: true,
+      message: "Order matrix data fetched successfully",
+      data: {
+        matrix: matrixArray,
+        stores: stores,
+        weekRange: {
+          start: monday.toISOString(),
+          end: sunday.toISOString(),
+          label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        },
+        previousWeekRange: {
+          start: prevMonday.toISOString(),
+          end: prevSunday.toISOString()
+        },
+        preOrdersCount: preOrders.length,
+        pagination: {
+          currentPage,
+          totalPages,
+          totalProducts,
+          limit: pageLimit,
+          hasNextPage: currentPage < totalPages,
+          hasPrevPage: currentPage > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching order matrix data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching order matrix data",
+      error: error.message
+    });
+  }
+};
+
+// Update or Create Order Item in Matrix - Smart PreOrder Integration
+const updateOrderMatrixItemCtrl = async (req, res) => {
+  try {
+    const { productId, storeId, quantity, weekOffset = 0 } = req.body;
+
+    if (!productId || !storeId || quantity == null) {
+      return res.status(400).json({ success: false, message: "productId, storeId, and quantity are required" });
+    }
+
+    const requestedQty = Math.max(0, parseInt(quantity) || 0);
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+
+    const store = await authModel.findById(storeId);
+    if (!store) return res.status(404).json({ success: false, message: "Store not found" });
+
+    // STEP 1: Check for existing PreOrder for this store with this product
+    const existingPreOrder = await PreOrderModel.findOne({
+      store: storeId,
+      confirmed: { $ne: true },
+      isDelete: { $ne: true },
+      status: "pending",
+      "items.productId": productId
+    });
+
+    // STEP 2: Find existing order for this store in the current week
+    let order = await orderModel.findOne({
+      store: storeId,
+      createdAt: { $gte: monday, $lte: sunday },
+      isDelete: { $ne: true }
+    }).sort({ createdAt: -1 });
+
+    // If quantity is 0, remove the item from order
+    if (requestedQty === 0) {
+      if (order) {
+        const itemIndex = order.items.findIndex(item => item.productId?.toString() === productId);
+        if (itemIndex !== -1) {
+          const removedItem = order.items[itemIndex];
+          order.items.splice(itemIndex, 1);
+          order.total = Math.max(0, order.total - ((removedItem.unitPrice || 0) * (removedItem.quantity || 0)));
+          order.markModified("items");
+          await order.save();
+
+          // Rebuild product history
+          await resetAndRebuildHistoryForSingleProduct(productId);
+        }
+      }
+      return res.status(200).json({
+        success: true,
+        message: "Item removed from order",
+        order,
+        preOrderHandled: false
+      });
+    }
+
+    // Create new item object
+    const newItem = {
+      productId: product._id.toString(),
+      productName: product.name,
+      quantity: requestedQty,
+      unitPrice: product.pricePerBox || 0,
+      shippinCost: product.shippinCost || 0,
+      pricingType: "box",
+    };
+
+    let preOrderHandled = false;
+    let preOrderId = null;
+
+    // STEP 3: Handle PreOrder if exists
+    if (existingPreOrder) {
+      const preOrderItem = existingPreOrder.items.find(item => item.productId?.toString() === productId);
+      
+      if (preOrderItem) {
+        // Update PreOrder item quantity to match
+        preOrderItem.quantity = requestedQty;
+        existingPreOrder.markModified("items");
+        
+        // Recalculate PreOrder total
+        existingPreOrder.total = existingPreOrder.items.reduce((sum, item) => {
+          return sum + ((item.unitPrice || 0) * (item.quantity || 0));
+        }, 0);
+        
+        // Check if all items in PreOrder are now in Order
+        // If this is the only item or all items are processed, mark as confirmed
+        const allItemsProcessed = existingPreOrder.items.every(item => {
+          if (item.productId?.toString() === productId) return true;
+          // Check if this item exists in the order
+          if (order) {
+            return order.items.some(orderItem => orderItem.productId?.toString() === item.productId?.toString());
+          }
+          return false;
+        });
+
+        if (allItemsProcessed) {
+          existingPreOrder.confirmed = true;
+          existingPreOrder.status = "completed";
+        }
+        
+        await existingPreOrder.save();
+        preOrderHandled = true;
+        preOrderId = existingPreOrder._id;
+      }
+    }
+
+    // STEP 4: Create or Update Order
+    if (!order) {
+      // Create new order linked to PreOrder if exists
+      const newOrder = new orderModel({
+        orderNumber: await getNextOrderNumber(),
+        items: [newItem],
+        store: storeId,
+        status: "Processing",
+        preOrder: preOrderId, // Link to PreOrder
+        shippingAddress: {
+          name: store.storeName || store.name || "",
+          phone: store.phone || "",
+          address: store.address || "",
+          city: store.city || "",
+          country: "USA",
+        },
+        billingAddress: {
+          name: store.storeName || store.name || "",
+          phone: store.phone || "",
+          address: store.address || "",
+          city: store.city || "",
+          country: "USA",
+        },
+        total: (newItem.unitPrice * requestedQty) + (newItem.shippinCost || 0),
+        orderType: "Regural",
+        shippinCost: store.shippingCost || 0,
+      });
+
+      // Update product sales history
+      const saleDate = new Date();
+      const lastUpdated = product.updatedFromOrders?.[product.updatedFromOrders.length - 1];
+      let avgUnitsPerBox = 0;
+      let estimatedUnitsUsed = 0;
+
+      if (lastUpdated && lastUpdated.perLb && lastUpdated.newQuantity) {
+        avgUnitsPerBox = lastUpdated.perLb;
+        estimatedUnitsUsed = avgUnitsPerBox * requestedQty;
+      }
+
+      product.lbSellHistory.push({ date: saleDate, weight: estimatedUnitsUsed, lb: "box" });
+      product.salesHistory.push({ date: saleDate, quantity: requestedQty });
+      product.totalSell = (product.totalSell || 0) + requestedQty;
+      product.remaining = Math.max(0, product.remaining - requestedQty);
+      product.unitRemaining = Math.max(0, product.unitRemaining - estimatedUnitsUsed);
+
+      await product.save();
+      await newOrder.save();
+
+      // Update PreOrder with orderId reference
+      if (existingPreOrder && preOrderHandled) {
+        existingPreOrder.orderId = newOrder._id;
+        await existingPreOrder.save();
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: preOrderHandled ? "PreOrder converted to Order" : "New order created",
+        order: newOrder,
+        preOrderHandled,
+        preOrderId
+      });
+    }
+
+    // Order exists - check if product already in order
+    const existingItemIndex = order.items.findIndex(item => item.productId?.toString() === productId);
+
+    if (existingItemIndex !== -1) {
+      // Update existing item quantity
+      const oldQty = order.items[existingItemIndex].quantity || 0;
+      const qtyDiff = requestedQty - oldQty;
+
+      order.items[existingItemIndex].quantity = requestedQty;
+      order.total = order.total + (newItem.unitPrice * qtyDiff);
+      
+      // Link to PreOrder if not already linked
+      if (preOrderId && !order.preOrder) {
+        order.preOrder = preOrderId;
+      }
+      
+      order.markModified("items");
+      await order.save();
+
+      // Rebuild product history
+      await resetAndRebuildHistoryForSingleProduct(productId);
+
+      // Update PreOrder with orderId reference
+      if (existingPreOrder && preOrderHandled && !existingPreOrder.orderId) {
+        existingPreOrder.orderId = order._id;
+        await existingPreOrder.save();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: preOrderHandled ? "PreOrder quantity updated in Order" : "Order item quantity updated",
+        order,
+        updatedItem: order.items[existingItemIndex],
+        preOrderHandled,
+        preOrderId
+      });
+    } else {
+      // Add new item to existing order
+      order.items.push(newItem);
+      order.total = order.total + (newItem.unitPrice * requestedQty);
+      
+      // Link to PreOrder if not already linked
+      if (preOrderId && !order.preOrder) {
+        order.preOrder = preOrderId;
+      }
+      
+      order.markModified("items");
+      await order.save();
+
+      // Update product sales history
+      const saleDate = new Date();
+      const lastUpdated = product.updatedFromOrders?.[product.updatedFromOrders.length - 1];
+      let avgUnitsPerBox = 0;
+      let estimatedUnitsUsed = 0;
+
+      if (lastUpdated && lastUpdated.perLb && lastUpdated.newQuantity) {
+        avgUnitsPerBox = lastUpdated.perLb;
+        estimatedUnitsUsed = avgUnitsPerBox * requestedQty;
+      }
+
+      product.lbSellHistory.push({ date: saleDate, weight: estimatedUnitsUsed, lb: "box" });
+      product.salesHistory.push({ date: saleDate, quantity: requestedQty });
+      product.totalSell = (product.totalSell || 0) + requestedQty;
+      product.remaining = Math.max(0, product.remaining - requestedQty);
+      product.unitRemaining = Math.max(0, product.unitRemaining - estimatedUnitsUsed);
+
+      await product.save();
+
+      // Update PreOrder with orderId reference
+      if (existingPreOrder && preOrderHandled && !existingPreOrder.orderId) {
+        existingPreOrder.orderId = order._id;
+        await existingPreOrder.save();
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: preOrderHandled ? "PreOrder item added to Order" : "New item added to existing order",
+        order,
+        preOrderHandled,
+        preOrderId
+      });
+    }
+
+  } catch (error) {
+    console.error("Error updating order matrix item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating order matrix item",
+      error: error.message
+    });
+  }
+};
+
+// Get next PreOrder number
+const getNextPreOrderNumber = async () => {
+  const counter = await Counter.findByIdAndUpdate(
+    { _id: "preorder" },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+  const paddedSeq = String(counter.seq).padStart(5, "0");
+  return `PRE-${paddedSeq}`;
+};
+
+// Create or Update PreOrder from Matrix (PREORDER Mode)
+const updatePreOrderMatrixItemCtrl = async (req, res) => {
+  try {
+    const { productId, storeId, quantity, weekOffset = 0 } = req.body;
+
+    if (!productId || !storeId || quantity == null) {
+      return res.status(400).json({ success: false, message: "productId, storeId, and quantity are required" });
+    }
+
+    const requestedQty = Math.max(0, parseInt(quantity) || 0);
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the target week
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
+
+    const store = await authModel.findById(storeId);
+    if (!store) return res.status(404).json({ success: false, message: "Store not found" });
+
+    // Find existing PreOrder for this store in the target week
+    let preOrder = await PreOrderModel.findOne({
+      store: storeId,
+      createdAt: { $gte: monday, $lte: sunday },
+      isDelete: { $ne: true },
+      confirmed: { $ne: true }
+    }).sort({ createdAt: -1 });
+
+    // Create new item object
+    const newItem = {
+      productId: product._id.toString(),
+      productName: product.name,
+      quantity: requestedQty,
+      unitPrice: product.pricePerBox || 0,
+      shippinCost: product.shippinCost || 0,
+      pricingType: "box",
+    };
+
+    // If quantity is 0, remove the item from preorder
+    if (requestedQty === 0) {
+      if (preOrder) {
+        const itemIndex = preOrder.items.findIndex(item => item.productId?.toString() === productId);
+        if (itemIndex !== -1) {
+          const removedItem = preOrder.items[itemIndex];
+          preOrder.items.splice(itemIndex, 1);
+          preOrder.total = Math.max(0, preOrder.total - ((removedItem.unitPrice || 0) * (removedItem.quantity || 0)));
+          preOrder.markModified("items");
+          
+          // If no items left, mark as deleted
+          if (preOrder.items.length === 0) {
+            preOrder.isDelete = true;
+          }
+          
+          await preOrder.save();
+        }
+      }
+      return res.status(200).json({
+        success: true,
+        message: "Item removed from PreOrder",
+        preOrder,
+        mode: "preorder"
+      });
+    }
+
+    // Create new PreOrder if doesn't exist
+    if (!preOrder) {
+      const newPreOrder = new PreOrderModel({
+        preOrderNumber: await getNextPreOrderNumber(),
+        items: [newItem],
+        store: storeId,
+        status: "pending",
+        orderType: "PreOrder",
+        shippingAddress: {
+          name: store.storeName || store.name || "",
+          phone: store.phone || "",
+          address: store.address || "",
+          city: store.city || "",
+          country: "USA",
+        },
+        billingAddress: {
+          name: store.storeName || store.name || "",
+          phone: store.phone || "",
+          address: store.address || "",
+          city: store.city || "",
+          country: "USA",
+        },
+        total: (newItem.unitPrice * requestedQty),
+        shippinCost: store.shippingCost || 0,
+        expectedDeliveryDate: sunday, // Expected delivery by end of target week
+      });
+
+      await newPreOrder.save();
+
+      return res.status(201).json({
+        success: true,
+        message: "New PreOrder created",
+        preOrder: newPreOrder,
+        mode: "preorder"
+      });
+    }
+
+    // PreOrder exists - check if product already in preorder
+    const existingItemIndex = preOrder.items.findIndex(item => item.productId?.toString() === productId);
+
+    if (existingItemIndex !== -1) {
+      // Update existing item quantity
+      const oldQty = preOrder.items[existingItemIndex].quantity || 0;
+      const qtyDiff = requestedQty - oldQty;
+
+      preOrder.items[existingItemIndex].quantity = requestedQty;
+      preOrder.total = preOrder.total + (newItem.unitPrice * qtyDiff);
+      
+      preOrder.markModified("items");
+      await preOrder.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "PreOrder item quantity updated",
+        preOrder,
+        updatedItem: preOrder.items[existingItemIndex],
+        mode: "preorder"
+      });
+    } else {
+      // Add new item to existing preorder
+      preOrder.items.push(newItem);
+      preOrder.total = preOrder.total + (newItem.unitPrice * requestedQty);
+      
+      preOrder.markModified("items");
+      await preOrder.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "New item added to existing PreOrder",
+        preOrder,
+        mode: "preorder"
+      });
+    }
+
+  } catch (error) {
+    console.error("Error updating preorder matrix item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating preorder matrix item",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createOrderCtrl,
   getAllOrderCtrl,
@@ -2798,5 +3461,8 @@ module.exports = {
   markOrderAsUnpaid,
   updateBuyerQuantityCtrl,
   assignProductToStore,
-  getUserLatestOrdersCtrl
+  getUserLatestOrdersCtrl,
+  getOrderMatrixDataCtrl,
+  updateOrderMatrixItemCtrl,
+  updatePreOrderMatrixItemCtrl
 };

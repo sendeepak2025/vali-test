@@ -271,14 +271,30 @@ const PriceListEnhanced = () => {
   }
 
   // Copy URL to clipboard
+  // const copyUrl = (template: any, type: "template" | "nextweek" = "template") => {
+  //   const baseUrl = "http://valiproduce.shop/store"
+  //   const url = type === "template" 
+  //     ? `${baseUrl}/template?templateId=${template.id}`
+  //     : `${baseUrl}/nextweek?templateId=${template.id}`
+  //   navigator.clipboard.writeText(url)
+  //   toast({ title: "Copied!", description: `${type === "template" ? "Template" : "Next week"} URL copied to clipboard` })
+  // }
+
   const copyUrl = (template: any, type: "template" | "nextweek" = "template") => {
-    const baseUrl = "http://valiproduce.shop/store"
-    const url = type === "template" 
-      ? `${baseUrl}/template?templateId=${template.id}`
-      : `${baseUrl}/nextweek?templateId=${template.id}`
-    navigator.clipboard.writeText(url)
-    toast({ title: "Copied!", description: `${type === "template" ? "Template" : "Next week"} URL copied to clipboard` })
-  }
+  const baseUrl = "http://localhost:3000/store/mobile";
+  
+  // const url = type === "template"
+  //   ? `${baseUrl}/template?templateId=${template.id}`
+  //   : `${baseUrl}/nextweek?templateId=${template.id}`;
+
+  navigator.clipboard.writeText(baseUrl);
+
+  toast({
+    title: "Copied!",
+    description: `${type === "template" ? "Template" : "Next week"} URL copied to clipboard`,
+  });
+};
+
 
   // Download PDF
   const handleDownloadPDF = (template: any, priceType: string = "pricePerBox") => {
@@ -300,7 +316,8 @@ const PriceListEnhanced = () => {
     setIsSending(true)
     try {
       if (sendMode === "bulk") {
-        const url = `http://valiproduce.shop/store/template?templateId=${selectedTemplate.id}`
+        // const url = `http://valiproduce.shop/store/template?templateId=${selectedTemplate.id}`
+        const url = `http://valiproduce.shop/store/mobile`
         await priceListEmailMulti({ url, selectedStore: selectedStores }, token)
         toast({ title: "Sent!", description: `Price list sent to ${selectedStores.length} stores` })
       } else if (sendMode === "category") {
@@ -945,7 +962,10 @@ const PriceListEnhanced = () => {
                               <DropdownMenuItem onClick={() => handleDownloadPDF(template)}>
                                 <Download className="h-4 w-4 mr-2" /> Download PDF
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => window.open(`http://valiproduce.shop/store/template?templateId=${template.id}`, '_blank')}>
+                              {/* <DropdownMenuItem onClick={() => window.open(`http://valiproduce.shop/store/template?templateId=${template.id}`, '_blank')}>
+                                <ExternalLink className="h-4 w-4 mr-2" /> Preview
+                              </DropdownMenuItem> */}
+                              <DropdownMenuItem onClick={() => window.open(`http://valiproduce.shop/store/mobile`, '_blank')}>
                                 <ExternalLink className="h-4 w-4 mr-2" /> Preview
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />

@@ -13,6 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Download,
   RefreshCw,
   Search,
@@ -25,26 +31,73 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  Save,
   Eye,
   EyeOff,
   Edit3,
   Check,
   MapPin,
   Filter,
+  History,
+  ClipboardList,
+  CheckCircle2,
+  Lock,
+  FileText,
+  Maximize2,
+  Minimize2,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
-import { getAllStoresAPI } from "@/services2/operations/auth";
 import { toast } from "react-toastify";
-import { assignProductToStoreAPI } from "@/services2/operations/order";
+import { getOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI } from "@/services2/operations/order";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
+import { orderEvents } from "@/utils/orderEvents";
+
+// Matrix operation modes
+type MatrixMode = "ORDER" | "PREORDER" | "VIEW";
+
+// Size presets
+type SizePreset = "compact" | "normal" | "large";
 
 interface WeeklyOrderMatrixProps {
   products: any[];
   onRefresh?: () => void;
 }
 
-const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+// Size configurations
+const sizeConfig = {
+  compact: {
+    cellPadding: "p-0.5",
+    fontSize: "text-[10px]",
+    headerFontSize: "text-[9px]",
+    minWidth: "min-w-[40px]",
+    maxWidth: "max-w-[50px]",
+    productWidth: "min-w-[120px] max-w-[120px]",
+    iconSize: "h-2 w-2",
+    badgeSize: "text-[8px]",
+  },
+  normal: {
+    cellPadding: "p-1",
+    fontSize: "text-xs",
+    headerFontSize: "text-[10px]",
+    minWidth: "min-w-[55px]",
+    maxWidth: "max-w-[65px]",
+    productWidth: "min-w-[160px] max-w-[160px]",
+    iconSize: "h-2.5 w-2.5",
+    badgeSize: "text-[9px]",
+  },
+  large: {
+    cellPadding: "p-2",
+    fontSize: "text-sm",
+    headerFontSize: "text-xs",
+    minWidth: "min-w-[70px]",
+    maxWidth: "max-w-[80px]",
+    productWidth: "min-w-[200px] max-w-[200px]",
+    iconSize: "h-3 w-3",
+    badgeSize: "text-[10px]",
+  },
+};
 
 // Debounce hook
 const useDebounce = (value: any, delay: number) => {
@@ -56,31 +109,49 @@ const useDebounce = (value: any, delay: number) => {
   return debouncedValue;
 };
 
-// Editable Cell Component for performance
+// Editable Cell Component
 const EditableCell = React.memo(({ 
   value, 
-  onChange, 
+  previousValue,
+  preOrderValue,
+  pendingReq,
+  isPreOrderFulfilled,
+  onChange,
   productId, 
   storeId,
-  isHighlighted 
+  isHighlighted,
+  orderId,
+  saving,
+  disabled,
+  mode
 }: { 
   value: number; 
+  previousValue: number;
+  preOrderValue: number;
+  pendingReq: number;
+  isPreOrderFulfilled: boolean;
   onChange: (productId: string, storeId: string, value: number) => void;
   productId: string;
   storeId: string;
   isHighlighted: boolean;
+  orderId: string | null;
+  saving: boolean;
+  disabled: boolean;
+  mode: MatrixMode;
 }) => {
-  const [localValue, setLocalValue] = useState(value);
+  const [localValue, setLocalValue] = useState(mode === "PREORDER" ? preOrderValue : value);
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Update local value when mode or values change
   useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
+    setLocalValue(mode === "PREORDER" ? preOrderValue : value);
+  }, [value, preOrderValue, mode]);
 
   const handleBlur = () => {
     setIsEditing(false);
-    if (localValue !== value) {
+    const compareValue = mode === "PREORDER" ? preOrderValue : value;
+    if (localValue !== compareValue) {
       onChange(productId, storeId, localValue);
     }
   };
@@ -89,19 +160,38 @@ const EditableCell = React.memo(({
     if (e.key === 'Enter' || e.key === 'Tab') {
       handleBlur();
     }
+    if (e.key === 'Escape') {
+      setLocalValue(mode === "PREORDER" ? preOrderValue : value);
+      setIsEditing(false);
+    }
   };
+
+  // Mode-based styling
+  let bgClass = '';
+  if (disabled || mode === "VIEW") bgClass = 'bg-gray-100 cursor-not-allowed';
+  else if (isHighlighted) bgClass = mode === "PREORDER" ? 'bg-orange-200' : 'bg-yellow-100';
+  else if (mode === "PREORDER") {
+    if (preOrderValue > 0) bgClass = 'bg-orange-50';
+  } else {
+    if (isPreOrderFulfilled && preOrderValue > 0) bgClass = 'bg-green-100';
+    else if (preOrderValue > 0 && pendingReq > 0) bgClass = 'bg-orange-50';
+    else if (value > 0) bgClass = 'bg-blue-50';
+  }
+
+  const displayValue = mode === "PREORDER" ? preOrderValue : value;
+  const isDisabled = disabled || mode === "VIEW";
 
   return (
     <td 
-      className={`p-0 text-center border cursor-pointer transition-colors ${
-        isHighlighted ? 'bg-yellow-100' : ''
-      } ${localValue > 0 ? 'bg-green-50' : ''}`}
+      className={`p-0 text-center border transition-colors relative ${bgClass} ${saving ? 'opacity-50' : ''} ${isDisabled ? '' : 'cursor-pointer'}`}
       onClick={() => {
-        setIsEditing(true);
-        setTimeout(() => inputRef.current?.select(), 0);
+        if (!saving && !isDisabled) {
+          setIsEditing(true);
+          setTimeout(() => inputRef.current?.select(), 0);
+        }
       }}
     >
-      {isEditing ? (
+      {isEditing && !isDisabled ? (
         <input
           ref={inputRef}
           type="number"
@@ -111,12 +201,39 @@ const EditableCell = React.memo(({
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
           autoFocus
-          className="w-full h-full p-1 text-center text-xs border-2 border-blue-500 focus:outline-none"
+          disabled={saving}
+          className={`w-full h-full p-1 text-center text-xs border-2 focus:outline-none ${mode === "PREORDER" ? 'border-orange-500' : 'border-blue-500'}`}
         />
       ) : (
-        <span className={`block p-1 text-xs ${localValue > 0 ? 'font-bold text-green-700' : 'text-gray-400'}`}>
-          {localValue}
-        </span>
+        <div className="flex flex-col items-center p-0.5">
+          <span className={`text-xs ${displayValue > 0 ? `font-bold ${mode === "PREORDER" ? 'text-orange-700' : 'text-blue-700'}` : 'text-gray-400'}`}>
+            {displayValue}
+          </span>
+          <div className="flex gap-1 text-[8px]">
+            {mode === "ORDER" && previousValue > 0 && (
+              <span className="text-gray-400 flex items-center">
+                <History className="h-2 w-2" />{previousValue}
+              </span>
+            )}
+            {mode === "ORDER" && preOrderValue > 0 && (
+              <span className={`flex items-center font-medium ${isPreOrderFulfilled ? 'text-green-600' : 'text-orange-500'}`}>
+                <ClipboardList className="h-2 w-2" />{preOrderValue}
+                {isPreOrderFulfilled && <CheckCircle2 className="h-2 w-2 ml-0.5" />}
+              </span>
+            )}
+            {mode === "PREORDER" && value > 0 && (
+              <span className="text-blue-500 flex items-center font-medium">
+                <ShoppingCart className="h-2 w-2" />{value}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      {mode === "ORDER" && orderId && value > 0 && (
+        <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-blue-500 rounded-full" />
+      )}
+      {mode === "PREORDER" && preOrderValue > 0 && (
+        <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-orange-500 rounded-full" />
       )}
     </td>
   );
@@ -128,18 +245,37 @@ EditableCell.displayName = 'EditableCell';
 const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefresh }) => {
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
   const [stores, setStores] = useState<any[]>([]);
+  const [matrixData, setMatrixData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingCell, setSavingCell] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const debouncedSearch = useDebounce(searchTerm, 300);
   
-  const [selectedDay, setSelectedDay] = useState(() => {
-    const today = new Date().getDay();
-    return DAYS_OF_WEEK[today === 0 ? 6 : today - 1];
-  });
+  // Matrix Mode State
+  const [matrixMode, setMatrixMode] = useState<MatrixMode>("ORDER");
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedSearch = useDebounce(searchInput, 500);
+  
+  // Maximize/Fullscreen state
+  const [isMaximized, setIsMaximized] = useState(false);
+  
+  // Size control
+  const [sizePreset, setSizePreset] = useState<SizePreset>("normal");
+  const currentSize = sizeConfig[sizePreset];
+  
+  // Store filter - show only stores with orders/preorders
+  const [showOnlyActiveStores, setShowOnlyActiveStores] = useState(true); // Default to true
+  
   const [weekOffset, setWeekOffset] = useState(0);
+  const [weekRange, setWeekRange] = useState<any>(null);
+  const [preOrdersCount, setPreOrdersCount] = useState(0);
   
-  // Smart filtering - show only stores with orders by default
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  
+  // Smart filtering
   const [showOnlyWithOrders, setShowOnlyWithOrders] = useState(false);
   const [selectedState, setSelectedState] = useState<string>("all");
   
@@ -147,39 +283,105 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [visibleStoreRange, setVisibleStoreRange] = useState({ start: 0, end: 20 });
   const [showAllStores, setShowAllStores] = useState(false);
   
-  // All editable data
-  const [editableData, setEditableData] = useState<Map<string, {
-    storeOrders: Record<string, number>;
-    requirement: number;
-    purchaseTotal: number;
-  }>>(new Map());
-  
-  // Track changes for saving
+  // Track changes
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
   
-  // Row virtualization
-  const [visibleRowRange, setVisibleRowRange] = useState({ start: 0, end: 50 });
   const containerRef = useRef<HTMLDivElement>(null);
-  const ROW_HEIGHT = 40;
 
-  const getWeekDates = useCallback((offset: number = 0) => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7) + (offset * 7));
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    return {
-      start: monday,
-      end: sunday,
-      label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  // Check week status for editing permissions
+  const isCurrentWeek = weekOffset === 0;
+  const isPastWeek = weekOffset < 0;
+  const isFutureWeek = weekOffset > 0;
+  
+  // Determine if editing is allowed based on mode and week
+  const canEdit = useMemo(() => {
+    if (matrixMode === "VIEW") return false;
+    if (matrixMode === "ORDER") return isCurrentWeek; // ORDER mode only for current week
+    if (matrixMode === "PREORDER") return isCurrentWeek || isFutureWeek; // PREORDER for current and future weeks
+    return false;
+  }, [matrixMode, isCurrentWeek, isFutureWeek]);
+
+  // Fetch matrix data from API with pagination
+  const fetchMatrixData = useCallback(async (page = 1, search = "") => {
+    setLoading(true);
+    try {
+      const response = await getOrderMatrixDataAPI(token, weekOffset, page, pageSize, search);
+      if (response?.success && response?.data) {
+        setMatrixData(response.data.matrix || []);
+        setStores(response.data.stores || []);
+        setWeekRange(response.data.weekRange);
+        setPreOrdersCount(response.data.preOrdersCount || 0);
+        setVisibleStoreRange({ start: 0, end: Math.min(20, response.data.stores?.length || 0) });
+        setChangedCells(new Set());
+        
+        if (response.data.pagination) {
+          setCurrentPage(response.data.pagination.currentPage);
+          setTotalPages(response.data.pagination.totalPages);
+          setTotalProducts(response.data.pagination.totalProducts);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching matrix data:", error);
+      toast.error("Failed to load order matrix data");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, weekOffset, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchMatrixData(1, searchTerm);
+  }, [weekOffset]);
+
+  useEffect(() => {
+    setSearchTerm(debouncedSearch);
+    setCurrentPage(1);
+    fetchMatrixData(1, debouncedSearch);
+  }, [debouncedSearch]);
+
+  // Listen for order/preorder changes from other components
+  useEffect(() => {
+    const unsubscribe = orderEvents.onAnyOrderChange((data) => {
+      console.log("Order/PreOrder change detected, refreshing matrix...", data);
+      // Small delay to ensure backend has processed the change
+      setTimeout(() => {
+        fetchMatrixData(currentPage, searchTerm);
+      }, 500);
+    });
+
+    return () => unsubscribe();
+  }, [currentPage, searchTerm, fetchMatrixData]);
+
+  // Handle ESC key to exit fullscreen
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMaximized) {
+        setIsMaximized(false);
+      }
     };
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMaximized]);
 
-  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset, getWeekDates]);
+  // Prevent body scroll when maximized
+  useEffect(() => {
+    if (isMaximized) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMaximized]);
 
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      fetchMatrixData(newPage, searchTerm);
+    }
+  };
 
-  // Get unique states from stores
   const availableStates = useMemo(() => {
     const states = new Set<string>();
     stores.forEach((store) => {
@@ -189,221 +391,180 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     return Array.from(states).sort();
   }, [stores]);
 
-  useEffect(() => {
-    fetchStores();
-  }, []);
-
-  // Initialize editable data when products/stores load
-  useEffect(() => {
-    if (products.length > 0 && stores.length > 0) {
-      const initialData = new Map();
-      products.forEach((product) => {
-        const productId = product._id || product.id;
-        const storeOrders: Record<string, number> = {};
-        stores.forEach((store) => {
-          storeOrders[store._id] = 0;
-        });
-        initialData.set(productId, {
-          storeOrders,
-          requirement: 0,
-          purchaseTotal: 0,
-        });
+  // Get stores with orders/preorders (used for filtering and sorting)
+  const storesWithOrdersSet = useMemo(() => {
+    const storesWithOrders = new Set<string>();
+    matrixData.forEach((row) => {
+      Object.entries(row.storeOrders || {}).forEach(([storeId, data]: [string, any]) => {
+        if (data?.currentQty > 0 || data?.preOrderQty > 0) {
+          storesWithOrders.add(storeId);
+        }
       });
-      setEditableData(initialData);
-    }
-  }, [products, stores]);
+    });
+    return storesWithOrders;
+  }, [matrixData]);
 
-  const fetchStores = async () => {
-    setLoading(true);
-    try {
-      const response = await getAllStoresAPI();
-      if (response && Array.isArray(response)) {
-        setStores(response);
-        setVisibleStoreRange({ start: 0, end: Math.min(20, response.length) });
-      }
-    } catch (error) {
-      console.error("Error fetching stores:", error);
-      toast.error("Failed to load stores");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filteredProducts = useMemo(() => {
-    if (!debouncedSearch) return products;
-    const searchLower = debouncedSearch.toLowerCase();
-    return products.filter((p) => p.name?.toLowerCase().includes(searchLower));
-  }, [products, debouncedSearch]);
-
-
-  // Smart store filtering - by state and by orders
   const filteredStores = useMemo(() => {
     let result = stores;
     
-    // Filter by state
     if (selectedState !== "all") {
       result = result.filter((store) => 
         store.state === selectedState || store.city === selectedState
       );
     }
     
-    // Filter to show only stores with orders
-    if (showOnlyWithOrders) {
-      const storesWithOrders = new Set<string>();
-      editableData.forEach((data) => {
-        Object.entries(data.storeOrders).forEach(([storeId, qty]) => {
-          if (qty > 0) storesWithOrders.add(storeId);
-        });
-      });
-      // Also include stores with changes
-      changedCells.forEach((cellKey) => {
-        const [, storeId] = cellKey.split('-');
-        if (storeId && storeId !== 'requirement' && storeId !== 'purchaseTotal') {
-          storesWithOrders.add(storeId);
-        }
-      });
-      result = result.filter((store) => storesWithOrders.has(store._id));
+    // Filter to show only stores with orders/preorders if enabled
+    if (showOnlyActiveStores) {
+      result = result.filter((store) => storesWithOrdersSet.has(store._id));
     }
     
+    if (showOnlyWithOrders) {
+      result = result.filter((store) => storesWithOrdersSet.has(store._id));
+    }
+    
+    // Sort: stores with orders first, then others
+    result = [...result].sort((a, b) => {
+      const aHasOrder = storesWithOrdersSet.has(a._id) ? 0 : 1;
+      const bHasOrder = storesWithOrdersSet.has(b._id) ? 0 : 1;
+      return aHasOrder - bHasOrder;
+    });
+    
     return result;
-  }, [stores, selectedState, showOnlyWithOrders, editableData, changedCells]);
+  }, [stores, selectedState, showOnlyWithOrders, showOnlyActiveStores, storesWithOrdersSet]);
 
-  // Visible stores based on pagination
   const visibleStores = useMemo(() => {
     if (showAllStores) return filteredStores;
     return filteredStores.slice(visibleStoreRange.start, visibleStoreRange.end);
   }, [filteredStores, visibleStoreRange, showAllStores]);
 
-  // Handle store order change
-  const handleStoreOrderChange = useCallback((productId: string, storeId: string, value: number) => {
-    setEditableData((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(productId) || { storeOrders: {}, requirement: 0, purchaseTotal: 0 };
-      const newStoreOrders = { ...existing.storeOrders, [storeId]: value };
-      
-      const orderTotal = Object.values(newStoreOrders).reduce((sum, qty) => sum + (qty || 0), 0);
-      const product = products.find(p => (p._id || p.id) === productId);
-      const currentStock = product?.summary?.totalRemaining || 0;
-      const requirement = Math.max(0, orderTotal - currentStock);
-      
-      newMap.set(productId, { 
-        ...existing, 
-        storeOrders: newStoreOrders,
-        requirement: requirement,
-      });
-      return newMap;
-    });
-    setChangedCells((prev) => new Set(prev).add(`${productId}-${storeId}`));
-  }, [products]);
-
-  const handleFieldChange = useCallback((productId: string, field: 'requirement' | 'purchaseTotal', value: number) => {
-    setEditableData((prev) => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(productId) || { storeOrders: {}, requirement: 0, purchaseTotal: 0 };
-      newMap.set(productId, { ...existing, [field]: value });
-      return newMap;
-    });
-    setChangedCells((prev) => new Set(prev).add(`${productId}-${field}`));
-  }, []);
-
-
-  // Save all changes to real orders
-  const handleSaveAll = async () => {
-    if (changedCells.size === 0) {
-      toast.info("No changes to save");
+  // Handle cell change - mode aware
+  const handleCellChange = useCallback(async (productId: string, storeId: string, quantity: number) => {
+    if (!canEdit) {
+      if (matrixMode === "VIEW") {
+        toast.error("View mode - editing disabled");
+      } else if (matrixMode === "ORDER" && !isCurrentWeek) {
+        toast.error("ORDER mode only works for current week");
+      } else if (matrixMode === "PREORDER" && isPastWeek) {
+        toast.error("Cannot create PreOrders for past weeks");
+      }
       return;
     }
-
-    setSaving(true);
-    let successCount = 0;
-    let errorCount = 0;
-
+    
+    const cellKey = `${productId}-${storeId}`;
+    setSavingCell(cellKey);
+    
     try {
-      const storeChanges: Record<string, { productId: string; quantity: number }[]> = {};
+      let response;
       
-      for (const cellKey of changedCells) {
-        const [productId, storeId] = cellKey.split('-');
-        if (storeId && storeId !== 'requirement' && storeId !== 'purchaseTotal') {
-          const data = editableData.get(productId);
-          const quantity = data?.storeOrders[storeId] || 0;
+      if (matrixMode === "PREORDER") {
+        // PREORDER Mode - Create/Update PreOrder
+        response = await updatePreOrderMatrixItemAPI({
+          productId,
+          storeId,
+          quantity,
+          weekOffset
+        }, token);
+
+        if (response?.success) {
+          setMatrixData(prev => prev.map(row => {
+            if (row.productId === productId) {
+              const newStoreOrders = { ...row.storeOrders };
+              const oldData = newStoreOrders[storeId] || { currentQty: 0, previousQty: 0, preOrderQty: 0, pendingReq: 0, orderId: null };
+              
+              newStoreOrders[storeId] = {
+                ...oldData,
+                preOrderQty: quantity,
+                pendingReq: Math.max(0, quantity - (oldData.currentQty || 0)),
+                isPreOrderFulfilled: (oldData.currentQty || 0) >= quantity && quantity > 0
+              };
+              
+              return { ...row, storeOrders: newStoreOrders };
+            }
+            return row;
+          }));
           
-          if (quantity > 0) {
-            if (!storeChanges[storeId]) storeChanges[storeId] = [];
-            storeChanges[storeId].push({ productId, quantity });
-          }
+          setChangedCells(prev => new Set(prev).add(cellKey));
+          toast.success("PreOrder updated", { autoClose: 1000 });
         }
-      }
+      } else {
+        // ORDER Mode - Create/Update Order
+        response = await updateOrderMatrixItemAPI({
+          productId,
+          storeId,
+          quantity,
+          weekOffset
+        }, token);
 
-      for (const [storeId, items] of Object.entries(storeChanges)) {
-        for (const item of items) {
-          try {
-            await assignProductToStoreAPI({
-              productId: item.productId,
-              storeId: storeId,
-              quantity: item.quantity,
-            }, token);
-            successCount++;
-          } catch (error) {
-            console.error(`Error assigning product ${item.productId} to store ${storeId}:`, error);
-            errorCount++;
-          }
+        if (response?.success) {
+          setMatrixData(prev => prev.map(row => {
+            if (row.productId === productId) {
+              const newStoreOrders = { ...row.storeOrders };
+              const oldData = newStoreOrders[storeId] || { currentQty: 0, previousQty: 0, preOrderQty: 0, pendingReq: 0, orderId: null };
+              
+              const oldQty = oldData.currentQty || 0;
+              const qtyDiff = quantity - oldQty;
+              const preOrderQty = oldData.preOrderQty || 0;
+              const newPendingReq = Math.max(0, preOrderQty - quantity);
+              const isPreOrderFulfilled = quantity >= preOrderQty && preOrderQty > 0;
+              
+              newStoreOrders[storeId] = {
+                ...oldData,
+                currentQty: quantity,
+                pendingReq: newPendingReq,
+                isPreOrderFulfilled,
+                orderId: response.order?._id || oldData.orderId
+              };
+              
+              let newOrderTotal = 0;
+              let newPendingReqTotal = 0;
+              Object.values(newStoreOrders).forEach((data: any) => {
+                newOrderTotal += data.currentQty || 0;
+                newPendingReqTotal += data.pendingReq || 0;
+              });
+              
+              const newStock = Math.max(0, (row.totalStock || 0) - qtyDiff);
+              
+              return { 
+                ...row, 
+                storeOrders: newStoreOrders,
+                orderTotal: newOrderTotal,
+                pendingReqTotal: newPendingReqTotal,
+                totalStock: newStock
+              };
+            }
+            return row;
+          }));
+          
+          setChangedCells(prev => new Set(prev).add(cellKey));
+          toast.success(response.preOrderHandled ? "PreOrder converted!" : "Updated", { autoClose: 1000 });
         }
-      }
-
-      if (successCount > 0) {
-        toast.success(`Successfully saved ${successCount} order items`);
-        setChangedCells(new Set());
-        onRefresh?.();
-      }
-      if (errorCount > 0) {
-        toast.error(`Failed to save ${errorCount} items`);
       }
     } catch (error) {
-      console.error("Error saving orders:", error);
-      toast.error("Failed to save orders");
+      console.error("Error updating cell:", error);
+      toast.error("Failed to update");
     } finally {
-      setSaving(false);
+      setSavingCell(null);
     }
-  };
+  }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek]);
 
-
-  // Build matrix data
-  const matrixData = useMemo(() => {
-    return filteredProducts.map((product) => {
-      const productId = product._id || product.id;
-      const currentStock = product.summary?.totalRemaining || 0;
-      const editData = editableData.get(productId);
+  // Calculate totals - only from visible store data for this page
+  const totals = useMemo(() => {
+    let orderTotal = 0, stockTotal = 0, preOrderTotal = 0, pendingReqTotal = 0, purchaseTotal = 0;
+    matrixData.forEach(row => {
+      // Calculate order total from store orders (visible stores only for accuracy)
+      const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.currentQty || 0), 0);
+      orderTotal += rowOrderTotal;
+      stockTotal += row.totalStock || 0;
       
-      const storeOrders = editData?.storeOrders || {};
-      const orderTotal = Object.values(storeOrders).reduce((sum: number, qty: any) => sum + (qty || 0), 0);
-      const requirement = editData?.requirement ?? Math.max(0, orderTotal - currentStock);
-      const purchaseTotal = editData?.purchaseTotal ?? 0;
-      
-      return {
-        productId,
-        productName: product.name,
-        image: product.image,
-        storeOrders,
-        orderTotal,
-        currentStock,
-        requirement,
-        purchaseTotal,
-      };
+      // PreOrder and Pending should also be calculated from store orders
+      const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.preOrderQty || 0), 0);
+      const rowPendingReqTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.pendingReq || 0), 0);
+      preOrderTotal += rowPreOrderTotal;
+      pendingReqTotal += rowPendingReqTotal;
+      purchaseTotal += row.totalPurchase || 0;
     });
-  }, [filteredProducts, editableData]);
-
-  const virtualizedRows = useMemo(() => {
-    return matrixData.slice(visibleRowRange.start, visibleRowRange.end);
-  }, [matrixData, visibleRowRange]);
-
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const scrollTop = e.currentTarget.scrollTop;
-    const start = Math.floor(scrollTop / ROW_HEIGHT);
-    const end = Math.min(start + 50, matrixData.length);
-    if (start !== visibleRowRange.start) {
-      setVisibleRowRange({ start, end });
-    }
-  }, [matrixData.length, visibleRowRange.start]);
+    return { orderTotal, stockTotal, preOrderTotal, pendingReqTotal, purchaseTotal };
+  }, [matrixData]);
 
   const handleStoreNavigation = useCallback((direction: 'prev' | 'next') => {
     const step = 15;
@@ -418,300 +579,493 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
   }, [filteredStores.length]);
 
-
   const handleExport = useCallback(() => {
-    const exportStores = filteredStores;
-    const headers = [
-      "PRODUCTS",
-      ...exportStores.map((s) => s.storeName || `Store`),
-      "ORDER TOTAL",
-      "STOCK",
-      "REQUIREMENT",
-      "PURCHASE",
-      "STATUS",
-    ];
-    const csvData = matrixData.map((row) => [
-      row.productName,
-      ...exportStores.map((s) => row.storeOrders[s._id] || 0),
-      row.orderTotal,
-      row.currentStock,
-      row.requirement,
-      row.purchaseTotal,
-      "",
-    ]);
-    const csvContent = [headers.join(","), ...csvData.map((row) => row.map((cell) => `"${cell}"`).join(","))].join("\n");
+    const headers = ["PRODUCT", ...filteredStores.map(s => s.storeName || 'Store'), "TOT", "STK", "PRE", "REQ", "PUR", "ST"];
+    const csvData = matrixData.map(row => {
+      const rowPreOrder = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0);
+      const rowPending = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0);
+      const rowOrder = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0);
+      const status = (row.totalPurchase || 0) >= rowPending ? "OK" : "NEED";
+      return [
+        row.productName,
+        ...filteredStores.map(s => row.storeOrders?.[s._id]?.currentQty || 0),
+        rowOrder, row.totalStock || 0, rowPreOrder, rowPending, row.totalPurchase || 0, status
+      ];
+    });
+    const csvContent = [headers.join(","), ...csvData.map(row => row.map(cell => `"${cell}"`).join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `order_matrix_${weekDates.label.replace(/\s/g, "_")}.csv`;
+    link.href = URL.createObjectURL(blob);
+    link.download = `order_matrix_page${currentPage}.csv`;
     link.click();
-    URL.revokeObjectURL(url);
     toast.success("Exported!");
-  }, [filteredStores, matrixData, selectedDay, weekDates.label]);
+  }, [filteredStores, matrixData, currentPage]);
 
-  const totals = useMemo(() => ({
-    orderTotal: matrixData.reduce((sum, row) => sum + row.orderTotal, 0),
-    requirement: matrixData.reduce((sum, row) => sum + row.requirement, 0),
-    purchaseTotal: matrixData.reduce((sum, row) => sum + row.purchaseTotal, 0),
-    currentStock: matrixData.reduce((sum, row) => sum + row.currentStock, 0),
-  }), [matrixData]);
-
-  // Count stores with orders
   const storesWithOrdersCount = useMemo(() => {
-    const storesWithOrders = new Set<string>();
-    editableData.forEach((data) => {
-      Object.entries(data.storeOrders).forEach(([storeId, qty]) => {
-        if (qty > 0) storesWithOrders.add(storeId);
+    const set = new Set<string>();
+    matrixData.forEach(row => {
+      Object.entries(row.storeOrders || {}).forEach(([storeId, data]: [string, any]) => {
+        if (data?.currentQty > 0 || data?.preOrderQty > 0) set.add(storeId);
       });
     });
-    changedCells.forEach((cellKey) => {
-      const [, storeId] = cellKey.split('-');
-      if (storeId && storeId !== 'requirement' && storeId !== 'purchaseTotal') {
-        const productId = cellKey.split('-')[0];
-        const data = editableData.get(productId);
-        if (data?.storeOrders[storeId] > 0) storesWithOrders.add(storeId);
-      }
-    });
-    return storesWithOrders.size;
-  }, [editableData, changedCells]);
+    return set.size;
+  }, [matrixData]);
+
+  // Get mode display info
+  const getModeInfo = () => {
+    switch (matrixMode) {
+      case "ORDER":
+        return { color: "bg-blue-500", text: "ORDER", icon: ShoppingCart, desc: "Create/Edit Orders (Current Week)" };
+      case "PREORDER":
+        return { color: "bg-orange-500", text: "PREORDER", icon: ClipboardList, desc: "Create/Edit PreOrders (Current & Future)" };
+      case "VIEW":
+        return { color: "bg-gray-500", text: "VIEW", icon: Eye, desc: "Read-only View" };
+    }
+  };
+  const modeInfo = getModeInfo();
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading stores...</span>
+        <span className="ml-2">Loading...</span>
       </div>
     );
   }
 
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-blue-600" />
-              <CardTitle className="text-lg">Weekly Order Matrix</CardTitle>
-              <Badge variant="outline">{filteredStores.length} Stores</Badge>
-              <Badge variant="outline">{filteredProducts.length} Products</Badge>
-              {changedCells.size > 0 && (
-                <Badge className="bg-orange-500">{changedCells.size} unsaved</Badge>
-              )}
+  // Fullscreen wrapper
+  const matrixContent = (
+    <Card className={`w-full ${isMaximized ? 'h-full rounded-none border-0' : ''}`}>
+      <CardHeader className="pb-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Order Matrix
+            </CardTitle>
+            
+            {/* Mode Selector */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <Button
+                variant={matrixMode === "ORDER" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMatrixMode("ORDER")}
+                className={`h-7 px-3 text-xs ${matrixMode === "ORDER" ? "bg-blue-500 hover:bg-blue-600" : ""}`}
+              >
+                <ShoppingCart className="h-3 w-3 mr-1" />
+                ORDER
+              </Button>
+              <Button
+                variant={matrixMode === "PREORDER" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMatrixMode("PREORDER")}
+                className={`h-7 px-3 text-xs ${matrixMode === "PREORDER" ? "bg-orange-500 hover:bg-orange-600" : ""}`}
+              >
+                <ClipboardList className="h-3 w-3 mr-1" />
+                PREORDER
+              </Button>
+              <Button
+                variant={matrixMode === "VIEW" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMatrixMode("VIEW")}
+                className={`h-7 px-3 text-xs ${matrixMode === "VIEW" ? "bg-gray-500 hover:bg-gray-600" : ""}`}
+              >
+                <Eye className="h-3 w-3 mr-1" />
+                VIEW
+              </Button>
             </div>
             
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setWeekOffset((prev) => prev - 1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Select value={weekOffset.toString()} onValueChange={(val) => setWeekOffset(parseInt(val))}>
-                <SelectTrigger className="w-[220px]">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  <SelectValue>{weekDates.label}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">This Week</SelectItem>
-                  <SelectItem value="-1">Last Week</SelectItem>
-                  <SelectItem value="-2">2 Weeks Ago</SelectItem>
-                  <SelectItem value="-3">3 Weeks Ago</SelectItem>
-                  <SelectItem value="-4">4 Weeks Ago</SelectItem>
-                  <SelectItem value="1">Next Week</SelectItem>
-                  <SelectItem value="2">2 Weeks Ahead</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm" onClick={() => setWeekOffset((prev) => prev + 1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {/* Filters Row */}
-          <div className="flex flex-wrap gap-3 mb-4">
-            <div className="relative flex-1 min-w-[180px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
-            </div>
-            
-            {/* State Filter */}
-            <Select value={selectedState} onValueChange={setSelectedState}>
-              <SelectTrigger className="w-[150px]">
-                <MapPin className="h-4 w-4 mr-1" />
-                <SelectValue placeholder="All States" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All States</SelectItem>
-                {availableStates.map((state) => (
-                  <SelectItem key={state} value={state}>{state}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            
-            {/* Smart Filter - Only With Orders */}
-            <Button 
-              variant={showOnlyWithOrders ? "default" : "outline"} 
-              size="sm" 
-              onClick={() => setShowOnlyWithOrders(!showOnlyWithOrders)}
-              className={showOnlyWithOrders ? "bg-green-600 hover:bg-green-700" : ""}
-            >
-              <Filter className="h-4 w-4 mr-1" />
-              {showOnlyWithOrders ? `With Orders (${storesWithOrdersCount})` : "Only With Orders"}
-            </Button>
-            
-            {/* Show All Stores Toggle */}
-            <Button variant={showAllStores ? "default" : "outline"} size="sm" onClick={() => setShowAllStores(!showAllStores)}>
-              {showAllStores ? <EyeOff className="h-4 w-4 mr-1" /> : <Eye className="h-4 w-4 mr-1" />}
-              {showAllStores ? "Paginate" : `All ${filteredStores.length}`}
-            </Button>
-            
-            {changedCells.size > 0 && (
-              <Button onClick={handleSaveAll} disabled={saving} className="bg-green-600 hover:bg-green-700">
-                {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-                Save to Orders
-              </Button>
+            {/* Mode Status Badge */}
+            {!canEdit && (
+              <Badge variant="secondary" className="ml-2">
+                <Lock className="h-3 w-3 mr-1" />
+                {isPastWeek ? "Past Week" : matrixMode === "ORDER" && !isCurrentWeek ? "Future Week" : "Read Only"}
+              </Badge>
             )}
-            <Button variant="outline" onClick={handleExport}><Download className="h-4 w-4 mr-1" />Export</Button>
-            <Button variant="outline" onClick={fetchStores}><RefreshCw className="h-4 w-4" /></Button>
           </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <div className="flex items-center gap-1 text-blue-700 text-xs"><Store className="h-3 w-3" />Stores</div>
-              <div className="text-lg font-bold text-blue-900">{filteredStores.length} <span className="text-xs font-normal">/ {stores.length}</span></div>
-            </div>
-            <div className="p-2 bg-green-50 rounded-lg">
-              <div className="flex items-center gap-1 text-green-700 text-xs"><ShoppingCart className="h-3 w-3" />Order Total</div>
-              <div className="text-lg font-bold text-green-900">{totals.orderTotal.toLocaleString()}</div>
-            </div>
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <div className="flex items-center gap-1 text-gray-700 text-xs"><Package className="h-3 w-3" />Stock</div>
-              <div className="text-lg font-bold text-gray-900">{totals.currentStock.toLocaleString()}</div>
-            </div>
-            <div className="p-2 bg-yellow-50 rounded-lg">
-              <div className="flex items-center gap-1 text-yellow-700 text-xs"><AlertTriangle className="h-3 w-3" />Requirement</div>
-              <div className="text-lg font-bold text-yellow-900">{totals.requirement.toLocaleString()}</div>
-            </div>
-            <div className="p-2 bg-purple-50 rounded-lg">
-              <div className="flex items-center gap-1 text-purple-700 text-xs"><Truck className="h-3 w-3" />Purchase</div>
-              <div className="text-lg font-bold text-purple-900">{totals.purchaseTotal.toLocaleString()}</div>
-            </div>
+          
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Badge variant={isCurrentWeek ? "default" : "secondary"} className="px-3 py-1">
+              <Calendar className="h-3 w-3 mr-1" />
+              {weekRange ? `${weekRange.start} - ${weekRange.end}` : 'Current Week'}
+              {isCurrentWeek && <span className="ml-1 text-xs">(Current)</span>}
+              {isFutureWeek && <span className="ml-1 text-xs">(Future)</span>}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fetchMatrixData(currentPage, searchTerm)}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4" />
+            </Button>
+            {/* Maximize/Minimize Button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setIsMaximized(!isMaximized)}
+                    className={isMaximized ? "bg-blue-100" : ""}
+                  >
+                    {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{isMaximized ? "Exit Fullscreen (ESC)" : "Fullscreen Mode"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-
-
-          {/* Store Navigation */}
-          {!showAllStores && filteredStores.length > 20 && (
-            <div className="flex items-center justify-center gap-2 mt-3 p-2 bg-gray-50 rounded">
-              <Button variant="outline" size="sm" onClick={() => handleStoreNavigation('prev')} disabled={visibleStoreRange.start === 0}>
-                <ChevronLeft className="h-4 w-4" /> Prev
-              </Button>
-              <span className="text-sm">Stores {visibleStoreRange.start + 1}-{Math.min(visibleStoreRange.end, filteredStores.length)} of {filteredStores.length}</span>
-              <Button variant="outline" size="sm" onClick={() => handleStoreNavigation('next')} disabled={visibleStoreRange.end >= filteredStores.length}>
-                Next <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+        </div>
+        
+        {/* Mode Description */}
+        <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
+          <modeInfo.icon className="h-3 w-3" />
+          <span>{modeInfo.desc}</span>
+          {matrixMode === "PREORDER" && isCurrentWeek && (
+            <span className="text-orange-600 font-medium">• PreOrders for this week will be linked when Orders are created</span>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </CardHeader>
 
-      {/* Matrix Table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="p-2 bg-blue-50 border-b flex items-center gap-2">
-            <Edit3 className="h-4 w-4 text-blue-600" />
-            <span className="text-sm text-blue-700">Click any cell to edit. Changes will be saved to real orders when you click "Save to Orders".</span>
+      <CardContent className={`p-2 ${isMaximized ? '' : ''}`}>
+        {/* Filters Row */}
+        <div className="flex flex-wrap items-center gap-2 mb-3 p-2 bg-gray-50 rounded-lg">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search products..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-8 h-8 text-sm"
+            />
           </div>
-          <div ref={containerRef} className="overflow-auto max-h-[550px]" onScroll={handleScroll}>
-            <table className="w-full border-collapse text-xs">
-              <thead className="sticky top-0 z-20">
-                <tr className="bg-yellow-100">
-                  <th className="sticky left-0 z-30 bg-yellow-100 p-2 text-left font-bold border min-w-[180px]">PRODUCT NAME</th>
-                  {visibleStores.map((store) => (
-                    <th key={store._id} className="p-1 text-center font-medium border bg-yellow-50 min-w-[70px]" title={`${store.storeName} - ${store.city || store.state || ''}`}>
-                      <div className="truncate text-[10px]">{store.storeName?.substring(0, 10) || 'Store'}</div>
-                      {store.state && <div className="text-[8px] text-gray-500">{store.state}</div>}
-                    </th>
-                  ))}
-                  <th className="p-1 text-center font-bold border bg-cyan-100 min-w-[60px]">TOTAL</th>
-                  <th className="p-1 text-center font-bold border bg-gray-200 min-w-[60px]">STOCK</th>
-                  <th className="p-1 text-center font-bold border bg-green-100 min-w-[70px]">REQ</th>
-                  <th className="p-1 text-center font-bold border bg-blue-100 min-w-[70px]">PURCHASE</th>
-                  <th className="p-1 text-center font-bold border bg-orange-100 min-w-[60px]">STATUS</th>
-                </tr>
-              </thead>
+          
+          <Select value={selectedState} onValueChange={setSelectedState}>
+            <SelectTrigger className="w-[140px] h-8">
+              <MapPin className="h-3 w-3 mr-1" />
+              <SelectValue placeholder="State" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All States</SelectItem>
+              {availableStates.map(state => (
+                <SelectItem key={state} value={state}>{state}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-              <tbody>
-                {visibleRowRange.start > 0 && <tr style={{ height: visibleRowRange.start * ROW_HEIGHT }}><td colSpan={visibleStores.length + 6}></td></tr>}
-                {virtualizedRows.length === 0 ? (
-                  <tr><td colSpan={visibleStores.length + 6} className="text-center py-8 text-muted-foreground">No products found</td></tr>
-                ) : (
-                  virtualizedRows.map((row, idx) => {
-                    const actualIdx = visibleRowRange.start + idx;
-                    const diff = row.purchaseTotal - row.requirement;
-                    return (
-                      <tr key={row.productId} className={`${actualIdx % 2 === 0 ? "bg-white" : "bg-gray-50"}`} style={{ height: ROW_HEIGHT }}>
-                        <td className="sticky left-0 z-10 p-1 border font-medium bg-inherit">
-                          <div className="flex items-center gap-1">
-                            {row.image ? <img src={row.image} alt="" className="w-6 h-6 rounded object-cover" loading="lazy" /> : <Package className="h-4 w-4 text-gray-300" />}
-                            <span className="truncate" title={row.productName}>{row.productName}</span>
-                          </div>
-                        </td>
-                        {visibleStores.map((store) => (
-                          <EditableCell
-                            key={store._id}
-                            value={row.storeOrders[store._id] || 0}
-                            onChange={handleStoreOrderChange}
-                            productId={row.productId}
-                            storeId={store._id}
-                            isHighlighted={changedCells.has(`${row.productId}-${store._id}`)}
-                          />
-                        ))}
-                        <td className="p-1 text-center border bg-cyan-50 font-bold">{row.orderTotal}</td>
-                        <td className="p-1 text-center border bg-gray-100">{row.currentStock}</td>
-                        <td className="p-0 text-center border bg-green-50">
-                          <input type="number" min="0" value={row.requirement} onChange={(e) => handleFieldChange(row.productId, 'requirement', parseInt(e.target.value) || 0)} className="w-full h-full p-1 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-green-500" />
-                        </td>
-                        <td className="p-0 text-center border bg-blue-50">
-                          <input type="number" min="0" value={row.purchaseTotal} onChange={(e) => handleFieldChange(row.productId, 'purchaseTotal', parseInt(e.target.value) || 0)} className="w-full h-full p-1 text-center text-xs border-0 bg-transparent focus:ring-1 focus:ring-blue-500" />
-                        </td>
-                        <td className="p-1 text-center border bg-orange-50">
-                          {(row.purchaseTotal > 0 || row.requirement > 0) && (
-                            <span className={`px-1 py-0.5 rounded text-[10px] font-medium ${diff >= 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                              {diff >= 0 ? <Check className="h-3 w-3 inline" /> : diff}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-                {visibleRowRange.end < matrixData.length && <tr style={{ height: (matrixData.length - visibleRowRange.end) * ROW_HEIGHT }}><td colSpan={visibleStores.length + 6}></td></tr>}
-              </tbody>
+          {/* Active Stores Only Toggle */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showOnlyActiveStores ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowOnlyActiveStores(!showOnlyActiveStores)}
+                  className={`h-8 ${showOnlyActiveStores ? "bg-green-600 hover:bg-green-700" : ""}`}
+                >
+                  <Store className="h-3 w-3 mr-1" />
+                  {showOnlyActiveStores ? "Active Only" : "All Stores"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{showOnlyActiveStores ? "Showing only stores with orders/preorders" : "Click to show only active stores"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
-              <tfoot className="sticky bottom-0 z-20">
-                <tr className="bg-gray-300 font-bold text-xs">
-                  <td className="sticky left-0 z-30 bg-gray-300 p-1 border">TOTALS</td>
-                  {visibleStores.map((store) => (
-                    <td key={store._id} className="p-1 text-center border">{matrixData.reduce((sum, row) => sum + (row.storeOrders[store._id] || 0), 0)}</td>
-                  ))}
-                  <td className="p-1 text-center border bg-cyan-200">{totals.orderTotal}</td>
-                  <td className="p-1 text-center border bg-gray-400">{totals.currentStock}</td>
-                  <td className="p-1 text-center border bg-green-200">{totals.requirement}</td>
-                  <td className="p-1 text-center border bg-blue-200">{totals.purchaseTotal}</td>
-                  <td className="p-1 text-center border bg-orange-200"></td>
-                </tr>
-              </tfoot>
-            </table>
+          <Button
+            variant={showOnlyWithOrders ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowOnlyWithOrders(!showOnlyWithOrders)}
+            className="h-8"
+          >
+            <Filter className="h-3 w-3 mr-1" />
+            {showOnlyWithOrders ? "All" : "With Orders"}
+          </Button>
+
+          {/* Size Control */}
+          <div className="flex items-center gap-1 bg-white border rounded-md p-1">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={sizePreset === "compact" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setSizePreset("compact")}
+                    className="h-6 w-6 p-0"
+                  >
+                    <ZoomOut className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Compact</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={sizePreset === "normal" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setSizePreset("normal")}
+                    className="h-6 px-2 text-xs"
+                  >
+                    M
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Normal</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={sizePreset === "large" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setSizePreset("large")}
+                    className="h-6 w-6 p-0"
+                  >
+                    <ZoomIn className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Large</p></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-        </CardContent>
-      </Card>
-      <div className="text-xs text-center text-muted-foreground">
-        Click cells to edit • Yellow = changed • Green = has orders • Use filters to show stores by state or only with orders
-      </div>
-    </div>
+
+          <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+            <SelectTrigger className="w-[80px] h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="flex items-center justify-between mb-2 px-2">
+          <span className="text-xs text-gray-500">
+            Page {currentPage} of {totalPages} ({totalProducts} products)
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(1)} disabled={currentPage === 1}>
+              First
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="px-2 text-sm">{currentPage}</span>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(totalPages)} disabled={currentPage === totalPages}>
+              Last
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats Row */}
+        <div className="flex flex-wrap gap-2 mb-3 text-xs">
+          <Badge variant="outline" className="gap-1">
+            <Store className="h-3 w-3" />
+            {filteredStores.length} Stores ({storesWithOrdersCount} active)
+          </Badge>
+          <Badge variant="outline" className="gap-1">
+            <Package className="h-3 w-3" />
+            {matrixData.length} Products
+          </Badge>
+          <Badge variant="outline" className="gap-1 bg-orange-50">
+            <ClipboardList className="h-3 w-3" />
+            {preOrdersCount} PreOrders
+          </Badge>
+          <Badge variant="outline" className="gap-1 bg-blue-50">
+            <ShoppingCart className="h-3 w-3" />
+            {totals.orderTotal} Orders
+          </Badge>
+        </div>
+
+        {/* Store Navigation */}
+        {!showAllStores && filteredStores.length > 20 && (
+          <div className="flex items-center justify-between mb-2 px-2">
+            <Button variant="ghost" size="sm" onClick={() => handleStoreNavigation('prev')} disabled={visibleStoreRange.start === 0}>
+              <ChevronLeft className="h-4 w-4" /> Prev Stores
+            </Button>
+            <span className="text-xs text-gray-500">
+              Showing {visibleStoreRange.start + 1}-{Math.min(visibleStoreRange.end, filteredStores.length)} of {filteredStores.length}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => handleStoreNavigation('next')} disabled={visibleStoreRange.end >= filteredStores.length}>
+              Next Stores <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowAllStores(!showAllStores)}
+          className="mb-2 text-xs"
+        >
+          {showAllStores ? <EyeOff className="h-3 w-3 mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+          {showAllStores ? "Show Less" : `Show All ${filteredStores.length} Stores`}
+        </Button>
+
+        {/* Matrix Table */}
+        <div ref={containerRef} className={`overflow-auto border rounded-lg ${isMaximized ? 'max-h-[calc(100vh-350px)]' : 'max-h-[600px]'}`}>
+          <table className={`w-full ${currentSize.fontSize} border-collapse`}>
+            <thead className="sticky top-0 z-10 bg-gray-100">
+              <tr>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-left border bg-gray-200 sticky left-0 z-20 ${currentSize.productWidth}`}>PRODUCT</th>
+                {visibleStores.map(store => (
+                  <TooltipProvider key={store._id}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-gray-100 ${currentSize.minWidth} ${currentSize.maxWidth} truncate cursor-help`}>
+                          {store.storeName?.substring(0, sizePreset === "large" ? 8 : 6) || 'Store'}
+                        </th>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="font-medium">{store.storeName}</p>
+                        <p className="text-xs text-gray-400">{store.city}, {store.state}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-blue-100 ${currentSize.minWidth}`}>TOT</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-green-100 ${currentSize.minWidth}`}>STK</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-orange-100 ${currentSize.minWidth}`}>PRE</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-yellow-100 ${currentSize.minWidth}`}>REQ</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-purple-100 ${currentSize.minWidth}`}>PUR</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-gray-200 ${currentSize.minWidth}`}>ST</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matrixData.map((row) => {
+                // Calculate row totals from store orders
+                const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0);
+                const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0);
+                const rowPendingReq = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0);
+                const status = (row.totalPurchase || 0) >= rowPendingReq ? "OK" : "NEED";
+                
+                return (
+                  <tr key={row.productId} className="hover:bg-gray-50">
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-white sticky left-0 z-5 font-medium truncate ${currentSize.productWidth}`} title={row.productName}>
+                      {row.productName}
+                    </td>
+                    {visibleStores.map(store => {
+                      const storeData = row.storeOrders?.[store._id] || {};
+                      const cellKey = `${row.productId}-${store._id}`;
+                      return (
+                        <EditableCell
+                          key={cellKey}
+                          value={storeData.currentQty || 0}
+                          previousValue={storeData.previousQty || 0}
+                          preOrderValue={storeData.preOrderQty || 0}
+                          pendingReq={storeData.pendingReq || 0}
+                          isPreOrderFulfilled={storeData.isPreOrderFulfilled || false}
+                          onChange={handleCellChange}
+                          productId={row.productId}
+                          storeId={store._id}
+                          isHighlighted={changedCells.has(cellKey)}
+                          orderId={storeData.orderId || null}
+                          saving={savingCell === cellKey}
+                          disabled={!canEdit}
+                          mode={matrixMode}
+                        />
+                      );
+                    })}
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-50 font-bold`}>{rowOrderTotal}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-50`}>{row.totalStock || 0}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-orange-50`}>{rowPreOrderTotal}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-yellow-50`}>{rowPendingReq}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-50`}>{row.totalPurchase || 0}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border font-bold ${status === "OK" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      {status}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="sticky bottom-0 bg-gray-100 font-bold">
+              <tr>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-gray-200 sticky left-0`}>TOTAL</td>
+                {visibleStores.map(store => {
+                  const storeTotal = matrixData.reduce((sum, row) => sum + (row.storeOrders?.[store._id]?.currentQty || 0), 0);
+                  return (
+                    <td key={store._id} className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-gray-100`}>
+                      {storeTotal > 0 ? storeTotal : '-'}
+                    </td>
+                  );
+                })}
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-200`}>{totals.orderTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-200`}>{totals.stockTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-orange-200`}>{totals.preOrderTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-yellow-200`}>{totals.pendingReqTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-200`}>{totals.purchaseTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-gray-200`}>-</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-600 p-2 bg-gray-50 rounded">
+          <span className="font-medium text-gray-700">Legend:</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-50 border rounded" /> Order Qty</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-orange-50 border rounded" /> PreOrder Qty</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border rounded" /> PreOrder Fulfilled</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-100 border rounded" /> Changed (Order)</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-orange-200 border rounded" /> Changed (PreOrder)</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-100 border rounded" /> Read Only</span>
+          <span className="flex items-center gap-1"><History className="h-3 w-3" /> Prev Week Order</span>
+          <span className="flex items-center gap-1"><ClipboardList className="h-3 w-3 text-orange-500" /> PreOrder</span>
+          <span className="flex items-center gap-1"><ShoppingCart className="h-3 w-3 text-blue-500" /> Order</span>
+        </div>
+        
+        {/* Mode Help */}
+        <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+          <span className="font-medium">Mode Guide: </span>
+          <span className="text-blue-700">ORDER</span> - Create/edit orders (current week only) | 
+          <span className="text-orange-700 ml-1">PREORDER</span> - Create/edit preorders (current & future weeks) | 
+          <span className="text-gray-700 ml-1">VIEW</span> - Read-only mode
+        </div>
+      </CardContent>
+    </Card>
   );
+
+  // Return with fullscreen wrapper if maximized
+  if (isMaximized) {
+    return (
+      <div className="fixed inset-0 z-50 bg-white overflow-hidden">
+        {/* Fullscreen Header */}
+        <div className="absolute top-2 right-2 z-50 flex items-center gap-2">
+          <Badge variant="secondary" className="bg-blue-100">
+            Press ESC to exit fullscreen
+          </Badge>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setIsMaximized(false)}
+            className="bg-white shadow-md"
+          >
+            <X className="h-4 w-4 mr-1" />
+            Close
+          </Button>
+        </div>
+        {matrixContent}
+      </div>
+    );
+  }
+
+  return matrixContent;
 };
 
 export default WeeklyOrderMatrix;

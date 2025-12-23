@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { PriceListTemplate, InvoiceData } from "@/components/inventory/forms/formTypes"
 import { formatCurrency } from "@/utils/formatters"
-import { Check, FileText, Loader2, ShoppingCart } from "lucide-react"
+import { Check, FileText, Loader2, ShoppingCart, Plus, Minus, X, Package } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { exportInvoiceToPDF } from "@/utils/pdf"
 import { getAllStoresAPI } from "@/services2/operations/auth"
@@ -263,11 +263,36 @@ const [preOrderNum, setPreOrderNum] = useState("");
    
 
   const handleQuantityChange = (productId, value) => {
+    const newValue = parseInt(value) || 0;
     setQuantities((prev) => ({
       ...prev,
-      [productId]: parseInt(value) || 0,
+      [productId]: Math.max(0, newValue),
     }));
   };
+
+  const incrementQuantity = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: (prev[productId] || 0) + 1,
+    }));
+  };
+
+  const decrementQuantity = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: Math.max(0, (prev[productId] || 0) - 1),
+    }));
+  };
+
+  const removeProduct = (productId) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [productId]: 0,
+    }));
+  };
+
+  // Count selected products
+  const selectedCount = Object.values(quantities).filter(q => q > 0).length;
 
   const handlePriceTypeChange = (productId, value) => {
     setPriceType((prev) => ({
@@ -760,16 +785,19 @@ exportInvoiceToPDF({
                   /* Product Selection Mode */
                   selectedStore?.value ? 
                   <div className="border rounded-md overflow-hidden">
-                  <div className="flex flex-col md:flex-row items-center gap-2 sm:gap-4 p-3 sm:p-4">
-                    <Input
-                      placeholder="Search products..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full mb-2 md:mb-0 md:w-1/2"
-                    />
+                  {/* Search and Filter Bar */}
+                  <div className="flex flex-col md:flex-row items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-gray-50 border-b">
+                    <div className="flex-1 w-full md:w-auto">
+                      <Input
+                        placeholder="Search products..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full bg-white"
+                      />
+                    </div>
 
-                    <Select onValueChange={setSelectedCategory} value={selectedCategory} className="w-full md:w-64">
-                      <SelectTrigger>
+                    <Select onValueChange={setSelectedCategory} value={selectedCategory}>
+                      <SelectTrigger className="w-full md:w-48">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
                       <SelectContent>
@@ -780,9 +808,18 @@ exportInvoiceToPDF({
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* Selected Count Badge */}
+                    {selectedCount > 0 && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-green-100 rounded-lg border border-green-200">
+                        <Package className="h-4 w-4 text-green-600" />
+                        <span className="text-sm font-medium text-green-700">{selectedCount} items</span>
+                        <span className="text-sm font-bold text-green-700">{formatCurrency(calculateSubtotal())}</span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -799,49 +836,89 @@ exportInvoiceToPDF({
                           const selectedType = priceType[product.id] || "box"; // default to box
                           const price = selectedType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
                           const total = price * quantity;
+                          const isSelected = quantity > 0;
 
                           return (
-                            <TableRow key={product.id}>
+                            <TableRow key={product.id} className={isSelected ? "bg-green-50/50" : ""}>
                               <TableCell className="font-medium">
-                                <div className="flex items-center gap-2 sm:gap-4">
+                                <div className="flex items-center gap-2 sm:gap-3">
                                   <img
                                     src={product.image || "/placeholder.svg"}
                                     alt=""
-                                    className="h-10 sm:h-14 w-auto object-contain"
+                                    className="h-10 w-10 object-contain rounded"
                                     loading="lazy"
                                   />
-                                  <span className="text-xs sm:text-sm">{product.name}</span>
+                                  <div>
+                                    <span className="text-xs sm:text-sm font-medium block">{product.name}</span>
+                                    <span className="text-xs text-muted-foreground sm:hidden">{product.category}</span>
+                                  </div>
                                 </div>
                               </TableCell>
 
-                              <TableCell className="hidden sm:table-cell">{product.category}</TableCell>
+                              <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">{product.category}</TableCell>
 
                          {!nextWeek &&     <TableCell className="text-right text-xs sm:text-sm">
                                 <div className="flex flex-col items-end gap-1">
                                   <select
                                     value={selectedType}
                                     onChange={(e) => handlePriceTypeChange(product.id, e.target.value)}
-                                    className="text-xs border rounded px-2 py-1"
+                                    className="text-xs border rounded px-2 py-1 bg-white"
                                   >
-                                    <option value="unit">Per Unit</option>
+                                    <option value="unit">Per LB</option>
                                     <option value="box">Per Box</option>
                                   </select>
-                                  <span>{formatCurrency(price)}</span>
+                                  <span className="font-medium">{formatCurrency(price)}</span>
                                 </div>
                               </TableCell>}
 
                               <TableCell>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  value={quantity || ""}
-                                  onChange={(e) => handleQuantityChange(product.id, e.target.value)}
-                                  className="w-16 sm:w-20 mx-auto text-center"
-                                />
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => decrementQuantity(product.id)}
+                                    disabled={quantity === 0}
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={quantity || ""}
+                                    onChange={(e) => handleQuantityChange(product.id, e.target.value)}
+                                    className="w-14 text-center h-8 px-1"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => incrementQuantity(product.id)}
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </Button>
+                                  {isSelected && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                      onClick={() => removeProduct(product.id)}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
                               </TableCell>
 
                           {!nextWeek &&    <TableCell className="text-right font-medium text-xs sm:text-sm">
-                                {formatCurrency(total)}
+                                {isSelected ? (
+                                  <span className="text-green-600 font-semibold">{formatCurrency(total)}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
                               </TableCell>}
                             </TableRow>
                           );

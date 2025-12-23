@@ -21,7 +21,10 @@ const {
     deleteOrderHardCtrl,
     updateBuyerQuantityCtrl,
     assignProductToStore,
-    getUserLatestOrdersCtrl
+    getUserLatestOrdersCtrl,
+    getOrderMatrixDataCtrl,
+    updateOrderMatrixItemCtrl,
+    updatePreOrderMatrixItemCtrl
 
 } = require("../controllers/orderCtrl");
 
@@ -48,6 +51,11 @@ router.post("/invoiceMail/:id", invoiceMailCtrl);
 router.patch("/update-quantity", updateBuyerQuantityCtrl);
 router.post("/assign-product", assignProductToStore);
 router.get("/latest/:storeId", getUserLatestOrdersCtrl);
+
+// Order Matrix APIs
+router.get("/matrix", auth, getOrderMatrixDataCtrl);
+router.post("/matrix/update", auth, updateOrderMatrixItemCtrl);
+router.post("/matrix/preorder", auth, updatePreOrderMatrixItemCtrl);
 
 
 

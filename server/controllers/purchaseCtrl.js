@@ -908,16 +908,29 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
       });
     }
 
+    // Calculate payment terms days
+    const termDays = {
+      'cod': 0,
+      'net15': 15,
+      'net30': 30,
+      'net45': 45,
+      'net60': 60,
+      'custom': vendor.paymentTerms?.customDays || 30
+    };
+    const paymentDays = termDays[vendor.paymentTerms?.type] || 30;
+
     // Get all purchase orders for this vendor with product details
     const purchaseOrders = await PurchaseOrder.find({ 
       vendorId: new mongoose.Types.ObjectId(vendorId) 
     })
       .populate('items.productId', 'name unit category')
+      .populate('creditAdjustments.creditMemoId', 'memoNumber amount')
       .sort({ purchaseDate: -1 });
 
     // Calculate totals
     let totalSpent = 0;
     let totalPay = 0;
+    let totalCreditApplied = 0;
 
     const formattedOrders = purchaseOrders.map(order => {
       const orderTotal = order.totalAmount || 0;
@@ -928,6 +941,16 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
         totalPay += orderTotal;
       } else if (order.paymentStatus === "partial") {
         totalPay += parseFloat(order.paymentAmount) || 0;
+      }
+
+      // Add credit applied
+      totalCreditApplied += order.totalCreditApplied || 0;
+
+      // Calculate due date if not set
+      let dueDate = order.dueDate;
+      if (!dueDate && order.purchaseDate) {
+        dueDate = new Date(order.purchaseDate);
+        dueDate.setDate(dueDate.getDate() + paymentDays);
       }
 
       // Format items with product details
@@ -941,10 +964,12 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
       return {
         ...order.toObject(),
         items: formattedItems,
+        dueDate,
+        totalCreditApplied: order.totalCreditApplied || 0,
       };
     });
 
-    const balanceDue = totalSpent - totalPay;
+    const balanceDue = totalSpent - totalPay - totalCreditApplied;
 
     const result = {
       _id: vendor._id,
@@ -955,9 +980,11 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
       address: vendor.address,
       productsSupplied: vendor.productsSupplied,
       contactName: vendor.contactName,
+      paymentTerms: vendor.paymentTerms,
       totalOrders: purchaseOrders.length,
       totalSpent,
       totalPay,
+      totalCreditApplied,
       balanceDue,
       purchaseOrders: formattedOrders,
       createdAt: vendor.createdAt,
@@ -989,3 +1016,383 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
 
 
 
+
+
+// ✅ Apply Credit to Purchase Order
+exports.applyCreditToPurchaseOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { purchaseOrderId } = req.params;
+    const { creditMemoId, amount, notes } = req.body;
+
+    // Validate purchase order
+    const purchaseOrder = await PurchaseOrder.findById(purchaseOrderId).session(session);
+    if (!purchaseOrder) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Purchase order not found"
+      });
+    }
+
+    // Validate credit memo
+    const VendorCreditMemo = require('../models/vendorCreditMemoModel');
+    const creditMemo = await VendorCreditMemo.findById(creditMemoId).session(session);
+    if (!creditMemo) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Credit memo not found"
+      });
+    }
+
+    // Check if credit memo belongs to same vendor
+    if (creditMemo.vendorId.toString() !== purchaseOrder.vendorId.toString()) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Credit memo does not belong to the same vendor"
+      });
+    }
+
+    // Check if credit memo can be applied
+    if (!['approved', 'partially_applied'].includes(creditMemo.status)) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: `Credit memo cannot be applied (status: ${creditMemo.status})`
+      });
+    }
+
+    // Check if amount is valid
+    if (amount > creditMemo.remainingAmount) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: `Amount exceeds remaining credit (${creditMemo.remainingAmount})`
+      });
+    }
+
+    // Calculate remaining balance on purchase order
+    const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+    const currentCreditApplied = purchaseOrder.totalCreditApplied || 0;
+    const remainingBalance = purchaseOrder.totalAmount - currentPaid - currentCreditApplied;
+
+    if (amount > remainingBalance) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: `Amount exceeds remaining balance on purchase order (${remainingBalance})`
+      });
+    }
+
+    // Apply credit to purchase order
+    purchaseOrder.creditAdjustments = purchaseOrder.creditAdjustments || [];
+    purchaseOrder.creditAdjustments.push({
+      creditMemoId: creditMemo._id,
+      amount,
+      appliedAt: new Date(),
+      appliedBy: req.user?._id,
+      notes
+    });
+    purchaseOrder.totalCreditApplied = (purchaseOrder.totalCreditApplied || 0) + amount;
+
+    // Update payment status
+    const newTotalPaid = currentPaid + purchaseOrder.totalCreditApplied;
+    if (newTotalPaid >= purchaseOrder.totalAmount) {
+      purchaseOrder.paymentStatus = 'paid';
+    } else if (newTotalPaid > 0) {
+      purchaseOrder.paymentStatus = 'partial';
+    }
+
+    await purchaseOrder.save({ session });
+
+    // Update credit memo
+    creditMemo.appliedAmount = (creditMemo.appliedAmount || 0) + amount;
+    creditMemo.remainingAmount = creditMemo.amount - creditMemo.appliedAmount;
+    
+    if (creditMemo.remainingAmount <= 0) {
+      creditMemo.status = 'applied';
+    } else {
+      creditMemo.status = 'partially_applied';
+    }
+
+    await creditMemo.save({ session });
+
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: "Credit applied successfully",
+      data: {
+        purchaseOrder,
+        creditMemo
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error applying credit:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to apply credit",
+      error: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// ✅ Get Purchase Order with Accounting Details
+exports.getPurchaseOrderAccountingDetails = async (req, res) => {
+  try {
+    const { purchaseOrderId } = req.params;
+
+    const purchaseOrder = await PurchaseOrder.findById(purchaseOrderId)
+      .populate('vendorId', 'name paymentTerms')
+      .populate('creditAdjustments.creditMemoId', 'memoNumber amount type')
+      .populate('items.productId', 'name');
+
+    if (!purchaseOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Purchase order not found"
+      });
+    }
+
+    // Calculate due date based on vendor payment terms
+    const vendor = purchaseOrder.vendorId;
+    let dueDate = purchaseOrder.dueDate;
+    
+    if (!dueDate && vendor?.paymentTerms) {
+      const termDays = {
+        'cod': 0,
+        'net15': 15,
+        'net30': 30,
+        'net45': 45,
+        'net60': 60,
+        'custom': vendor.paymentTerms.customDays || 30
+      };
+      const days = termDays[vendor.paymentTerms.type] || 30;
+      dueDate = new Date(purchaseOrder.purchaseDate);
+      dueDate.setDate(dueDate.getDate() + days);
+    }
+
+    // Calculate accounting summary
+    const totalAmount = purchaseOrder.totalAmount || 0;
+    const paidAmount = parseFloat(purchaseOrder.paymentAmount) || 0;
+    const creditApplied = purchaseOrder.totalCreditApplied || 0;
+    const remainingBalance = totalAmount - paidAmount - creditApplied;
+    
+    // Check if overdue
+    const isOverdue = dueDate && new Date() > new Date(dueDate) && remainingBalance > 0;
+    const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(dueDate)) / (1000 * 60 * 60 * 24)) : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        purchaseOrder,
+        accounting: {
+          totalAmount,
+          paidAmount,
+          creditApplied,
+          remainingBalance,
+          dueDate,
+          isOverdue,
+          daysOverdue,
+          paymentTerms: vendor?.paymentTerms,
+          creditAdjustments: purchaseOrder.creditAdjustments || []
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching accounting details:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch accounting details",
+      error: error.message
+    });
+  }
+};
+
+// ✅ Get Vendor Accounting Summary
+exports.getVendorAccountingSummary = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+
+    // Get vendor with payment terms
+    const vendor = await Vendor.findById(vendorId);
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found"
+      });
+    }
+
+    // Get all purchase orders for this vendor
+    const purchaseOrders = await PurchaseOrder.find({ vendorId })
+      .populate('creditAdjustments.creditMemoId', 'memoNumber amount type')
+      .sort({ purchaseDate: -1 });
+
+    // Calculate payment terms days
+    const termDays = {
+      'cod': 0,
+      'net15': 15,
+      'net30': 30,
+      'net45': 45,
+      'net60': 60,
+      'custom': vendor.paymentTerms?.customDays || 30
+    };
+    const paymentDays = termDays[vendor.paymentTerms?.type] || 30;
+
+    // Calculate accounting metrics
+    let totalAmount = 0;
+    let totalPaid = 0;
+    let totalCreditApplied = 0;
+    let overdueAmount = 0;
+    let overdueCount = 0;
+    const agingBuckets = {
+      current: 0,
+      days1to30: 0,
+      days31to60: 0,
+      days61to90: 0,
+      over90: 0
+    };
+
+    const ordersWithAccounting = purchaseOrders.map(order => {
+      const orderTotal = order.totalAmount || 0;
+      const orderPaid = parseFloat(order.paymentAmount) || 0;
+      const orderCredit = order.totalCreditApplied || 0;
+      const orderBalance = orderTotal - orderPaid - orderCredit;
+
+      totalAmount += orderTotal;
+      totalPaid += orderPaid;
+      totalCreditApplied += orderCredit;
+
+      // Calculate due date
+      let dueDate = order.dueDate;
+      if (!dueDate) {
+        dueDate = new Date(order.purchaseDate);
+        dueDate.setDate(dueDate.getDate() + paymentDays);
+      }
+
+      // Check if overdue and calculate aging
+      const today = new Date();
+      const isOverdue = orderBalance > 0 && today > new Date(dueDate);
+      const daysOverdue = isOverdue ? Math.floor((today - new Date(dueDate)) / (1000 * 60 * 60 * 24)) : 0;
+
+      if (orderBalance > 0) {
+        if (!isOverdue) {
+          agingBuckets.current += orderBalance;
+        } else if (daysOverdue <= 30) {
+          agingBuckets.days1to30 += orderBalance;
+          overdueAmount += orderBalance;
+          overdueCount++;
+        } else if (daysOverdue <= 60) {
+          agingBuckets.days31to60 += orderBalance;
+          overdueAmount += orderBalance;
+          overdueCount++;
+        } else if (daysOverdue <= 90) {
+          agingBuckets.days61to90 += orderBalance;
+          overdueAmount += orderBalance;
+          overdueCount++;
+        } else {
+          agingBuckets.over90 += orderBalance;
+          overdueAmount += orderBalance;
+          overdueCount++;
+        }
+      }
+
+      return {
+        _id: order._id,
+        purchaseOrderNumber: order.purchaseOrderNumber,
+        purchaseDate: order.purchaseDate,
+        dueDate,
+        totalAmount: orderTotal,
+        paidAmount: orderPaid,
+        creditApplied: orderCredit,
+        remainingBalance: orderBalance,
+        paymentStatus: order.paymentStatus,
+        isOverdue,
+        daysOverdue,
+        creditAdjustments: order.creditAdjustments || []
+      };
+    });
+
+    // Get available credits
+    const VendorCreditMemo = require('../models/vendorCreditMemoModel');
+    const availableCredits = await VendorCreditMemo.find({
+      vendorId,
+      type: 'credit',
+      status: { $in: ['approved', 'partially_applied'] },
+      remainingAmount: { $gt: 0 }
+    }).select('memoNumber amount appliedAmount remainingAmount reasonCategory createdAt');
+
+    const totalAvailableCredit = availableCredits.reduce((sum, c) => sum + c.remainingAmount, 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        vendor: {
+          _id: vendor._id,
+          name: vendor.name,
+          paymentTerms: vendor.paymentTerms
+        },
+        summary: {
+          totalAmount,
+          totalPaid,
+          totalCreditApplied,
+          totalBalance: totalAmount - totalPaid - totalCreditApplied,
+          overdueAmount,
+          overdueCount,
+          totalAvailableCredit
+        },
+        agingBuckets,
+        orders: ordersWithAccounting,
+        availableCredits
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching vendor accounting summary:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch accounting summary",
+      error: error.message
+    });
+  }
+};
+
+// ✅ Update Purchase Order Due Date
+exports.updatePurchaseOrderDueDate = async (req, res) => {
+  try {
+    const { purchaseOrderId } = req.params;
+    const { dueDate } = req.body;
+
+    const purchaseOrder = await PurchaseOrder.findByIdAndUpdate(
+      purchaseOrderId,
+      { dueDate: new Date(dueDate) },
+      { new: true }
+    );
+
+    if (!purchaseOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Purchase order not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Due date updated successfully",
+      data: purchaseOrder
+    });
+  } catch (error) {
+    console.error("Error updating due date:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update due date",
+      error: error.message
+    });
+  }
+};
