@@ -610,7 +610,7 @@ const Inventory = () => {
         <main className="flex-1 overflow-y-auto">
           <div className="container px-4 py-6 mx-auto max-w-7xl">
             <div className="mb-6">
-              <PageHeader title="Inventory Management" description="Manage your product inventory efficiently">
+              <PageHeader title="Inventory Management " description="Manage your product inventory efficiently">
                 <div className="flex flex-wrap gap-2">
                   {/* Quick Win: Keyboard Shortcuts Help */}
                   <KeyboardShortcutsHelp shortcuts={shortcuts} />

@@ -89,6 +89,7 @@ interface ProductType {
   image?: string
   stock?: number
   shortCode?: string
+  salesMode?: "unit" | "case" | "both"
 }
 
 interface OrderItem {
@@ -160,6 +161,15 @@ const NewOrderEnhanced = () => {
   const [quickAddPreview, setQuickAddPreview] = useState<ProductType | null>(null)
   const [recentlyAddedProducts, setRecentlyAddedProducts] = useState<ProductType[]>([])
   const quickAddRef = useRef<HTMLInputElement>(null)
+  
+  // Quick Add quantity and type selection
+  const [quickAddQuantity, setQuickAddQuantity] = useState(1)
+  const [quickAddPricingType, setQuickAddPricingType] = useState<"box" | "unit">("box")
+
+  // Product add with quantity selection state
+  const [selectedProductForAdd, setSelectedProductForAdd] = useState<ProductType | null>(null)
+  const [addQuantity, setAddQuantity] = useState(1)
+  const [addPricingType, setAddPricingType] = useState<"box" | "unit">("box")
 
   // Product code map for quick lookup
   const productCodeMap = useMemo(() => {
@@ -200,6 +210,13 @@ const NewOrderEnhanced = () => {
     if (parsed) {
       const product = productCodeMap.get(parsed.code)
       setQuickAddPreview(product || null)
+      if (product) {
+        // Set default pricing type based on salesMode
+        const salesMode = product.salesMode || "both"
+        const defaultType = salesMode === "unit" ? "unit" : "box"
+        setQuickAddPricingType(defaultType)
+        setQuickAddQuantity(1)
+      }
     } else {
       setQuickAddPreview(null)
     }
@@ -207,34 +224,40 @@ const NewOrderEnhanced = () => {
 
   // Handle quick add submit
   const handleQuickAddSubmit = useCallback(() => {
-    const parsed = parseQuickAddInput(quickAddInput)
-    if (!parsed) {
-      toast({ title: "Invalid format", description: "Use: CODE, CODEx5 (5 boxes), or CODEu3 (3 units)", variant: "destructive" })
+    if (!quickAddPreview) {
+      toast({ title: "No product selected", description: "Enter a valid product code first", variant: "destructive" })
       return
     }
     
-    const product = productCodeMap.get(parsed.code)
-    if (!product) {
-      toast({ title: "Product not found", description: `No product with code: ${parsed.code}`, variant: "destructive" })
+    const product = quickAddPreview
+    
+    // Check salesMode restrictions
+    const salesMode = product.salesMode || "both"
+    if (salesMode === "case" && quickAddPricingType === "unit") {
+      toast({ title: "Not allowed", description: `${product.name} can only be sold by case/box`, variant: "destructive" })
+      return
+    }
+    if (salesMode === "unit" && quickAddPricingType === "box") {
+      toast({ title: "Not allowed", description: `${product.name} can only be sold by unit`, variant: "destructive" })
       return
     }
     
-    // Add product with specified quantity
+    // Add product with selected quantity and type
     const existingIndex = orderItems.findIndex(
-      item => item.productId === product.id && item.pricingType === parsed.pricingType
+      item => item.productId === product.id && item.pricingType === quickAddPricingType
     )
     
     if (existingIndex >= 0) {
       const updated = [...orderItems]
-      updated[existingIndex].quantity += parsed.quantity
+      updated[existingIndex].quantity += quickAddQuantity
       setOrderItems(updated)
     } else {
       setOrderItems([...orderItems, {
         productId: product.id,
         productName: product.name,
-        quantity: parsed.quantity,
-        unitPrice: parsed.pricingType === "box" ? product.pricePerBox : product.price,
-        pricingType: parsed.pricingType,
+        quantity: quickAddQuantity,
+        unitPrice: quickAddPricingType === "box" ? product.pricePerBox : product.price,
+        pricingType: quickAddPricingType,
         shippinCost: product.shippinCost || 0,
         shortCode: product.shortCode
       }])
@@ -246,11 +269,12 @@ const NewOrderEnhanced = () => {
       return [product, ...filtered].slice(0, 10)
     })
     
-    toast({ title: "Added!", description: `${parsed.quantity} ${parsed.pricingType === 'box' ? 'box(es)' : 'unit(s)'} of ${product.name}` })
+    toast({ title: "Added!", description: `${quickAddQuantity} ${quickAddPricingType === 'box' ? 'box(es)' : 'unit(s)'} of ${product.name}` })
     setQuickAddInput("")
     setQuickAddPreview(null)
+    setQuickAddQuantity(1)
     quickAddRef.current?.focus()
-  }, [quickAddInput, parseQuickAddInput, productCodeMap, orderItems, toast])
+  }, [quickAddPreview, quickAddQuantity, quickAddPricingType, orderItems, toast])
 
   // Keyboard shortcut: Focus quick add with /
   useEffect(() => {
@@ -287,7 +311,8 @@ const NewOrderEnhanced = () => {
         const formattedProducts: ProductType[] = productsData.map((p: any, index: number) => ({
           ...p,
           id: p._id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0')
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
         }))
         setProducts(formattedProducts)
 
@@ -688,23 +713,134 @@ const NewOrderEnhanced = () => {
                       </Button>
                     </div>
                     
-                    {/* Preview */}
-                    {quickAddPreview && (
-                      <div className="p-3 bg-white rounded-lg border border-green-200 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className="font-mono bg-primary/10 text-primary">
-                            #{quickAddPreview.shortCode}
-                          </Badge>
-                          <div>
-                            <div className="font-medium">{quickAddPreview.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              Box: ${quickAddPreview.pricePerBox?.toFixed(2)} | Unit: ${quickAddPreview.price?.toFixed(2)}
+                    {/* Preview with Quantity and Type Selection */}
+                    {quickAddPreview && (() => {
+                      const salesMode = quickAddPreview.salesMode || "both"
+                      const showBox = salesMode === "case" || salesMode === "both"
+                      const showUnit = salesMode === "unit" || salesMode === "both"
+                      const currentPrice = quickAddPricingType === "box" 
+                        ? quickAddPreview.pricePerBox 
+                        : quickAddPreview.price
+                      
+                      return (
+                        <div className="p-4 bg-white rounded-lg border border-green-200 space-y-3">
+                          {/* Product Info Row */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <Badge variant="outline" className="font-mono bg-primary/10 text-primary">
+                                #{quickAddPreview.shortCode}
+                              </Badge>
+                              <div>
+                                <div className="font-medium flex items-center gap-2">
+                                  {quickAddPreview.name}
+                                  <Badge 
+                                    variant="secondary" 
+                                    className={cn(
+                                      "text-[10px] px-1.5",
+                                      salesMode === "unit" && "bg-blue-100 text-blue-700",
+                                      salesMode === "case" && "bg-green-100 text-green-700",
+                                      salesMode === "both" && "bg-purple-100 text-purple-700"
+                                    )}
+                                  >
+                                    {salesMode === "unit" ? "Unit Only" : salesMode === "case" ? "Case Only" : "Both"}
+                                  </Badge>
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {showBox && <span>Box: ${quickAddPreview.pricePerBox?.toFixed(2)}</span>}
+                                  {showBox && showUnit && <span> | </span>}
+                                  {showUnit && <span>Unit: ${quickAddPreview.price?.toFixed(2)}</span>}
+                                </div>
+                              </div>
+                            </div>
+                            <CheckCircle2 className="h-5 w-5 text-green-500" />
+                          </div>
+                          
+                          {/* Type Selection and Quantity Row */}
+                          <div className="flex items-center gap-3 pt-2 border-t">
+                            {/* Type Selection - Only show if salesMode is "both" */}
+                            {salesMode === "both" && (
+                              <div className="flex gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={quickAddPricingType === "box" ? "default" : "outline"}
+                                  className={cn(
+                                    "h-8 px-3",
+                                    quickAddPricingType === "box" && "bg-blue-600 hover:bg-blue-700"
+                                  )}
+                                  onClick={() => setQuickAddPricingType("box")}
+                                >
+                                  <Package className="h-3 w-3 mr-1" />
+                                  Case
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant={quickAddPricingType === "unit" ? "default" : "outline"}
+                                  className={cn(
+                                    "h-8 px-3",
+                                    quickAddPricingType === "unit" && "bg-green-600 hover:bg-green-700"
+                                  )}
+                                  onClick={() => setQuickAddPricingType("unit")}
+                                >
+                                  <DollarSign className="h-3 w-3 mr-1" />
+                                  Unit
+                                </Button>
+                              </div>
+                            )}
+                            
+                            {/* Single type indicator when not "both" */}
+                            {salesMode !== "both" && (
+                              <Badge variant="outline" className="h-8 px-3">
+                                {salesMode === "case" ? (
+                                  <><Package className="h-3 w-3 mr-1" /> Case Only</>
+                                ) : (
+                                  <><DollarSign className="h-3 w-3 mr-1" /> Unit Only</>
+                                )}
+                              </Badge>
+                            )}
+                            
+                            {/* Quantity Controls */}
+                            <div className="flex items-center gap-1 ml-auto">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setQuickAddQuantity(Math.max(1, quickAddQuantity - 1))}
+                                disabled={quickAddQuantity <= 1}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={quickAddQuantity}
+                                onChange={(e) => setQuickAddQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-16 h-8 text-center font-medium"
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setQuickAddQuantity(quickAddQuantity + 1)}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            </div>
+                            
+                            {/* Total Price */}
+                            <div className="text-right min-w-[80px]">
+                              <div className="text-xs text-muted-foreground">Total</div>
+                              <div className="font-bold text-primary">
+                                ${(quickAddQuantity * (currentPrice || 0)).toFixed(2)}
+                              </div>
                             </div>
                           </div>
                         </div>
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      </div>
-                    )}
+                      )
+                    })()}
                     
                     {quickAddInput && !quickAddPreview && (
                       <div className="p-3 bg-red-50 rounded-lg border border-red-200 flex items-center gap-2 text-red-600">
@@ -721,20 +857,28 @@ const NewOrderEnhanced = () => {
                           <span>Recently Added (click to add again)</span>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {recentlyAddedProducts.slice(0, 6).map(product => (
-                            <Button
-                              key={product.id}
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => addProduct(product, "box")}
-                            >
-                              <Badge variant="secondary" className="mr-1 font-mono text-[10px] px-1">
-                                {product.shortCode}
-                              </Badge>
-                              {product.name.length > 15 ? product.name.slice(0, 15) + '...' : product.name}
-                            </Button>
-                          ))}
+                          {recentlyAddedProducts.slice(0, 6).map(product => {
+                            const salesMode = product.salesMode || "both"
+                            const defaultType = salesMode === "unit" ? "unit" : "box"
+                            return (
+                              <Button
+                                key={product.id}
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  setSelectedProductForAdd(product)
+                                  setAddQuantity(1)
+                                  setAddPricingType(defaultType)
+                                }}
+                              >
+                                <Badge variant="secondary" className="mr-1 font-mono text-[10px] px-1">
+                                  {product.shortCode}
+                                </Badge>
+                                {product.name.length > 15 ? product.name.slice(0, 15) + '...' : product.name}
+                              </Button>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -1152,6 +1296,10 @@ const NewOrderEnhanced = () => {
             <div className="grid grid-cols-1 gap-2">
               {displayedProducts.map((product, index) => {
                 const shortCode = product.shortCode || String(products.findIndex(p => p.id === product.id) + 1).padStart(2, '0')
+                const salesMode = product.salesMode || "both"
+                const showBoxButton = salesMode === "case" || salesMode === "both"
+                const showUnitButton = salesMode === "unit" || salesMode === "both"
+                
                 return (
                   <div 
                     key={product.id}
@@ -1162,9 +1310,24 @@ const NewOrderEnhanced = () => {
                         #{shortCode}
                       </Badge>
                       <div className="flex-1">
-                        <div className="font-medium">{product.name}</div>
+                        <div className="font-medium flex items-center gap-2">
+                          {product.name}
+                          <Badge 
+                            variant="secondary" 
+                            className={cn(
+                              "text-[10px] px-1.5",
+                              salesMode === "unit" && "bg-blue-100 text-blue-700",
+                              salesMode === "case" && "bg-green-100 text-green-700",
+                              salesMode === "both" && "bg-purple-100 text-purple-700"
+                            )}
+                          >
+                            {salesMode === "unit" ? "Unit Only" : salesMode === "case" ? "Case Only" : "Both"}
+                          </Badge>
+                        </div>
                         <div className="text-sm text-muted-foreground flex items-center gap-2">
-                          <span>Box: ${product.pricePerBox?.toFixed(2)} | Unit: ${product.price?.toFixed(2)}</span>
+                          {showBoxButton && <span>Box: ${product.pricePerBox?.toFixed(2)}</span>}
+                          {showBoxButton && showUnitButton && <span>|</span>}
+                          {showUnitButton && <span>Unit: ${product.price?.toFixed(2)}</span>}
                           {product.category && (
                             <>
                               <span className="text-gray-300">•</span>
@@ -1180,18 +1343,14 @@ const NewOrderEnhanced = () => {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => addProduct({ ...product, shortCode }, "box")}
-                        className="hover:bg-blue-50 hover:border-blue-300"
+                        onClick={() => {
+                          setSelectedProductForAdd({ ...product, shortCode })
+                          setAddQuantity(1)
+                          setAddPricingType(showBoxButton ? "box" : "unit")
+                        }}
+                        className="hover:bg-primary/10 hover:border-primary"
                       >
-                        <Plus className="h-3 w-3 mr-1" /> Box
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => addProduct({ ...product, shortCode }, "unit")}
-                        className="hover:bg-green-50 hover:border-green-300"
-                      >
-                        <Plus className="h-3 w-3 mr-1" /> Unit
+                        <Plus className="h-3 w-3 mr-1" /> Add
                       </Button>
                     </div>
                   </div>
@@ -1234,6 +1393,178 @@ const NewOrderEnhanced = () => {
       >
         <Plus className="h-6 w-6" />
       </Button>
+
+      {/* Product Quantity Selection Dialog */}
+      <Dialog open={!!selectedProductForAdd} onOpenChange={(open) => !open && setSelectedProductForAdd(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Product to Order</DialogTitle>
+          </DialogHeader>
+          
+          {selectedProductForAdd && (() => {
+            const salesMode = selectedProductForAdd.salesMode || "both"
+            const showBoxOption = salesMode === "case" || salesMode === "both"
+            const showUnitOption = salesMode === "unit" || salesMode === "both"
+            const currentPrice = addPricingType === "box" 
+              ? selectedProductForAdd.pricePerBox 
+              : selectedProductForAdd.price
+            
+            return (
+              <div className="space-y-4">
+                {/* Product Info */}
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    {selectedProductForAdd.shortCode && (
+                      <Badge variant="outline" className="font-mono text-xs bg-primary/10 text-primary">
+                        #{selectedProductForAdd.shortCode}
+                      </Badge>
+                    )}
+                    <span className="font-medium">{selectedProductForAdd.name}</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {showBoxOption && <span>Box: ${selectedProductForAdd.pricePerBox?.toFixed(2)}</span>}
+                    {showBoxOption && showUnitOption && <span> | </span>}
+                    {showUnitOption && <span>Unit: ${selectedProductForAdd.price?.toFixed(2)}</span>}
+                  </div>
+                </div>
+
+                {/* Sales Mode Selection - Only show if "both" */}
+                {salesMode === "both" && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Select Type</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        variant={addPricingType === "box" ? "default" : "outline"}
+                        className={cn(
+                          "h-12",
+                          addPricingType === "box" && "bg-blue-600 hover:bg-blue-700"
+                        )}
+                        onClick={() => setAddPricingType("box")}
+                      >
+                        <Package className="h-4 w-4 mr-2" />
+                        Case/Box
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={addPricingType === "unit" ? "default" : "outline"}
+                        className={cn(
+                          "h-12",
+                          addPricingType === "unit" && "bg-green-600 hover:bg-green-700"
+                        )}
+                        onClick={() => setAddPricingType("unit")}
+                      >
+                        <DollarSign className="h-4 w-4 mr-2" />
+                        Unit
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Quantity Selection */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Quantity (min: 1)</label>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => setAddQuantity(Math.max(1, addQuantity - 1))}
+                      disabled={addQuantity <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={addQuantity}
+                      onChange={(e) => setAddQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-24 text-center text-lg font-medium"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10"
+                      onClick={() => setAddQuantity(addQuantity + 1)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Price Summary */}
+                <div className="p-3 bg-primary/5 rounded-lg border border-primary/20">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">
+                      {addQuantity} × ${currentPrice?.toFixed(2)} ({addPricingType === "box" ? "per box" : "per unit"})
+                    </span>
+                    <span className="text-lg font-bold text-primary">
+                      ${(addQuantity * (currentPrice || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setSelectedProductForAdd(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="flex-1"
+                    onClick={() => {
+                      // Add product with selected quantity
+                      const existingIndex = orderItems.findIndex(
+                        item => item.productId === selectedProductForAdd.id && item.pricingType === addPricingType
+                      )
+                      
+                      if (existingIndex >= 0) {
+                        const updated = [...orderItems]
+                        updated[existingIndex].quantity += addQuantity
+                        setOrderItems(updated)
+                      } else {
+                        setOrderItems([...orderItems, {
+                          productId: selectedProductForAdd.id,
+                          productName: selectedProductForAdd.name,
+                          quantity: addQuantity,
+                          unitPrice: currentPrice || 0,
+                          pricingType: addPricingType,
+                          shippinCost: selectedProductForAdd.shippinCost || 0,
+                          shortCode: selectedProductForAdd.shortCode
+                        }])
+                      }
+                      
+                      // Add to recently added
+                      setRecentlyAddedProducts(prev => {
+                        const filtered = prev.filter(p => p.id !== selectedProductForAdd.id)
+                        return [selectedProductForAdd, ...filtered].slice(0, 10)
+                      })
+                      
+                      toast({
+                        title: "Added!",
+                        description: `${addQuantity} ${addPricingType === "box" ? "box(es)" : "unit(s)"} of ${selectedProductForAdd.name}`
+                      })
+                      
+                      setSelectedProductForAdd(null)
+                      setAddQuantity(1)
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add to Order
+                  </Button>
+                </div>
+              </div>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

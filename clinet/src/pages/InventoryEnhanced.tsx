@@ -603,7 +603,7 @@ const InventoryEnhanced = () => {
                   const remaining = product.summary?.totalRemaining || 0
                   const value = (product.price || 0) * remaining
                   // Generate shortCode: use existing or create from index
-                  const shortCode = product.shortCode || String(index + 1).padStart(2, '0')
+const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
 
                   return (
                     <TableRow key={product.id} className="hover:bg-muted/50">

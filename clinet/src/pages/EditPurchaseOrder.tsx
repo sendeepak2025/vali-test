@@ -17,6 +17,8 @@ import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { getSinglePurchaseOrderAPI, updatePurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import Sidebar from "@/components/layout/Sidebar"
 
+type SalesMode = "case" | "unit" | "both";
+
 interface PurchaseItemForm {
   productId: string
   quantity: number
@@ -25,6 +27,7 @@ interface PurchaseItemForm {
   qualityStatus?: string
   lb: number
   totalWeight: number
+  pricingType?: "box" | "unit"
 }
 
 const EditPurchaseOrder = () => {
@@ -52,7 +55,7 @@ const EditPurchaseOrderForm = () => {
   const [deliveryDate, setDeliveryDate] = useState("")
   const [notes, setNotes] = useState("")
   const [items, setItems] = useState<PurchaseItemForm[]>([
-    { productId: "", quantity: 0, unitPrice: 0, totalPrice: 0, lb: 0, totalWeight: 0 },
+    { productId: "", quantity: 0, unitPrice: 0, totalPrice: 0, lb: 0, totalWeight: 0, pricingType: "box" },
   ])
 
   const [totalAmount, setTotalAmount] = useState(0)
@@ -86,6 +89,7 @@ const EditPurchaseOrderForm = () => {
             lb: item.lb || 0,
             totalWeight: (item.quantity || 0) * (item.lb || 0),
             totalPrice: item.totalPrice || (item.quantity || 0) * (item.unitPrice || 0),
+            pricingType: item.pricingType || "box",
           }))
 
           setItems(formattedItems)
@@ -147,17 +151,41 @@ const EditPurchaseOrderForm = () => {
     setTotalUnitType(totalWeight)
   }, [items])
 
+  // Helper functions for salesMode-based constraints
+  const getAllowedPricingTypes = (salesMode: SalesMode) => {
+    switch (salesMode) {
+      case "case":
+        return { allowUnit: false, allowCase: true, default: "box" as const }
+      case "unit":
+        return { allowUnit: true, allowCase: false, default: "unit" as const }
+      case "both":
+      default:
+        return { allowUnit: true, allowCase: true, default: "box" as const }
+    }
+  }
+
+  const getQuantityConstraints = (pricingType: string) => {
+    if (pricingType === "box") {
+      return { min: 1, step: 1, allowDecimals: false }
+    }
+    return { min: 0.01, step: 0.01, allowDecimals: true }
+  }
+
   const handleProductChange = (index: number, productId: string) => {
     const product = products.find((p) => p.id === productId)
     if (!product) return
 
-    const price = product.price
+    const salesMode = (product.salesMode as SalesMode) || "both"
+    const allowedTypes = getAllowedPricingTypes(salesMode)
+    const pricingType = allowedTypes.default
+    const price = pricingType === "unit" ? product.price : product.pricePerBox
 
     const updatedItems = [...items]
     updatedItems[index] = {
       ...updatedItems[index],
       productId,
       unitPrice: price,
+      pricingType,
       totalPrice: updatedItems[index].quantity * price,
       totalWeight: updatedItems[index].quantity * updatedItems[index].lb,
     }
@@ -165,8 +193,37 @@ const EditPurchaseOrderForm = () => {
     setItems(updatedItems)
   }
 
+  const handlePricingTypeChange = (index: number, pricingType: "box" | "unit") => {
+    const product = products.find((p) => p.id === items[index].productId)
+    if (!product) return
+
+    const price = pricingType === "unit" ? product.price : product.pricePerBox
+    const updatedItems = [...items]
+    
+    // Reset quantity if switching to box and current qty has decimals
+    const constraints = getQuantityConstraints(pricingType)
+    let newQuantity = updatedItems[index].quantity
+    if (!constraints.allowDecimals && !Number.isInteger(newQuantity)) {
+      newQuantity = Math.ceil(newQuantity)
+    }
+    
+    updatedItems[index] = {
+      ...updatedItems[index],
+      pricingType,
+      unitPrice: price,
+      quantity: newQuantity,
+      totalPrice: newQuantity * price,
+    }
+
+    setItems(updatedItems)
+  }
+
   const handleQuantityChange = (index: number, quantity: string) => {
-    const qty = Number.parseFloat(quantity) || 0
+    const pricingType = items[index].pricingType || "box"
+    const constraints = getQuantityConstraints(pricingType)
+    const qty = constraints.allowDecimals 
+      ? Number.parseFloat(quantity) || 0 
+      : Number.parseInt(quantity) || 0
     const updatedItems = [...items]
     updatedItems[index] = {
       ...updatedItems[index],
@@ -200,7 +257,7 @@ const EditPurchaseOrderForm = () => {
   }
 
   const addItemRow = () => {
-    setItems([...items, { productId: "", quantity: 0, unitPrice: 0, totalPrice: 0, lb: 0, totalWeight: 0 }])
+    setItems([...items, { productId: "", quantity: 0, unitPrice: 0, totalPrice: 0, lb: 0, totalWeight: 0, pricingType: "box" }])
   }
 
   const removeItemRow = (index: number) => {
@@ -386,105 +443,135 @@ const EditPurchaseOrderForm = () => {
               </div>
 
               <div className="space-y-4">
-                {items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-3 items-end">
-                    <div className="col-span-4">
-                      <Label htmlFor={`product-${index}`}>Product</Label>
-                      <Select value={item.productId} onValueChange={(value) => handleProductChange(index, value)}>
-                        <SelectTrigger id={`product-${index}`}>
-                          <SelectValue placeholder="Select a product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map((product) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                {items.map((item, index) => {
+                  const product = products.find((p) => p.id === item.productId)
+                  const salesMode = (product?.salesMode as SalesMode) || "both"
+                  const allowedTypes = getAllowedPricingTypes(salesMode)
+                  const pricingType = item.pricingType || "box"
+                  const quantityConstraints = getQuantityConstraints(pricingType)
+                  
+                  return (
+                    <div key={index} className="grid grid-cols-12 gap-3 items-end">
+                      <div className="col-span-3">
+                        <Label htmlFor={`product-${index}`}>Product</Label>
+                        <Select value={item.productId} onValueChange={(value) => handleProductChange(index, value)}>
+                          <SelectTrigger id={`product-${index}`}>
+                            <SelectValue placeholder="Select a product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products.map((product) => (
+                              <SelectItem key={product.id} value={product.id}>
+                                {product.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                    <div className="col-span-2 space-y-1">
-                      <Label htmlFor={`quantity-${index}`} className="text-sm font-medium">
-                        Qty
-                      </Label>
-                      <Input
-                        id={`quantity-${index}`}
-                        type="number"
-                        min="0"
-                        step="1"
-                        disabled={item.qualityStatus === "approved"}
-                        value={item.quantity || ""}
-                        onChange={(e) => handleQuantityChange(index, e.target.value)}
-                        className="h-10 text-sm"
-                      />
-                      {item.qualityStatus === "approved" && (
-                        <p className="text-xs text-red-600 italic">Approved – can't edit</p>
-                      )}
-                    </div>
+                      {/* Pricing Type Selector */}
+                      <div className="col-span-1">
+                        <Label htmlFor={`pricingType-${index}`}>Type</Label>
+                        <Select 
+                          value={pricingType} 
+                          onValueChange={(value: "box" | "unit") => handlePricingTypeChange(index, value)}
+                          disabled={item.qualityStatus === "approved"}
+                        >
+                          <SelectTrigger id={`pricingType-${index}`}>
+                            <SelectValue placeholder="Type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allowedTypes.allowCase && (
+                              <SelectItem value="box">Box</SelectItem>
+                            )}
+                            {allowedTypes.allowUnit && (
+                              <SelectItem value="unit">Unit</SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                    <div className="col-span-1">
-                      <Label htmlFor={`lb-${index}`}>{getProductUnitType(item.productId) || "Unit"}</Label>
-                      <Input
-                        id={`lb-${index}`}
-                        type="number"
-                        min="0"
-                        step="1"
-                        disabled={item.qualityStatus === "approved"}
-
-                        value={item.lb || ""}
-                        onChange={(e) => handleLbChange(index, Number(e.target.value))}
-                      />
-                        {item.qualityStatus === "approved" && (
-                        <p className="text-xs text-red-600 italic">Approved – can't edit</p>
-                      )}
-                    </div>
-
-                    <div className="col-span-2">
-                      <Label htmlFor={`unitPrice-${index}`}>Box Price</Label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <div className="col-span-2 space-y-1">
+                        <Label htmlFor={`quantity-${index}`} className="text-sm font-medium">
+                          Qty
+                        </Label>
                         <Input
-                          id={`unitPrice-${index}`}
+                          id={`quantity-${index}`}
+                          type="number"
+                          min={quantityConstraints.min}
+                          step={quantityConstraints.step}
+                          disabled={item.qualityStatus === "approved"}
+                          value={item.quantity || ""}
+                          onChange={(e) => handleQuantityChange(index, e.target.value)}
+                          className="h-10 text-sm"
+                        />
+                        {item.qualityStatus === "approved" && (
+                          <p className="text-xs text-red-600 italic">Approved – can't edit</p>
+                        )}
+                      </div>
+
+                      <div className="col-span-1">
+                        <Label htmlFor={`lb-${index}`}>{getProductUnitType(item.productId) || "Unit"}</Label>
+                        <Input
+                          id={`lb-${index}`}
                           type="number"
                           min="0"
-                        disabled={item.qualityStatus === "approved"}
-                          step="0.01"
-                          className="pl-8"
-                          value={item.unitPrice || ""}
-                          onChange={(e) => handleUnitPriceChange(index, e.target.value)}
+                          step="1"
+                          disabled={item.qualityStatus === "approved"}
+
+                          value={item.lb || ""}
+                          onChange={(e) => handleLbChange(index, Number(e.target.value))}
                         />
+                          {item.qualityStatus === "approved" && (
+                          <p className="text-xs text-red-600 italic">Approved – can't edit</p>
+                        )}
+                      </div>
+
+                      <div className="col-span-2">
+                        <Label htmlFor={`unitPrice-${index}`}>{pricingType === "box" ? "Box Price" : "Unit Price"}</Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id={`unitPrice-${index}`}
+                            type="number"
+                            min="0"
+                          disabled={item.qualityStatus === "approved"}
+                            step="0.01"
+                            className="pl-8"
+                            value={item.unitPrice || ""}
+                            onChange={(e) => handleUnitPriceChange(index, e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="col-span-1">
+                        <div className="text-right">
+                          <span className="font-medium">{formatCurrency(item.totalPrice || 0)}</span>
+                        </div>
+                      </div>
+
+                      <div className="col-span-1">
+                        <div className="text-right">
+                          <div className="text-xs text-muted-foreground">Total Weight</div>
+                          <span className="font-medium">
+                            {(item.totalWeight || 0).toFixed(2)} {getProductUnitType(item.productId) || "lbs"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="col-span-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive"
+                          onClick={() => removeItemRow(index)}
+                        >
+                          <Trash className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-
-                    <div className="col-span-1">
-                      <div className="text-right">
-                        <span className="font-medium">{formatCurrency(item.totalPrice || 0)}</span>
-                      </div>
-                    </div>
-
-                    <div className="col-span-2">
-                      <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Total Weight</div>
-                        <span className="font-medium">
-                          {(item.totalWeight || 0).toFixed(2)} {getProductUnitType(item.productId) || "lbs"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="col-span-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive"
-                        onClick={() => removeItemRow(index)}
-                      >
-                        <Trash className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               <div className="mt-6 flex justify-end">
