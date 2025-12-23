@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { format } from "date-fns"
 import { formatCurrency } from "@/utils/formatters"
 import { getAllOrderAPI, getStatement } from "@/services2/operations/order"
+import { StatementFilterPopup } from "../admin/StatementPopup"
 
 interface Transaction {
   date: string
@@ -56,7 +57,8 @@ const StoreInvoiceStatement = () => {
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
   const [showOrderDetail, setShowOrderDetail] = useState(false)
   const [sendingStatement, setSendingStatement] = useState(false)
-
+const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isStatementFilterOpen, setIsStatementFilterOpen] = useState(false);
   const user = useSelector((state: RootState) => state.auth?.user ?? null)
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
 
@@ -266,21 +268,15 @@ const StoreInvoiceStatement = () => {
                   <Receipt className="h-5 w-5" />
                   Account Statement
                 </span>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleSendStatementEmail}
-                    disabled={sendingStatement}
-                  >
-                    {sendingStatement ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Mail className="h-4 w-4 mr-2" />
-                    )}
-                    Email Statement
-                  </Button>
-                </div>
+                 {
+            <Button
+              variant="link"
+              onClick={() => setIsStatementFilterOpen(true)}
+              disabled={isGeneratingPDF}
+            >
+              {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
+            </Button>
+          }
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -517,6 +513,14 @@ const StoreInvoiceStatement = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <StatementFilterPopup
+              isOpen={isStatementFilterOpen}
+              onClose={() => setIsStatementFilterOpen(false)}
+              userId={user._id}
+              token={token}
+              vendor={true}
+            />
 
       {/* Order Detail Modal */}
       <Dialog open={showOrderDetail} onOpenChange={setShowOrderDetail}>
