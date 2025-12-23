@@ -29,6 +29,7 @@ import { deleteStoreAPI, getAllStoresAnalyticsAPI, addCommunicationLogAPI, getCo
 import { getAllOrderAPI } from "@/services2/operations/order"
 import { format } from "date-fns"
 import StoreRegistration from "./StoreRegistration"
+import { StatementFilterPopup } from "@/components/admin/StatementPopup"
 
 interface StoreData {
   id: string
@@ -105,7 +106,9 @@ const calculateStoreRating = (store: any): { rating: "excellent" | "good" | "nee
 const AdminStoresEnhanced = () => {
   const { toast } = useToast()
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
-
+  const user = useSelector((state: RootState) => state.auth?.user ?? null)
+const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isStatementFilterOpen, setIsStatementFilterOpen] = useState(false);
   // States
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1465,10 +1468,15 @@ ${storeOrders.slice(0, 10).map(o =>
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold">Account Statement</h3>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={handleDownloadStatement}><Download className="h-4 w-4 mr-1" /> Download</Button>
-                      <Button size="sm" onClick={handleSendStatement} disabled={loadingAction}>
-                        {loadingAction ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />} Email Statement
-                      </Button>
+                     {
+            <Button
+            size="sm" variant="outline"
+              onClick={() => setIsStatementFilterOpen(true)}
+              disabled={isGeneratingPDF}
+            >
+              {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
+            </Button>
+          }
                     </div>
                   </div>
 
@@ -1525,10 +1533,22 @@ ${storeOrders.slice(0, 10).map(o =>
                       </div>
                     </CardContent>
                   </Card>
+
+                    <StatementFilterPopup
+        isOpen={isStatementFilterOpen}
+        onClose={() => setIsStatementFilterOpen(false)}
+        userId={selectedStore._id}
+        token={token}
+        vendor={true}
+      />
                 </TabsContent>
               </div>
+
             </Tabs>
+            
           )}
+
+        
 
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setStoreDetailOpen(false)}>Close</Button>
