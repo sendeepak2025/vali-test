@@ -25,6 +25,7 @@ import CRM from "./pages/CRM";
 import UserGuide from "./pages/UserGuide";
 import WebsiteGenerator from "./pages/WebsiteGenerator";
 import Auth from "./pages/Auth";
+import ResetPassword from "./pages/ResetPassword";
 import StoreDashboard from "./pages/StoreDashboard";
 import StoreDashboardEnhanced from "./pages/StoreDashboardEnhanced";
 import StoreUsers from "./pages/StoreUsers";
@@ -32,6 +33,7 @@ import StorePortal from "./pages/StorePortal";
 import Store from "./pages/Store";
 import StoreFront from "./pages/StoreFront";
 import Member from "./components/admin/Member";
+import MemberManagement from "./pages/MemberManagement";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminStorets from "./pages/AdminStorets";
 import AdminStoresEnhanced from "./pages/AdminStoresEnhanced";
@@ -120,6 +122,12 @@ export default function App() {
           }
         />
         <Route
+          path="/reset-password"
+          element={
+              <ResetPassword />
+          }
+        />
+        <Route
           path="/about"
           element={
             <OpenRoute>
@@ -203,6 +211,14 @@ export default function App() {
         />
         <Route
           path="/admin/members"
+          element={
+            <PrivateRoute isAdmin={isAdmin}>
+              <MemberManagement />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/members-old"
           element={
             <PrivateRoute isAdmin={isAdmin}>
               <Member />

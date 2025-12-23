@@ -252,6 +252,66 @@ const emailTemplates = {
       <a href="${data.orderUrl || '#'}" class="button">View Order</a>
     </div>
   `, 'High Value Order Alert'),
+
+  /**
+   * Password reset email template
+   */
+  PASSWORD_RESET: (data) => baseTemplate(`
+    <div class="header">
+      <h1>🔐 Password Reset Request</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'User'}</strong>,</p>
+      <p>We received a request to reset your password for your Vali Produce account.</p>
+      
+      <div class="info-box">
+        <p><strong>Reset Link Valid For:</strong> ${data.expiryTime || '1 hour'}</p>
+        <p><strong>Request Time:</strong> ${new Date().toLocaleString()}</p>
+      </div>
+      
+      <p>Click the button below to reset your password:</p>
+      <a href="${data.resetUrl}" class="button">Reset Password</a>
+      
+      <div class="warning-box">
+        <p><strong>Security Notice:</strong></p>
+        <ul>
+          <li>This link will expire in ${data.expiryTime || '1 hour'}</li>
+          <li>If you didn't request this reset, please ignore this email</li>
+          <li>Never share this link with anyone</li>
+        </ul>
+      </div>
+      
+      <p>If the button doesn't work, copy and paste this link into your browser:</p>
+      <p style="word-break: break-all; color: #666; font-size: 12px;">${data.resetUrl}</p>
+    </div>
+  `, 'Password Reset Request'),
+
+  /**
+   * Password changed confirmation email
+   */
+  PASSWORD_CHANGED: (data) => baseTemplate(`
+    <div class="header">
+      <h1>✅ Password Changed Successfully</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'User'}</strong>,</p>
+      <p>Your password has been successfully changed for your Vali Produce account.</p>
+      
+      <div class="success-box">
+        <p><strong>Change Time:</strong> ${data.changeTime || new Date().toLocaleString()}</p>
+        <p><strong>Account:</strong> Your account is now secured with the new password</p>
+      </div>
+      
+      <div class="error-box">
+        <p><strong>⚠️ Didn't make this change?</strong></p>
+        <p>If you didn't change your password, please contact our support team immediately at support@valiproduce.com or call us.</p>
+        <p>Your account security is important to us.</p>
+      </div>
+      
+      <p>You can now log in to your account using your new password.</p>
+      <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/auth" class="button">Login to Account</a>
+    </div>
+  `, 'Password Changed Successfully'),
 };
 
 module.exports = emailTemplates;

@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Store, Mail, KeyRound, LogIn, UserPlus, EyeOff, Eye } from "lucide-react";
 import { signUp, login } from "@/services2/operations/auth";
+import ForgotPasswordModal from "@/components/store/ForgotPasswordModal";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,7 @@ const Auth = () => {
 const [showLoginPass, setShowLoginPass] = useState(false);
 const [showSignupPass, setShowSignupPass] = useState(false);
 const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const dispatch = useDispatch();
   const loginForm = useForm<LoginFormValues>({
@@ -213,9 +215,13 @@ if(res){
 
               <CardFooter className="flex flex-col">
                 <div className="mt-2 text-center text-sm">
-                  <a href="#" className="text-primary underline">
+                  <button 
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="text-primary underline hover:text-primary/80"
+                  >
                     Forgot password?
-                  </a>
+                  </button>
                 </div>
               </CardFooter>
             </TabsContent>
@@ -357,6 +363,12 @@ if(res){
           </Tabs>
         </Card>
       </div>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal 
+        isOpen={showForgotPassword} 
+        onClose={() => setShowForgotPassword(false)} 
+      />
     </div>
   );
 };

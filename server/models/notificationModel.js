@@ -20,7 +20,8 @@ const notificationSchema = new mongoose.Schema(
         "inactivity_alert",      // Store inactive (to admins)
         "first_order",           // Store's first order (to admins)
         "high_value_order",      // High value order alert (to admins)
-        "system"                 // System notifications
+        "system",              // System notifications
+        "password_reset"
       ],
       required: true,
       index: true,

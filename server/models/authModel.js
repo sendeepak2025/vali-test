@@ -180,6 +180,71 @@ const authSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    
+    // Member specific fields
+    department: {
+      type: String,
+      trim: true,
+    },
+    designation: {
+      type: String,
+      trim: true,
+    },
+    employeeId: {
+      type: String,
+      trim: true,
+    },
+    joiningDate: {
+      type: Date,
+    },
+    status: {
+      type: String,
+      enum: ["active", "inactive", "suspended"],
+      default: "active",
+    },
+    lastLogin: {
+      type: Date,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "auth",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "auth",
+    },
+    
+    // Activity logs for tracking member actions
+    activityLogs: [{
+      action: {
+        type: String,
+        required: true,
+      },
+      description: {
+        type: String,
+      },
+      performedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "auth",
+      },
+      performedByName: {
+        type: String,
+      },
+      ipAddress: {
+        type: String,
+      },
+      userAgent: {
+        type: String,
+      },
+      metadata: {
+        type: mongoose.Schema.Types.Mixed,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
+    
     token: {
       type: String,
     },
@@ -222,6 +287,13 @@ const authSchema = new mongoose.Schema(
     rejectionReason: {
       type: String,
       trim: true,
+    },
+    // Password reset fields
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpires: {
+      type: Date,
     },
   },
   { timestamps: true }

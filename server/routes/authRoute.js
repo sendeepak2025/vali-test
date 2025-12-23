@@ -1,11 +1,16 @@
 const express = require("express")
-const { registerCtrl, loginCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl } = require("../controllers/authCtrl")
+const { registerCtrl, loginCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
 const { auth, isAdmin } = require("../middleware/auth")
 const router = express.Router()
 
 
 router.post("/login", loginCtrl)
 router.post("/register", registerCtrl)
+
+// Password reset routes
+router.post("/forgot-password", forgotPasswordCtrl)
+router.post("/verify-reset-token", verifyResetTokenCtrl)
+router.post("/reset-password", resetPasswordCtrl)
 router.post("/member", addMemberCtrl)
 router.get("/all-members", getAllMemberCtrl)
 router.get("/all-stores", getAllStoreCtrl)

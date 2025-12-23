@@ -26,7 +26,9 @@ import { getAllOrderAPI, getUserLatestOrdersAPI, getStatement } from "@/services
 import { getAllProductAPI } from "@/services2/operations/product"
 import { format } from "date-fns"
 import StorePreOrders from "./StorePreOrders"
+import StoreProfileUpdate from "@/components/store/StoreProfileUpdate"
 import { logout } from "@/services2/operations/auth";
+import StoreInvoiceStatement from "@/components/store/StoreInvoiceStatement"
 
 const StoreDashboardEnhanced = () => {
   const { toast } = useToast()
@@ -280,6 +282,9 @@ const StoreDashboardEnhanced = () => {
             </TabsTrigger>
             <TabsTrigger value="preOrder" className="flex items-center gap-2">
               <User className="h-4 w-4" /> PreOrder
+            </TabsTrigger>
+            <TabsTrigger value="billing" className="flex items-center gap-2">
+              <User className="h-4 w-4" /> Billing
             </TabsTrigger>
           </TabsList>
 
@@ -592,65 +597,73 @@ const StoreDashboardEnhanced = () => {
 
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Store className="h-5 w-5" /> Store Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Building2 className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="text-sm text-gray-500">Store Name</p>
-                      <p className="font-medium">{user?.storeName || "N/A"}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Current Profile Information */}
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Store className="h-5 w-5" /> Current Store Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <Building2 className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="text-sm text-gray-500">Store Name</p>
+                        <p className="font-medium">{user?.storeName || "N/A"}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <User className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="text-sm text-gray-500">Owner Name</p>
-                      <p className="font-medium">{user?.ownerName || "N/A"}</p>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <User className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="text-sm text-gray-500">Owner Name</p>
+                        <p className="font-medium">{user?.ownerName || "N/A"}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Mail className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="text-sm text-gray-500">Email</p>
-                      <p className="font-medium">{user?.email || "N/A"}</p>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <Mail className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="text-sm text-gray-500">Email</p>
+                        <p className="font-medium">{user?.email || "N/A"}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <Phone className="h-5 w-5 text-gray-500" />
-                    <div>
-                      <p className="text-sm text-gray-500">Phone</p>
-                      <p className="font-medium">{user?.phone || "N/A"}</p>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <Phone className="h-5 w-5 text-gray-500" />
+                      <div>
+                        <p className="text-sm text-gray-500">Phone</p>
+                        <p className="font-medium">{user?.phone || "N/A"}</p>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <MapPin className="h-5 w-5" /> Address
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-4 bg-gray-50 rounded-lg">
-                    <p className="font-medium">{user?.address || "No address provided"}</p>
-                    <p className="text-gray-600">{user?.city}{user?.state ? `, ${user.state}` : ""} {user?.zipCode}</p>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                    <Calendar className="h-5 w-5 text-blue-500" />
-                    <div>
-                      <p className="text-sm text-blue-600">Member Since</p>
-                      <p className="font-medium text-blue-700">{user?.createdAt ? format(new Date(user.createdAt), "MMMM dd, yyyy") : "N/A"}</p>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <MapPin className="h-5 w-5" /> Address
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="font-medium">{user?.address || "No address provided"}</p>
+                      <p className="text-gray-600">{user?.city}{user?.state ? `, ${user.state}` : ""} {user?.zipCode}</p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      <div>
+                        <p className="text-sm text-blue-600">Member Since</p>
+                        <p className="font-medium text-blue-700">{user?.createdAt ? format(new Date(user.createdAt), "MMMM dd, yyyy") : "N/A"}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Profile Update Form */}
+              <div>
+                <StoreProfileUpdate />
+              </div>
             </div>
 
             {/* Account Stats */}
@@ -685,6 +698,15 @@ const StoreDashboardEnhanced = () => {
 
             <TabsContent value="preOrder" className="space-y-4">
             <StorePreOrders/>
+
+            
+          </TabsContent>
+
+
+           <TabsContent value="billing" className="space-y-4">
+                      <StoreInvoiceStatement />
+
+            
           </TabsContent>
         </Tabs>
       </main>

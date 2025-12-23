@@ -169,12 +169,35 @@ const loginCtrl = async (req, res) => {
           });
         }
       }
+      
+      // Check if member is suspended
+      if (user.role === "member" && user.status === "suspended") {
+        return res.status(403).json({
+          success: false,
+          message: "Your account has been suspended. Please contact admin.",
+        });
+      }
 
       const token = jwt.sign(
         { email: user.email, id: user._id, role: user.role },
         process.env.JWT_SECRET,
         { expiresIn: "2d" }
       );
+
+      // Update last login and add activity log
+      await authModel.findByIdAndUpdate(user._id, {
+        token,
+        lastLogin: new Date(),
+        $push: {
+          activityLogs: {
+            action: "login",
+            description: "User logged in",
+            createdAt: new Date(),
+            ipAddress: req.ip || req.connection?.remoteAddress,
+            userAgent: req.headers?.['user-agent'],
+          }
+        }
+      });
 
       user.token = token;
       user.password = undefined;
@@ -224,16 +247,45 @@ const loginCtrl = async (req, res) => {
 const updatePermitionCtrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const { isOrder, isProduct } = req.body;
+    const { isOrder, isProduct, activityLog, ...otherFields } = req.body;
+    
+    // Build update object
+    const updateData = {};
+    if (isOrder !== undefined) updateData.isOrder = isOrder;
+    if (isProduct !== undefined) updateData.isProduct = isProduct;
+    
+    // Add other fields if provided (for member updates)
+    Object.keys(otherFields).forEach(key => {
+      if (otherFields[key] !== undefined && key !== 'activityLog') {
+        updateData[key] = otherFields[key];
+      }
+    });
+    
+    // Add activity log if provided
+    if (activityLog) {
+      updateData.$push = {
+        activityLogs: {
+          action: activityLog.action || "updated",
+          description: activityLog.description || "Member updated",
+          performedBy: activityLog.performedBy,
+          performedByName: activityLog.performedByName,
+          createdAt: new Date(),
+          metadata: activityLog.metadata,
+        }
+      };
+    }
+    
     const user = await authModel.findByIdAndUpdate(
       id,
-      { isOrder, isProduct },
+      updateData,
       { new: true, runValidators: true }
     );
 
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-
-    res.status(200).json({ success: true, message: "Permissions updated successfully", user });
+    res.status(200).json({ success: true, message: "Updated successfully", user });
   } catch (error) {
     console.log(error)
     res.status(500).json({
@@ -248,7 +300,8 @@ const updatePermitionCtrl = async (req, res) => {
 const addMemberCtrl = async (req, res) => {
   try {
     const {
-      name, email, phone, password, role = "member", isOrder = false, isProduct = false
+      name, email, phone, password, role = "member", isOrder = false, isProduct = false,
+      department, designation, employeeId, joiningDate, createdBy, activityLog
     } = req.body;
     console.log(req.body)
 
@@ -269,8 +322,31 @@ const addMemberCtrl = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    
+    // Create initial activity log
+    const initialActivityLog = {
+      action: "member_created",
+      description: activityLog?.description || "New member account created",
+      performedBy: activityLog?.performedBy || createdBy,
+      performedByName: activityLog?.performedByName || "System",
+      createdAt: new Date(),
+    };
+    
     const user = await authModel.create({
-      name, email, phone, password: hashedPassword, role, isOrder, isProduct
+      name, 
+      email, 
+      phone, 
+      password: hashedPassword, 
+      role, 
+      isOrder, 
+      isProduct,
+      department,
+      designation,
+      employeeId,
+      joiningDate,
+      createdBy,
+      status: "active",
+      activityLogs: [initialActivityLog],
     });
 
 
@@ -278,7 +354,7 @@ const addMemberCtrl = async (req, res) => {
     return res.status(200).json({
       success: true,
       user,
-      message: "Member Created  Successfully",
+      message: "Member Created Successfully",
     });
   } catch (error) {
     console.error(error);
@@ -1722,6 +1798,223 @@ const rejectStoreCtrl = async (req, res) => {
   }
 };
 
+// Forgot Password Controller
+const forgotPasswordCtrl = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    // Check if user exists
+    const user = await authModel.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found with this email address",
+      });
+    }
+
+    // Generate reset token
+    const resetToken = jwt.sign(
+      { userId: user._id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" } // Token expires in 1 hour
+    );
+
+    // Save reset token to user (optional - for additional security)
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+    await user.save();
+
+    // Create reset URL
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}&email=${email}`;
+
+    // Send email with reset link
+    try {
+      await notificationService.createNotificationWithEmail(
+        user._id,
+        user.email,
+        "password_reset",
+        "Password Reset Request",
+        `Click the link below to reset your password: ${resetUrl}`,
+        "PASSWORD_RESET",
+        {
+          resetUrl,
+          storeName: user.storeName || user.ownerName || "User",
+          expiryTime: "1 hour"
+        }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Password reset link sent to your email",
+      });
+    } catch (emailError) {
+      console.error("Email sending failed:", emailError);
+      res.status(500).json({
+        success: false,
+        message: "Failed to send reset email. Please try again.",
+      });
+    }
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Verify Reset Token Controller
+const verifyResetTokenCtrl = async (req, res) => {
+  try {
+    const { token, email } = req.body;
+
+    if (!token || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "Token and email are required",
+      });
+    }
+
+    // Verify JWT token
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Check if token matches the email
+      if (decoded.email !== email) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
+
+      // Check if user exists and token is still valid
+      const user = await authModel.findOne({ 
+        email,
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() }
+      });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired token",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Token is valid",
+      });
+    } catch (jwtError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+  } catch (error) {
+    console.error("Verify token error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Reset Password Controller
+const resetPasswordCtrl = async (req, res) => {
+  try {
+    const { token, email, password } = req.body;
+
+    if (!token || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Token, email, and password are required",
+      });
+    }
+
+    // Verify JWT token
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Check if token matches the email
+      if (decoded.email !== email) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
+
+      // Find user and verify token
+      const user = await authModel.findOne({ 
+        email,
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() }
+      });
+
+      if (!user) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired token",
+        });
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Update user password and clear reset token
+      user.password = hashedPassword;
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+
+      // Send confirmation email
+      try {
+        await notificationService.createNotificationWithEmail(
+          user._id,
+          user.email,
+          "password_changed",
+          "Password Changed Successfully",
+          "Your password has been changed successfully. If you didn't make this change, please contact support immediately.",
+          "PASSWORD_CHANGED",
+          {
+            storeName: user.storeName || user.ownerName || "User",
+            changeTime: new Date().toLocaleString()
+          }
+        );
+      } catch (emailError) {
+        console.error("Confirmation email failed:", emailError);
+        // Don't fail the password reset if email fails
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "Password reset successfully",
+      });
+    } catch (jwtError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+
+
+
 module.exports = {
   registerCtrl,
   loginCtrl,
@@ -1754,4 +2047,8 @@ module.exports = {
   getPendingStoresCtrl,
   approveStoreCtrl,
   rejectStoreCtrl,
+  // Password reset functions
+  forgotPasswordCtrl,
+  verifyResetTokenCtrl,
+  resetPasswordCtrl,
 };
