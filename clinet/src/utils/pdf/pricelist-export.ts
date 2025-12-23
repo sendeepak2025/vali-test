@@ -23,10 +23,12 @@ export const exportPriceListToPDF = (
   const totalProducts = template.products.length;
   const isLargeDataset = totalProducts > 100;
 
-  const MARGIN = 8;
+  // Print-safe margins - accounts for Microsoft Print to PDF default margins (~12.7mm)
+  const MARGIN = 10;
+  const PRINT_MARGIN_COMPENSATION = 14; // Extra bottom space for printer margins
   const TABLE_FONT_SIZE = isLargeDataset ? 7 : 8;
   const HEADER_FONT_SIZE = 7;
-const ROW_PADDING = isLargeDataset ? 1 : 1.5; // height increase
+  const ROW_PADDING = isLargeDataset ? 1 : 1.5;
 
   const today = new Date();
   const logoUrl = "/logg.png";
@@ -39,8 +41,8 @@ const ROW_PADDING = isLargeDataset ? 1 : 1.5; // height increase
   const rightColumnX = leftColumnX + columnWidth + columnGap;
   const startY = 22;
   const HEADER_HEIGHT = 20;
-  const FOOTER_HEIGHT = 10;
-  const MAX_Y = pageHeight - MARGIN - FOOTER_HEIGHT;
+  const FOOTER_HEIGHT = 8;
+  const MAX_Y = pageHeight - MARGIN - FOOTER_HEIGHT - PRINT_MARGIN_COMPENSATION;
 
   const drawHeader = () => {
     doc.setFillColor(255, 255, 255);
@@ -221,10 +223,8 @@ const ROW_PADDING = isLargeDataset ? 1 : 1.5; // height increase
 
       alternateRowStyles: { fillColor: [250, 250, 250] },
       pageBreak: "avoid",
-      didDrawPage: (data) => {
-        if (data.pageNumber > doc.internal.getCurrentPageInfo().pageNumber) {
-          drawHeader();
-        }
+      didDrawPage: () => {
+        drawHeader();
       },
     });
 
@@ -303,7 +303,8 @@ const ROW_PADDING = isLargeDataset ? 1 : 1.5; // height increase
     doc.text(`Page ${i} of ${totalPagesCount}`, pageWidth - MARGIN, 22, { align: "right" });
     doc.setFontSize(6);
     doc.setFont("helvetica", "italic");
-    doc.text("Pricing and availability subject to change without prior notice. © Vali Produce", pageWidth / 2, pageHeight - 6, { align: "center" });
+    // Footer positioned to be visible even with Microsoft Print to PDF margins
+    doc.text("Pricing and availability subject to change without prior notice. © Vali Produce", pageWidth / 2, pageHeight - MARGIN - PRINT_MARGIN_COMPENSATION, { align: "center" });
   }
 
   doc.save(`vali-produce-price-list-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
