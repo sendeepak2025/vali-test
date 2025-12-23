@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { calculatePalletCapacity } = require("../utils/palletCalculator");
+const Counter = require("./counterModel");
 
 
 const updatedFromOrdersSchema = new mongoose.Schema({
@@ -250,11 +251,13 @@ const ProductSchema = new mongoose.Schema(
 // Pre-save hook to auto-generate shortCode if not provided
 ProductSchema.pre('save', async function(next) {
     if (!this.shortCode) {
-        // Generate shortCode from last 2-3 characters of _id or sequential number
-        const Product = mongoose.model('Product');
-        const count = await Product.countDocuments();
-        // Generate a unique short code (padded number)
-        this.shortCode = String(count + 1).padStart(2, '0');
+        // Find and increment the counter atomically
+        const counter = await Counter.findByIdAndUpdate(
+            'productShortCode',
+            { $inc: { seq: 1 } },
+            { new: true, upsert: true }
+        );
+        this.shortCode = String(counter.seq);
     }
     next();
 });

@@ -1189,7 +1189,11 @@ const getAllProductsWithHistorySummary = async (req, res) => {
     // ✅ Build DB filter
     const filter = {};
     if (search) {
-      filter.name = { $regex: search, $options: "i" };
+      // Search by name OR shortCode
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { shortCode: { $regex: `^${search}`, $options: "i" } }
+      ];
     }
     if (categoryId) {
       filter.category = categoryId;

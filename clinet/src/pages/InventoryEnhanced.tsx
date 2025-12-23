@@ -626,7 +626,7 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                           </div>
                           <div>
                             <p className="font-medium">
-                              <span className="text-primary font-mono mr-2">{shortCode}</span>
+                              <span className="text-primary font-mono mr-2">#{shortCode}</span>
                               {product.name}
                             </p>
                             {product.sku && <p className="text-xs text-muted-foreground">SKU: {product.sku}</p>}

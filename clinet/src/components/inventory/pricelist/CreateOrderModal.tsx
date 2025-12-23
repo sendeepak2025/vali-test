@@ -567,7 +567,10 @@ const CreateOrderModal: React.FC<CreateOrderModalProps> = ({
                                   loading="lazy"
                                 />
                                 <div>
-                                  <span className="text-xs sm:text-sm font-medium block">{product.name}</span>
+                                  <span className="text-xs sm:text-sm font-medium block">
+                                    {product.shortCode && <span className="text-primary font-mono mr-2">#{product.shortCode}</span>}
+                                    {product.name}
+                                  </span>
                                   <span className="text-xs text-muted-foreground sm:hidden">{product.category}</span>
                                 </div>
                               </div>

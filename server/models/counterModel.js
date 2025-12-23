@@ -2,7 +2,7 @@ const mongoose  = require("mongoose");
 
 const counterSchema = new mongoose.Schema({
   _id: { type: String, required: true }, 
-  seq: { type: Number, default: 101 }, 
+  seq: { type: Number, default: 100 }, // Default 100 so first increment gives 101
 });
 
 

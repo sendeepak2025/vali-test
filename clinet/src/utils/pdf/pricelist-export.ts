@@ -190,18 +190,22 @@ export const exportPriceListToPDF = (
       ]);
     }
 
-    bodyData.push(
-      ...products.map((product) => [
-        { content: product.name.toUpperCase(), styles: { fontStyle: "bold" } },
-        {
-          content: `${formatCurrencyValue(
-            product[price as keyof PriceListProduct] as number
-          )}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        { content: "", styles: { fontStyle: "bold", halign: "center" } },
-      ])
-    ); // If no header and no products, don't render anything
+   bodyData.push(
+  ...products.map((product) => [
+    {
+      content: `${product.shortCode || ""} ${product.name.toUpperCase()}`,
+      styles: { fontStyle: "bold" },
+    },
+    {
+      content: `${formatCurrencyValue(
+        product[price as keyof PriceListProduct] as number
+      )}`,
+      styles: { fontStyle: "bold", halign: "center" },
+    },
+    { content: "", styles: { fontStyle: "bold", halign: "center" } },
+  ])
+);
+ // If no header and no products, don't render anything
 
     if (bodyData.length === 0) return y;
 

@@ -204,6 +204,7 @@ const PriceListEnhanced = () => {
       const query = `page=${targetPage}&limit=${PAGE_SIZE}`
       const response = await getAllPriceListAPI(query)
       if (response) {
+        console.log(response, "template")
         setTemplates(response.data || [])
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
@@ -229,7 +230,7 @@ const PriceListEnhanced = () => {
   // Fetch products for template creation
   const fetchProducts = async () => {
     try {
-      const response = await getAllProductAPI()
+      const response = await getAllProductAPI();
       if (response) {
         const updatedProducts = response.map((product: any) => ({
           ...product,

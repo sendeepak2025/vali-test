@@ -65,6 +65,7 @@ export interface PriceListProduct {
   bPrice?: string;        
   cPrice?: string;        
   restaurantPrice?: string;        
+  shortCode?: string;
 
   bulkDiscounts?: BulkDiscount[];
   image?: string;
