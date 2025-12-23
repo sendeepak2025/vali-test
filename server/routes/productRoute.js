@@ -16,13 +16,9 @@ const {
   compareProductSalesWithOrders,
   resetAndRebuildHistoryForSingleProductCtrl,
   addToManually,
-  calculateTripWeight
-
-  
-   
-
-   
-   
+  calculateTripWeight,
+  generateShortCodesCtrl,
+  getProductByShortCodeCtrl
 } = require("../controllers/productCtrl");
 const router = express.Router();
 
@@ -42,7 +38,9 @@ router.post("/addQuantity", addToManually);
 router.get("/com", compareProductSalesWithOrders);
 router.get('/reset-history/:productId', resetAndRebuildHistoryForSingleProductCtrl);
 
-
+// Short code routes for quick product entry
+router.post("/generate-short-codes", generateShortCodesCtrl);
+router.get("/by-code/:code", getProductByShortCodeCtrl);
 
 router.post("/calculate-weight", calculateTripWeight);
 

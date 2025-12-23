@@ -463,7 +463,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
               </TableCell>
             </TableRow>
           ) : (
-            sortedProducts.map((product) => {
+            sortedProducts.map((product, productIndex) => {
               // Calculate pallet estimate for current stock
               const currentStock = product?.summary?.totalRemaining || 0;
               const totalCasesPerPallet = product?.palletCapacity?.totalCasesPerPallet;
@@ -477,6 +477,8 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
               const partialCases = hasPalletData && currentStock > 0
                 ? currentStock % totalCasesPerPallet
                 : 0;
+              // Generate shortCode: use existing or create from index
+              const shortCode = (product as any).shortCode || String(productIndex + 1).padStart(2, '0');
 
               return (
               <TableRow
@@ -513,6 +515,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                 </TableCell>
                 <TableCell>
                   <div className="font-medium truncate max-w-[200px]">
+                    <span className="text-primary font-mono mr-2">{shortCode}</span>
                     {product.name}
                   </div>
                   <div className="flex flex-wrap gap-1 mt-1">

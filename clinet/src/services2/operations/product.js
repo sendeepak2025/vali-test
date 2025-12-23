@@ -361,3 +361,51 @@ export const calculateTripWeightAPI = async (orderIds, token) => {
     toast.dismiss(toastId);
   }
 };
+
+
+// Generate short codes for all products
+export const generateShortCodesAPI = async (token) => {
+  const toastId = toast.loading("Generating short codes...");
+
+  try {
+    const response = await apiConnector(
+      "POST",
+      `${product.CREATE_PRODUCT.replace('/create', '/generate-short-codes')}`,
+      null,
+      { Authorization: `Bearer ${token}` }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to generate short codes!");
+    }
+
+    toast.success(response?.data?.message);
+    return response?.data;
+  } catch (error) {
+    console.error("Generate Short Codes API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to generate short codes!");
+    return null;
+  } finally {
+    toast.dismiss(toastId);
+  }
+};
+
+// Get product by short code (for quick add)
+export const getProductByShortCodeAPI = async (code) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${product.CREATE_PRODUCT.replace('/create', `/by-code/${code}`)}`
+    );
+
+    if (!response?.data?.success) {
+      return null;
+    }
+
+    return response?.data?.product;
+  } catch (error) {
+    // Don't show toast for not found - it's expected during typing
+    console.log("Product not found for code:", code);
+    return null;
+  }
+};

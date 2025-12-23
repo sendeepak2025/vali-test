@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import Sidebar from "@/components/layout/Sidebar"
 import Navbar from "@/components/layout/Navbar"
 import PageHeader from "@/components/shared/PageHeader"
@@ -161,6 +161,41 @@ const PriceListEnhanced = () => {
   const [excelBulkPercent, setExcelBulkPercent] = useState("")
   const [selectedExcelRows, setSelectedExcelRows] = useState<number[]>([])
 
+  // Quick Price Update states
+  const [quickPriceInput, setQuickPriceInput] = useState("")
+  const [quickPriceHistory, setQuickPriceHistory] = useState<{code: string; field: string; oldPrice: number; newPrice: number; productName: string}[]>([])
+  const [quickPriceFilter, setQuickPriceFilter] = useState("")
+  
+  // Quick Add Product states (for adding products to price list)
+  const [quickAddInput, setQuickAddInput] = useState("")
+  const [quickAddPreview, setQuickAddPreview] = useState<any>(null)
+  const [quickAddQuantity, setQuickAddQuantity] = useState(1)
+  const quickAddRef = useRef<HTMLInputElement>(null)
+
+  // Product code map for quick lookup
+  const productCodeMap = useMemo(() => {
+    const map = new Map<string, any>()
+    products.forEach((p) => {
+      const code = p.shortCode || ""
+      if (code) map.set(code, p)
+    })
+    return map
+  }, [products])
+
+  // Keyboard shortcut: Focus quick add with /
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey && createModalOpen) {
+        const target = e.target as HTMLElement
+        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+          e.preventDefault()
+          quickAddRef.current?.focus()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [createModalOpen])
 
   // Fetch templates
   const fetchTemplates = async (targetPage = 1) => {
@@ -808,6 +843,140 @@ const PriceListEnhanced = () => {
     toast({ title: "Downloaded", description: "Sample Excel template downloaded" })
   }
 
+  // Quick Price Update - Parse input and update price
+  // Formats: "01 25.99" (base), "01a 24.99" (A price), "01b 23.99" (B price), "01c 22.99" (C price)
+  const handleQuickPriceUpdate = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return
+    
+    const input = quickPriceInput.trim()
+    if (!input) return
+    
+    // Parse input: "01 25.99" or "01a 24.99" or "01b 23.99" or "01c 22.99"
+    const match = input.match(/^(\d+)(a|b|c)?\s+([\d.]+)$/i)
+    if (!match) {
+      toast({ variant: "destructive", title: "Invalid format", description: "Use: 01 25.99 (base) or 01a 24.99 (A price)" })
+      return
+    }
+    
+    const [, code, tier, priceStr] = match
+    const shortCode = code.padStart(2, '0')
+    const newPrice = parseFloat(priceStr)
+    
+    if (isNaN(newPrice) || newPrice < 0) {
+      toast({ variant: "destructive", title: "Invalid price", description: "Please enter a valid price" })
+      return
+    }
+    
+    // Determine which field to update
+    let field = "pricePerBox"
+    let fieldLabel = "Base"
+    if (tier) {
+      const tierLower = tier.toLowerCase()
+      if (tierLower === "a") { field = "aPrice"; fieldLabel = "A" }
+      else if (tierLower === "b") { field = "bPrice"; fieldLabel = "B" }
+      else if (tierLower === "c") { field = "cPrice"; fieldLabel = "C" }
+    }
+    
+    // Find product by shortCode
+    const productIndex = formData.products.findIndex(p => p.shortCode === shortCode)
+    if (productIndex === -1) {
+      toast({ variant: "destructive", title: "Product not found", description: `No product with code ${shortCode}` })
+      return
+    }
+    
+    const product = formData.products[productIndex]
+    const oldPrice = product[field] || 0
+    
+    // Update the price
+    setFormData(prev => ({
+      ...prev,
+      products: prev.products.map((p, idx) => 
+        idx === productIndex ? { ...p, [field]: newPrice } : p
+      )
+    }))
+    
+    // Add to history
+    setQuickPriceHistory(prev => [{
+      code: shortCode,
+      field: fieldLabel,
+      oldPrice,
+      newPrice,
+      productName: product.name || product.productName
+    }, ...prev.slice(0, 19)]) // Keep last 20
+    
+    // Clear input
+    setQuickPriceInput("")
+    
+    toast({ 
+      title: "Price Updated", 
+      description: `${shortCode} ${product.name || product.productName} ${fieldLabel}: $${oldPrice.toFixed(2)} → $${newPrice.toFixed(2)}` 
+    })
+  }
+
+  // Undo last quick price update
+  const undoLastQuickPrice = () => {
+    if (quickPriceHistory.length === 0) return
+    
+    const last = quickPriceHistory[0]
+    const fieldMap: Record<string, string> = { "Base": "pricePerBox", "A": "aPrice", "B": "bPrice", "C": "cPrice" }
+    const field = fieldMap[last.field]
+    
+    setFormData(prev => ({
+      ...prev,
+      products: prev.products.map(p => 
+        p.shortCode === last.code ? { ...p, [field]: last.oldPrice } : p
+      )
+    }))
+    
+    setQuickPriceHistory(prev => prev.slice(1))
+    toast({ title: "Undone", description: `Reverted ${last.code} ${last.field} to $${last.oldPrice.toFixed(2)}` })
+  }
+
+  // Quick Add - Handle input change and show preview
+  const handleQuickAddChange = (value: string) => {
+    setQuickAddInput(value)
+    const code = value.trim().padStart(2, '0')
+    const product = productCodeMap.get(code)
+    setQuickAddPreview(product || null)
+  }
+
+  // Quick Add - Add product to price list
+  const handleQuickAddProduct = () => {
+    if (!quickAddPreview) {
+      toast({ variant: "destructive", title: "No product", description: "Enter a valid product code" })
+      return
+    }
+    
+    // Check if already in list
+    const exists = formData.products.some(p => p.id === quickAddPreview.id)
+    if (exists) {
+      toast({ variant: "destructive", title: "Already added", description: `${quickAddPreview.name} is already in the list` })
+      setQuickAddInput("")
+      setQuickAddPreview(null)
+      quickAddRef.current?.focus()
+      return
+    }
+    
+    // Add to products
+    setFormData(prev => ({
+      ...prev,
+      products: [...prev.products, quickAddPreview]
+    }))
+    
+    toast({ title: "Added!", description: `${quickAddPreview.shortCode} ${quickAddPreview.name} added to price list` })
+    setQuickAddInput("")
+    setQuickAddPreview(null)
+    quickAddRef.current?.focus()
+  }
+
+  // Quick Add - Handle Enter key
+  const handleQuickAddKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      handleQuickAddProduct()
+    }
+  }
+
   // Filter templates
   const filteredTemplates = templates.filter(t => {
     const matchesSearch = t.name?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -1013,8 +1182,9 @@ const PriceListEnhanced = () => {
           </DialogHeader>
 
           <Tabs defaultValue="details" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="details">Details & Products</TabsTrigger>
+              <TabsTrigger value="quick">⚡ Quick Update</TabsTrigger>
               <TabsTrigger value="prices">Edit Prices ({formData.products.length})</TabsTrigger>
             </TabsList>
 
@@ -1054,6 +1224,58 @@ const PriceListEnhanced = () => {
                   rows={2}
                 />
               </div>
+
+              {/* Quick Add by Code */}
+              <Card className="border-2 border-dashed border-blue-300 bg-blue-50/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-5 w-5 text-blue-600" />
+                      <h3 className="font-semibold text-blue-900">Quick Add by Code</h3>
+                    </div>
+                    <span className="text-xs text-blue-600">Press / to focus</span>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-600 font-bold">#</span>
+                      <Input
+                        ref={quickAddRef}
+                        placeholder="Enter product code (e.g., 21)"
+                        value={quickAddInput}
+                        onChange={(e) => handleQuickAddChange(e.target.value)}
+                        onKeyDown={handleQuickAddKeyDown}
+                        className="pl-8 text-lg font-mono bg-white"
+                      />
+                    </div>
+                    <Button onClick={handleQuickAddProduct} disabled={!quickAddPreview}>
+                      <Plus className="h-4 w-4 mr-1" /> Add
+                    </Button>
+                  </div>
+                  
+                  {/* Product Preview */}
+                  {quickAddPreview && (
+                    <div className="mt-3 p-3 bg-white rounded-lg border border-green-200 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Badge className="bg-blue-100 text-blue-700 font-mono text-lg">#{quickAddPreview.shortCode}</Badge>
+                        <div>
+                          <p className="font-semibold">{quickAddPreview.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Box: {formatCurrency(quickAddPreview.pricePerBox || 0)} | Unit: {formatCurrency(quickAddPreview.price || 0)}
+                          </p>
+                        </div>
+                      </div>
+                      <CheckCircle className="h-6 w-6 text-green-500" />
+                    </div>
+                  )}
+                  
+                  {quickAddInput && !quickAddPreview && (
+                    <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 text-red-600 text-sm">
+                      No product found with code "{quickAddInput}"
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Quick Actions */}
               <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
@@ -1119,7 +1341,147 @@ const PriceListEnhanced = () => {
               </div>
             </TabsContent>
 
-            {/* Tab 2: Fast Price Editing */}
+            {/* Tab 2: Quick Price Update with Short Codes */}
+            <TabsContent value="quick" className="space-y-4 mt-4">
+              {formData.products.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No products selected. Go to "Details & Products" tab to add products first.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Quick Input Section */}
+                  <Card className="border-2 border-dashed border-blue-300 bg-blue-50/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <Zap className="h-5 w-5 text-blue-600" />
+                        <h3 className="font-semibold text-blue-900">Quick Price Entry</h3>
+                      </div>
+                      
+                      <div className="flex gap-2 mb-3">
+                        <Input
+                          placeholder="Type: 01 25.99 or 01a 24.99 or 01b 23.99 or 01c 22.99"
+                          value={quickPriceInput}
+                          onChange={(e) => setQuickPriceInput(e.target.value)}
+                          onKeyDown={handleQuickPriceUpdate}
+                          className="flex-1 text-lg font-mono bg-white"
+                          autoFocus
+                        />
+                        <Button 
+                          variant="outline" 
+                          onClick={undoLastQuickPrice}
+                          disabled={quickPriceHistory.length === 0}
+                          className="text-orange-600"
+                        >
+                          Undo
+                        </Button>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-4 text-xs text-blue-800">
+                        <span className="bg-white px-2 py-1 rounded"><strong>01 25.99</strong> = Base Price</span>
+                        <span className="bg-white px-2 py-1 rounded"><strong>01a 24.99</strong> = A Price</span>
+                        <span className="bg-white px-2 py-1 rounded"><strong>01b 23.99</strong> = B Price</span>
+                        <span className="bg-white px-2 py-1 rounded"><strong>01c 22.99</strong> = C Price</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Recent Updates */}
+                  {quickPriceHistory.length > 0 && (
+                    <Card>
+                      <CardHeader className="py-2 px-4">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Clock className="h-4 w-4" /> Recent Updates ({quickPriceHistory.length})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-2">
+                        <div className="flex flex-wrap gap-2">
+                          {quickPriceHistory.slice(0, 10).map((item, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs py-1">
+                              <span className="font-mono text-blue-600 mr-1">{item.code}</span>
+                              {item.field}: ${item.oldPrice.toFixed(2)} → <span className="text-green-600">${item.newPrice.toFixed(2)}</span>
+                            </Badge>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Product List with Short Codes */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Label>Products with Short Codes</Label>
+                      <div className="relative flex-1 max-w-xs">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Filter products..."
+                          value={quickPriceFilter}
+                          onChange={(e) => setQuickPriceFilter(e.target.value)}
+                          className="pl-8 h-8"
+                        />
+                      </div>
+                    </div>
+                    
+                    <ScrollArea className="h-[320px] border rounded-md">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="w-16 font-bold">Code</TableHead>
+                            <TableHead>Product Name</TableHead>
+                            <TableHead className="text-right w-24">Base</TableHead>
+                            <TableHead className="text-right w-24">A Price</TableHead>
+                            <TableHead className="text-right w-24">B Price</TableHead>
+                            <TableHead className="text-right w-24">C Price</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {formData.products
+                            .filter(p => {
+                              if (!quickPriceFilter) return true
+                              const name = (p.name || p.productName || "").toLowerCase()
+                              const code = (p.shortCode || "").toLowerCase()
+                              return name.includes(quickPriceFilter.toLowerCase()) || code.includes(quickPriceFilter.toLowerCase())
+                            })
+                            .sort((a, b) => (a.shortCode || "99").localeCompare(b.shortCode || "99"))
+                            .map((product) => {
+                              // Check if this product was recently updated
+                              const recentUpdate = quickPriceHistory.find(h => h.code === product.shortCode)
+                              return (
+                                <TableRow key={product.id} className={recentUpdate ? "bg-green-50" : ""}>
+                                  <TableCell className="font-mono font-bold text-blue-600 text-lg">
+                                    {product.shortCode || "—"}
+                                  </TableCell>
+                                  <TableCell className="font-medium text-sm">
+                                    {product.name || product.productName}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono">
+                                    ${(product.pricePerBox || 0).toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-orange-600">
+                                    ${(product.aPrice || 0).toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-purple-600">
+                                    ${(product.bPrice || 0).toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right font-mono text-teal-600">
+                                    ${(product.cPrice || 0).toFixed(2)}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                        </TableBody>
+                      </Table>
+                    </ScrollArea>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    💡 Type product code + price and press Enter. Example: <code className="bg-muted px-1 rounded">15 29.99</code> updates product #15 base price to $29.99
+                  </p>
+                </>
+              )}
+            </TabsContent>
+
+            {/* Tab 3: Fast Price Editing */}
             <TabsContent value="prices" className="space-y-4 mt-4">
               {formData.products.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState, useMemo } from "react"
+import React, { useEffect, useState, useMemo, useRef, useCallback } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useSelector } from "react-redux"
 import type { RootState } from "@/redux/store"
@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import {
   ArrowLeft,
@@ -48,9 +54,13 @@ import {
   FileText,
   Clock,
   AlertCircle,
+  Zap,
+  Hash,
+  History,
+  Keyboard,
 } from "lucide-react"
 import { getAllMembersAPI, getUserAPI } from "@/services2/operations/auth"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { getAllProductAPI, generateShortCodesAPI } from "@/services2/operations/product"
 import { createOrderAPI, getUserLatestOrdersAPI } from "@/services2/operations/order"
 import { cn } from "@/lib/utils"
 
@@ -78,6 +88,7 @@ interface ProductType {
   category?: string
   image?: string
   stock?: number
+  shortCode?: string
 }
 
 interface OrderItem {
@@ -87,6 +98,7 @@ interface OrderItem {
   unitPrice: number
   pricingType: "box" | "unit"
   shippinCost: number
+  shortCode?: string
 }
 
 interface AddressType {
@@ -142,6 +154,120 @@ const NewOrderEnhanced = () => {
   // Recent orders for selected store
   const [recentOrders, setRecentOrders] = useState<any[]>([])
 
+  // Quick Add states
+  const [quickAddInput, setQuickAddInput] = useState("")
+  const [quickAddFocused, setQuickAddFocused] = useState(false)
+  const [quickAddPreview, setQuickAddPreview] = useState<ProductType | null>(null)
+  const [recentlyAddedProducts, setRecentlyAddedProducts] = useState<ProductType[]>([])
+  const quickAddRef = useRef<HTMLInputElement>(null)
+
+  // Product code map for quick lookup
+  const productCodeMap = useMemo(() => {
+    const map = new Map<string, ProductType>()
+    products.forEach((p, index) => {
+      // Use shortCode if available, otherwise use index+1 padded
+      const code = p.shortCode || String(index + 1).padStart(2, '0')
+      map.set(code, { ...p, shortCode: code })
+    })
+    return map
+  }, [products])
+
+  // Parse quick add input: formats like "15", "15x5" (5 boxes), "15u3" (3 units)
+  const parseQuickAddInput = useCallback((input: string) => {
+    const trimmed = input.trim().toUpperCase()
+    
+    // Pattern: CODE or CODExQTY or CODEuQTY
+    const match = trimmed.match(/^(\d+)(?:([XU])(\d+))?$/i)
+    
+    if (!match) return null
+    
+    const code = match[1].padStart(2, '0')
+    const type = match[2]?.toLowerCase() || 'x' // default to box
+    const qty = match[3] ? parseInt(match[3], 10) : 1
+    
+    return {
+      code,
+      pricingType: type === 'u' ? 'unit' as const : 'box' as const,
+      quantity: qty
+    }
+  }, [])
+
+  // Handle quick add input change
+  const handleQuickAddChange = useCallback((value: string) => {
+    setQuickAddInput(value)
+    
+    const parsed = parseQuickAddInput(value)
+    if (parsed) {
+      const product = productCodeMap.get(parsed.code)
+      setQuickAddPreview(product || null)
+    } else {
+      setQuickAddPreview(null)
+    }
+  }, [parseQuickAddInput, productCodeMap])
+
+  // Handle quick add submit
+  const handleQuickAddSubmit = useCallback(() => {
+    const parsed = parseQuickAddInput(quickAddInput)
+    if (!parsed) {
+      toast({ title: "Invalid format", description: "Use: CODE, CODEx5 (5 boxes), or CODEu3 (3 units)", variant: "destructive" })
+      return
+    }
+    
+    const product = productCodeMap.get(parsed.code)
+    if (!product) {
+      toast({ title: "Product not found", description: `No product with code: ${parsed.code}`, variant: "destructive" })
+      return
+    }
+    
+    // Add product with specified quantity
+    const existingIndex = orderItems.findIndex(
+      item => item.productId === product.id && item.pricingType === parsed.pricingType
+    )
+    
+    if (existingIndex >= 0) {
+      const updated = [...orderItems]
+      updated[existingIndex].quantity += parsed.quantity
+      setOrderItems(updated)
+    } else {
+      setOrderItems([...orderItems, {
+        productId: product.id,
+        productName: product.name,
+        quantity: parsed.quantity,
+        unitPrice: parsed.pricingType === "box" ? product.pricePerBox : product.price,
+        pricingType: parsed.pricingType,
+        shippinCost: product.shippinCost || 0,
+        shortCode: product.shortCode
+      }])
+    }
+    
+    // Add to recently added
+    setRecentlyAddedProducts(prev => {
+      const filtered = prev.filter(p => p.id !== product.id)
+      return [product, ...filtered].slice(0, 10)
+    })
+    
+    toast({ title: "Added!", description: `${parsed.quantity} ${parsed.pricingType === 'box' ? 'box(es)' : 'unit(s)'} of ${product.name}` })
+    setQuickAddInput("")
+    setQuickAddPreview(null)
+    quickAddRef.current?.focus()
+  }, [quickAddInput, parseQuickAddInput, productCodeMap, orderItems, toast])
+
+  // Keyboard shortcut: Focus quick add with /
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        const target = e.target as HTMLElement
+        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+          e.preventDefault()
+          quickAddRef.current?.focus()
+        }
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   // Fetch stores and products
   useEffect(() => {
     const fetchData = async () => {
@@ -157,9 +283,13 @@ const NewOrderEnhanced = () => {
           .map((s: any) => ({ ...s, id: s._id }))
         setStores(filteredStores)
         
-        const formattedProducts: ProductType[] = productsData.map((p: any) => ({ ...p, id: p._id }))
+        // Map products with shortCode (use existing or generate from index)
+        const formattedProducts: ProductType[] = productsData.map((p: any, index: number) => ({
+          ...p,
+          id: p._id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0')
+        }))
         setProducts(formattedProducts)
-        console.log(formattedProducts, "product data")
 
         // Extract unique categories
         const uniqueCategories: string[] = formattedProducts
@@ -292,15 +422,21 @@ const NewOrderEnhanced = () => {
         quantity: 1,
         unitPrice: pricingType === "box" ? product.pricePerBox : product.price,
         pricingType,
-        shippinCost: product.shippinCost || 0
+        shippinCost: product.shippinCost || 0,
+        shortCode: product.shortCode
       }])
     }
-    // setShowProductModal(false)
+    
+    // Add to recently added products
+    setRecentlyAddedProducts(prev => {
+      const filtered = prev.filter(p => p.id !== product.id)
+      return [product, ...filtered].slice(0, 10)
+    })
+    
     toast({
-    title: "Success",
-    description: `${product.name} added successfully!`,
-  });
-
+      title: "Success",
+      description: `${product.name} added successfully!`,
+    })
     setProductSearch("")
   }
 
@@ -492,6 +628,119 @@ const NewOrderEnhanced = () => {
                   </CardContent>
                 </Card>
 
+                {/* Quick Add Section */}
+                <Card className="border-2 border-dashed border-primary/30 bg-primary/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-primary" />
+                        Quick Add by Code
+                      </div>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 px-2">
+                              <Keyboard className="h-3 w-3 mr-1" />
+                              <span className="text-xs text-muted-foreground">Press / to focus</span>
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left" className="max-w-xs">
+                            <div className="space-y-2 text-sm">
+                              <p className="font-semibold">Quick Add Formats:</p>
+                              <ul className="space-y-1">
+                                <li><code className="bg-muted px-1 rounded">15</code> → Add 1 box of product #15</li>
+                                <li><code className="bg-muted px-1 rounded">15x5</code> → Add 5 boxes of product #15</li>
+                                <li><code className="bg-muted px-1 rounded">15u3</code> → Add 3 units of product #15</li>
+                              </ul>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Hash className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          ref={quickAddRef}
+                          placeholder="Type code: 15, 15x5, 15u3..."
+                          value={quickAddInput}
+                          onChange={(e) => handleQuickAddChange(e.target.value)}
+                          onFocus={() => setQuickAddFocused(true)}
+                          onBlur={() => setTimeout(() => setQuickAddFocused(false), 200)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleQuickAddSubmit()
+                            }
+                          }}
+                          className="pl-9 font-mono text-lg"
+                        />
+                      </div>
+                      <Button 
+                        onClick={handleQuickAddSubmit}
+                        disabled={!quickAddPreview}
+                        className="px-6"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+                    
+                    {/* Preview */}
+                    {quickAddPreview && (
+                      <div className="p-3 bg-white rounded-lg border border-green-200 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="outline" className="font-mono bg-primary/10 text-primary">
+                            #{quickAddPreview.shortCode}
+                          </Badge>
+                          <div>
+                            <div className="font-medium">{quickAddPreview.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              Box: ${quickAddPreview.pricePerBox?.toFixed(2)} | Unit: ${quickAddPreview.price?.toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      </div>
+                    )}
+                    
+                    {quickAddInput && !quickAddPreview && (
+                      <div className="p-3 bg-red-50 rounded-lg border border-red-200 flex items-center gap-2 text-red-600">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-sm">No product found with this code</span>
+                      </div>
+                    )}
+                    
+                    {/* Recently Added Products */}
+                    {recentlyAddedProducts.length > 0 && (
+                      <div className="pt-2 border-t">
+                        <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
+                          <History className="h-3 w-3" />
+                          <span>Recently Added (click to add again)</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {recentlyAddedProducts.slice(0, 6).map(product => (
+                            <Button
+                              key={product.id}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => addProduct(product, "box")}
+                            >
+                              <Badge variant="secondary" className="mr-1 font-mono text-[10px] px-1">
+                                {product.shortCode}
+                              </Badge>
+                              {product.name.length > 15 ? product.name.slice(0, 15) + '...' : product.name}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {/* Products Section */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -523,13 +772,20 @@ const NewOrderEnhanced = () => {
                       <div className="space-y-3">
                         {orderItems.map((item, index) => (
                           <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate">{item.productName}</div>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Badge variant="outline" className="text-xs">
-                                  {item.pricingType === "box" ? "Per Box" : "Per Unit"}
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              {item.shortCode && (
+                                <Badge variant="outline" className="font-mono text-xs bg-primary/10 text-primary shrink-0">
+                                  #{item.shortCode}
                                 </Badge>
-                                <span>@ ${item.unitPrice.toFixed(2)}</span>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium truncate">{item.productName}</div>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Badge variant="outline" className="text-xs">
+                                    {item.pricingType === "box" ? "Per Box" : "Per Unit"}
+                                  </Badge>
+                                  <span>@ ${item.unitPrice.toFixed(2)}</span>
+                                </div>
                               </div>
                             </div>
                             
@@ -894,45 +1150,53 @@ const NewOrderEnhanced = () => {
             onScroll={handleProductModalScroll}
           >
             <div className="grid grid-cols-1 gap-2">
-              {displayedProducts.map(product => (
-                <div 
-                  key={product.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium">{product.name}</div>
-                    <div className="text-sm text-muted-foreground flex items-center gap-2">
-                      <span>Box: ${product.pricePerBox?.toFixed(2)} | Unit: ${product.price?.toFixed(2)}</span>
-                      {product.category && (
-                        <>
-                          <span className="text-gray-300">•</span>
-                          <Badge variant="secondary" className="text-xs">
-                            {product.category}
-                          </Badge>
-                        </>
-                      )}
+              {displayedProducts.map((product, index) => {
+                const shortCode = product.shortCode || String(products.findIndex(p => p.id === product.id) + 1).padStart(2, '0')
+                return (
+                  <div 
+                    key={product.id}
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <Badge variant="outline" className="font-mono text-xs bg-gray-100 min-w-[40px] justify-center">
+                        #{shortCode}
+                      </Badge>
+                      <div className="flex-1">
+                        <div className="font-medium">{product.name}</div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          <span>Box: ${product.pricePerBox?.toFixed(2)} | Unit: ${product.price?.toFixed(2)}</span>
+                          {product.category && (
+                            <>
+                              <span className="text-gray-300">•</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {product.category}
+                              </Badge>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => addProduct({ ...product, shortCode }, "box")}
+                        className="hover:bg-blue-50 hover:border-blue-300"
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Box
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => addProduct({ ...product, shortCode }, "unit")}
+                        className="hover:bg-green-50 hover:border-green-300"
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Unit
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => addProduct(product, "box")}
-                      className="hover:bg-blue-50 hover:border-blue-300"
-                    >
-                      <Plus className="h-3 w-3 mr-1" /> Box
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => addProduct(product, "unit")}
-                      className="hover:bg-green-50 hover:border-green-300"
-                    >
-                      <Plus className="h-3 w-3 mr-1" /> Unit
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               
               {/* Loading indicator */}
               {displayedProducts.length < filteredProducts.length && (

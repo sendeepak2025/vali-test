@@ -1968,6 +1968,67 @@ const calculateTripWeight = async (req, res) => {
 
 
 
+// Generate short codes for all products that don't have one
+const generateShortCodesCtrl = async (req, res) => {
+    try {
+        const { generateShortCodesForProducts } = require('../utils/generateShortCodes');
+        const result = await generateShortCodesForProducts(Product);
+        
+        return res.status(200).json({
+            success: true,
+            message: `Short codes generated for ${result.updated} products`,
+            ...result
+        });
+    } catch (error) {
+        console.error("Error generating short codes:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error generating short codes",
+            error: error.message
+        });
+    }
+};
+
+// Get product by short code (for quick add)
+const getProductByShortCodeCtrl = async (req, res) => {
+    try {
+        const { code } = req.params;
+        
+        if (!code) {
+            return res.status(400).json({
+                success: false,
+                message: "Short code is required"
+            });
+        }
+
+        const product = await Product.findOne({ shortCode: code })
+            .populate({ path: "category", select: "categoryName" })
+            .lean();
+
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: `No product found with code: ${code}`
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            product: {
+                ...product,
+                category: product.category?.categoryName || null
+            }
+        });
+    } catch (error) {
+        console.error("Error getting product by short code:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error getting product",
+            error: error.message
+        });
+    }
+};
+
 module.exports = { 
     createProductCtrl, 
     getAllProductCtrl, 
@@ -1983,6 +2044,7 @@ module.exports = {
     resetAndRebuildHistoryForSingleProductCtrl,
     compareProductSalesWithOrders,
     addToManually,
-    calculateTripWeight
-
+    calculateTripWeight,
+    generateShortCodesCtrl,
+    getProductByShortCodeCtrl
 };

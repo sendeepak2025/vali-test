@@ -587,7 +587,6 @@ const InventoryEnhanced = () => {
                       Stock Status <ArrowUpDown className="ml-1 h-3 w-3" />
                     </Button>
                   </TableHead>
-                  <TableHead>Storage</TableHead>
                   <TableHead className="text-right">Purchased</TableHead>
                   <TableHead className="text-right">Sold</TableHead>
                   <TableHead className="text-right">Remaining</TableHead>
@@ -598,11 +597,13 @@ const InventoryEnhanced = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => {
+                {filteredProducts.map((product, index) => {
                   const purchased = product.summary?.totalPurchase || 0
                   const sold = product.summary?.totalSell || 0
                   const remaining = product.summary?.totalRemaining || 0
                   const value = (product.price || 0) * remaining
+                  // Generate shortCode: use existing or create from index
+                  const shortCode = product.shortCode || String(index + 1).padStart(2, '0')
 
                   return (
                     <TableRow key={product.id} className="hover:bg-muted/50">
@@ -624,7 +625,10 @@ const InventoryEnhanced = () => {
                             )}
                           </div>
                           <div>
-                            <p className="font-medium">{product.name}</p>
+                            <p className="font-medium">
+                              <span className="text-primary font-mono mr-2">{shortCode}</span>
+                              {product.name}
+                            </p>
                             {product.sku && <p className="text-xs text-muted-foreground">SKU: {product.sku}</p>}
                           </div>
                         </div>
@@ -634,9 +638,6 @@ const InventoryEnhanced = () => {
                       </TableCell>
                       <TableCell>
                         <StockBadge purchased={purchased} sold={sold} remaining={remaining} />
-                      </TableCell>
-                      <TableCell>
-                        <StorageBadge type={product.storageType} />
                       </TableCell>
                       <TableCell className="text-right font-medium">{purchased}</TableCell>
                       <TableCell className="text-right font-medium">{sold}</TableCell>

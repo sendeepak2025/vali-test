@@ -38,6 +38,13 @@ const ProductSchema = new mongoose.Schema(
             required: true,
             trim: true,
         },
+        // Short code for quick product entry (2-3 digits)
+        shortCode: {
+            type: String,
+            unique: true,
+            sparse: true,
+            index: true,
+        },
         category: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Category",
@@ -239,6 +246,18 @@ const ProductSchema = new mongoose.Schema(
     },
     { timestamps: true }
 );
+
+// Pre-save hook to auto-generate shortCode if not provided
+ProductSchema.pre('save', async function(next) {
+    if (!this.shortCode) {
+        // Generate shortCode from last 2-3 characters of _id or sequential number
+        const Product = mongoose.model('Product');
+        const count = await Product.countDocuments();
+        // Generate a unique short code (padded number)
+        this.shortCode = String(count + 1).padStart(2, '0');
+    }
+    next();
+});
 
 // Pre-save hook to automatically calculate pallet capacity when dimensions change
 ProductSchema.pre('save', function(next) {

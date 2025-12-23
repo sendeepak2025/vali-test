@@ -65,42 +65,8 @@ interface StoreWithStats extends StoreData {
   lastMonthOrders: number
   thisMonthOrders: number
   orderTrend: "up" | "down" | "stable"
-  storeRating: "excellent" | "good" | "needs_improvement" | "at_risk"
-  ratingScore: number // 0-100
   daysSinceLastOrder: number
   avgPaymentDays: number // average days to pay
-}
-
-// Helper function to calculate store rating
-const calculateStoreRating = (store: any): { rating: "excellent" | "good" | "needs_improvement" | "at_risk", score: number } => {
-  let score = 100
-  
-  // Payment behavior (40 points)
-  if (store.paymentStatus === "overdue") score -= 40
-  else if (store.paymentStatus === "warning") score -= 20
-  
-  // Credit usage (20 points)
-  const creditRatio = store.totalOrders > 0 ? store.creditCount / store.totalOrders : 0
-  if (creditRatio > 0.5) score -= 20
-  else if (creditRatio > 0.3) score -= 10
-  
-  // Order frequency (20 points)
-  if (store.daysSinceLastOrder > 60) score -= 20
-  else if (store.daysSinceLastOrder > 30) score -= 10
-  
-  // Order trend (20 points)
-  if (store.orderTrend === "down") score -= 15
-  else if (store.orderTrend === "up") score += 5
-  
-  score = Math.max(0, Math.min(100, score))
-  
-  let rating: "excellent" | "good" | "needs_improvement" | "at_risk"
-  if (score >= 80) rating = "excellent"
-  else if (score >= 60) rating = "good"
-  else if (score >= 40) rating = "needs_improvement"
-  else rating = "at_risk"
-  
-  return { rating, score }
 }
 
 const AdminStoresEnhanced = () => {
@@ -117,7 +83,6 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [searchTerm, setSearchTerm] = useState("")
   const [filterState, setFilterState] = useState("all")
   const [filterPaymentStatus, setFilterPaymentStatus] = useState("all")
-  const [filterRating, setFilterRating] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
   
   // Modal states
@@ -184,9 +149,7 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
           thisMonthOrders: store.thisMonthOrders || 0,
           orderTrend: store.orderTrend || "stable",
           daysSinceLastOrder: store.daysSinceLastOrder || 999,
-          avgPaymentDays: store.avgPaymentDays || 0,
-          storeRating: store.storeRating || "good",
-          ratingScore: store.ratingScore || 0
+          avgPaymentDays: store.avgPaymentDays || 0
         }))
         
         setStores(storesWithStats)
@@ -221,8 +184,6 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     const totalOutstanding = stores.reduce((sum, s) => sum + s.balanceDue, 0)
     const overdueStores = stores.filter(s => s.paymentStatus === "overdue").length
     const warningStores = stores.filter(s => s.paymentStatus === "warning").length
-    const excellentStores = stores.filter(s => s.storeRating === "excellent").length
-    const atRiskStores = stores.filter(s => s.storeRating === "at_risk").length
     const avgOrderValue = stores.length > 0 
       ? stores.reduce((sum, s) => sum + s.avgOrderValue, 0) / stores.length 
       : 0
@@ -236,8 +197,6 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
       totalOutstanding,
       overdueStores,
       warningStores,
-      excellentStores,
-      atRiskStores,
       avgOrderValue,
       totalOrders,
       totalCredits
@@ -255,11 +214,10 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
       
       const matchesState = filterState === "all" || store.state === filterState
       const matchesPayment = filterPaymentStatus === "all" || store.paymentStatus === filterPaymentStatus
-      const matchesRating = filterRating === "all" || store.storeRating === filterRating
       
-      return matchesSearch && matchesState && matchesPayment && matchesRating
+      return matchesSearch && matchesState && matchesPayment
     })
-  }, [stores, searchTerm, filterState, filterPaymentStatus, filterRating])
+  }, [stores, searchTerm, filterState, filterPaymentStatus])
 
   // Get unique states for filter
   const uniqueStates = useMemo(() => {
@@ -478,11 +436,11 @@ ${storeOrders.slice(0, 10).map(o =>
 
   // Export to CSV
   const exportToCSV = () => {
-    const headers = ["Store Name", "Owner", "Email", "Phone", "City", "State", "Total Orders", "Total Spent", "Balance Due", "Payment Status", "Rating", "Rating Score"]
+    const headers = ["Store Name", "Owner", "Email", "Phone", "City", "State", "Total Orders", "Total Spent", "Balance Due", "Payment Status"]
     const rows = filteredStores.map(s => [
       s.storeName, s.ownerName, s.email, s.phone, s.city, s.state,
       s.totalOrders, s.totalSpent.toFixed(2), s.balanceDue.toFixed(2),
-      s.paymentStatus, s.storeRating, s.ratingScore
+      s.paymentStatus
     ])
     
     const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n")
@@ -498,7 +456,7 @@ ${storeOrders.slice(0, 10).map(o =>
 
   // Badge helpers
   const getPaymentStatusBadge = (status: string) => {
-    if (status === "good") return <Badge className="bg-green-100 text-green-700">Good Standing</Badge>
+    if (status === "good_standing") return <Badge className="bg-green-100 text-green-700">Good Standing</Badge>
     if (status === "warning") return <Badge className="bg-yellow-100 text-yellow-700">Warning</Badge>
     return <Badge className="bg-red-100 text-red-700">Overdue</Badge>
   }
@@ -507,32 +465,6 @@ ${storeOrders.slice(0, 10).map(o =>
     if (trend === "up") return <Badge className="bg-green-100 text-green-700"><ArrowUpRight className="h-3 w-3 mr-1" />Up</Badge>
     if (trend === "down") return <Badge className="bg-red-100 text-red-700"><ArrowDownRight className="h-3 w-3 mr-1" />Down</Badge>
     return <Badge className="bg-gray-100 text-gray-700">Stable</Badge>
-  }
-
-  const getRatingBadge = (rating: string, score: number) => {
-    const styles: Record<string, string> = {
-      excellent: "bg-green-100 text-green-700 border-green-300",
-      good: "bg-blue-100 text-blue-700 border-blue-300",
-      needs_improvement: "bg-yellow-100 text-yellow-700 border-yellow-300",
-      at_risk: "bg-red-100 text-red-700 border-red-300"
-    }
-    const icons: Record<string, any> = {
-      excellent: <Star className="h-3 w-3 mr-1" />,
-      good: <ThumbsUp className="h-3 w-3 mr-1" />,
-      needs_improvement: <Target className="h-3 w-3 mr-1" />,
-      at_risk: <AlertCircle className="h-3 w-3 mr-1" />
-    }
-    const labels: Record<string, string> = {
-      excellent: "Excellent",
-      good: "Good",
-      needs_improvement: "Needs Improvement",
-      at_risk: "At Risk"
-    }
-    return (
-      <Badge className={`${styles[rating]} border`}>
-        {icons[rating]} {labels[rating]} ({score})
-      </Badge>
-    )
   }
 
   const getPaymentBadge = (status: string) => {
@@ -622,10 +554,10 @@ ${storeOrders.slice(0, 10).map(o =>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-gray-500">Excellent Rating</p>
-                    <p className="text-2xl font-bold text-green-600">{stats.excellentStores}</p>
+                    <p className="text-xs text-gray-500">Good Standing</p>
+                    <p className="text-2xl font-bold text-green-600">{stores.filter(s => s.paymentStatus === "good_standing").length}</p>
                   </div>
-                  <Star className="h-8 w-8 text-yellow-500 opacity-50" />
+                  <CheckCircle2 className="h-8 w-8 text-green-500 opacity-50" />
                 </div>
               </CardContent>
             </Card>
@@ -633,8 +565,8 @@ ${storeOrders.slice(0, 10).map(o =>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-gray-500">At Risk</p>
-                    <p className="text-2xl font-bold text-red-600">{stats.atRiskStores}</p>
+                    <p className="text-xs text-gray-500">Overdue</p>
+                    <p className="text-2xl font-bold text-red-600">{stores.filter(s => s.paymentStatus === "overdue").length}</p>
                   </div>
                   <AlertCircle className="h-8 w-8 text-red-500 opacity-50" />
                 </div>
@@ -667,32 +599,7 @@ ${storeOrders.slice(0, 10).map(o =>
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Rating Distribution */}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Award className="h-5 w-5" /> Store Ratings
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {[
-                      { rating: "excellent", label: "Excellent", color: "bg-green-500", count: stores.filter(s => s.storeRating === "excellent").length },
-                      { rating: "good", label: "Good", color: "bg-blue-500", count: stores.filter(s => s.storeRating === "good").length },
-                      { rating: "needs_improvement", label: "Needs Improvement", color: "bg-yellow-500", count: stores.filter(s => s.storeRating === "needs_improvement").length },
-                      { rating: "at_risk", label: "At Risk", color: "bg-red-500", count: stores.filter(s => s.storeRating === "at_risk").length }
-                    ].map(item => (
-                      <div key={item.rating} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full ${item.color}`} />
-                          <span className="text-sm">{item.label}</span>
-                        </div>
-                        <span className="font-semibold">{item.count}</span>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Payment Status */}
                 <Card>
                   <CardHeader className="pb-2">
@@ -757,8 +664,8 @@ ${storeOrders.slice(0, 10).map(o =>
                   <CardContent>
                     <div className="space-y-2">
                       {stores
-                        .filter(s => s.storeRating === "excellent")
-                        .sort((a, b) => b.ratingScore - a.ratingScore)
+                        .filter(s => s.totalSpent > 0)
+                        .sort((a, b) => b.totalSpent - a.totalSpent)
                         .slice(0, 5)
                         .map((store, idx) => (
                           <div key={store._id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
@@ -771,12 +678,11 @@ ${storeOrders.slice(0, 10).map(o =>
                             </div>
                             <div className="text-right">
                               <p className="font-semibold text-green-600">{formatCurrency(store.totalSpent)}</p>
-                              <p className="text-xs text-gray-500">Score: {store.ratingScore}</p>
                             </div>
                           </div>
                         ))}
-                      {stores.filter(s => s.storeRating === "excellent").length === 0 && (
-                        <p className="text-center text-gray-500 py-4">No excellent stores yet</p>
+                      {stores.filter(s => s.totalSpent > 0).length === 0 && (
+                        <p className="text-center text-gray-500 py-4">No stores with orders yet</p>
                       )}
                     </div>
                   </CardContent>
@@ -785,14 +691,14 @@ ${storeOrders.slice(0, 10).map(o =>
                 <Card className="border-red-200">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg flex items-center gap-2 text-red-600">
-                      <AlertCircle className="h-5 w-5" /> Stores At Risk
+                      <AlertCircle className="h-5 w-5" /> Stores Needing Attention
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
                       {stores
-                        .filter(s => s.storeRating === "at_risk" || s.storeRating === "needs_improvement")
-                        .sort((a, b) => a.ratingScore - b.ratingScore)
+                        .filter(s => s.paymentStatus === "overdue" || s.paymentStatus === "warning")
+                        .sort((a, b) => b.balanceDue - a.balanceDue)
                         .slice(0, 5)
                         .map(store => (
                           <div key={store._id} className="flex items-center justify-between p-2 bg-red-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
@@ -802,12 +708,11 @@ ${storeOrders.slice(0, 10).map(o =>
                             </div>
                             <div className="text-right">
                               <p className="font-semibold text-red-600">{formatCurrency(store.balanceDue)} due</p>
-                              {getRatingBadge(store.storeRating, store.ratingScore)}
                             </div>
                           </div>
                         ))}
-                      {stores.filter(s => s.storeRating === "at_risk" || s.storeRating === "needs_improvement").length === 0 && (
-                        <p className="text-center text-gray-500 py-4">No at-risk stores</p>
+                      {stores.filter(s => s.paymentStatus === "overdue" || s.paymentStatus === "warning").length === 0 && (
+                        <p className="text-center text-gray-500 py-4">No stores needing attention</p>
                       )}
                     </div>
                   </CardContent>
@@ -850,17 +755,6 @@ ${storeOrders.slice(0, 10).map(o =>
                       <option value="warning">Warning</option>
                       <option value="overdue">Overdue</option>
                     </select>
-                    <select
-                      value={filterRating}
-                      onChange={(e) => setFilterRating(e.target.value)}
-                      className="border rounded-md px-3 py-2 text-sm"
-                    >
-                      <option value="all">All Ratings</option>
-                      <option value="excellent">Excellent</option>
-                      <option value="good">Good</option>
-                      <option value="needs_improvement">Needs Improvement</option>
-                      <option value="at_risk">At Risk</option>
-                    </select>
                   </div>
                 </CardContent>
               </Card>
@@ -877,7 +771,6 @@ ${storeOrders.slice(0, 10).map(o =>
                           <th className="text-left p-4 font-medium text-gray-600">Orders</th>
                           <th className="text-left p-4 font-medium text-gray-600">Revenue</th>
                           <th className="text-left p-4 font-medium text-gray-600">Balance</th>
-                          <th className="text-left p-4 font-medium text-gray-600">Rating</th>
                           <th className="text-left p-4 font-medium text-gray-600">Status</th>
                           <th className="text-right p-4 font-medium text-gray-600">Actions</th>
                         </tr>
@@ -913,9 +806,6 @@ ${storeOrders.slice(0, 10).map(o =>
                               <p className={`font-semibold ${store.balanceDue > 0 ? "text-red-600" : "text-green-600"}`}>
                                 {formatCurrency(store.balanceDue)}
                               </p>
-                            </td>
-                            <td className="p-4">
-                              {getRatingBadge(store.storeRating, store.ratingScore)}
                             </td>
                             <td className="p-4">
                               {getPaymentStatusBadge(store.paymentStatus)}
@@ -1241,36 +1131,35 @@ ${storeOrders.slice(0, 10).map(o =>
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-0">
                   <Card className={`border-2 ${
-                    selectedStore.storeRating === "excellent" ? "border-green-300 bg-green-50" :
-                    selectedStore.storeRating === "good" ? "border-blue-300 bg-blue-50" :
-                    selectedStore.storeRating === "needs_improvement" ? "border-yellow-300 bg-yellow-50" :
+                    selectedStore.paymentStatus === "good_standing" ? "border-green-300 bg-green-50" :
+                    selectedStore.paymentStatus === "warning" ? "border-yellow-300 bg-yellow-50" :
                     "border-red-300 bg-red-50"
                   }`}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h3 className="font-semibold text-lg mb-1">Store Rating</h3>
-                          {getRatingBadge(selectedStore.storeRating, selectedStore.ratingScore)}
+                          <h3 className="font-semibold text-lg mb-1">Payment Status</h3>
+                          {getPaymentStatusBadge(selectedStore.paymentStatus)}
                         </div>
                         <div className="text-right">
-                          <div className="text-4xl font-bold">{selectedStore.ratingScore}</div>
-                          <p className="text-sm text-gray-500">out of 100</p>
+                          <div className="text-2xl font-bold">{formatCurrency(selectedStore.balanceDue)}</div>
+                          <p className="text-sm text-gray-500">Balance Due</p>
                         </div>
                       </div>
-                      {selectedStore.storeRating !== "excellent" && (
+                      {selectedStore.paymentStatus !== "good_standing" && (
                         <div className="mt-4 pt-4 border-t">
-                          <p className="text-sm font-medium mb-2">Improvement Tips:</p>
+                          <p className="text-sm font-medium mb-2">Action Required:</p>
                           <ul className="text-sm space-y-1">
-                            {selectedStore.paymentStatus !== "good" && (
+                            {selectedStore.paymentStatus === "overdue" && (
                               <li className="flex items-center gap-2">
-                                <AlertCircle className="h-4 w-4 text-orange-500" />
-                                Clear outstanding payments to improve rating
+                                <AlertCircle className="h-4 w-4 text-red-500" />
+                                Payment is overdue - follow up immediately
                               </li>
                             )}
-                            {selectedStore.orderTrend === "down" && (
+                            {selectedStore.paymentStatus === "warning" && (
                               <li className="flex items-center gap-2">
-                                <TrendingDown className="h-4 w-4 text-orange-500" />
-                                Order volume is declining - reach out to customer
+                                <AlertCircle className="h-4 w-4 text-yellow-500" />
+                                Payment approaching due date
                               </li>
                             )}
                           </ul>
