@@ -148,11 +148,11 @@ if (!dashboardData) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <div className="flex flex-wrap gap-2">
-          <CSVLink data={summaryData} headers={summaryHeaders} filename="summary-data.csv" className="text-white bg-green-500 px-4 py-2 rounded text-sm">
+          <CSVLink data={summaryData} headers={summaryHeaders} filename="dashboard-summary-data.csv" className="text-white bg-green-500 px-4 py-2 rounded text-sm">
             Download Summary CSV
           </CSVLink>
-          <CSVLink data={userData} headers={userHeaders} filename="user-data.csv" className="text-white bg-blue-500 px-4 py-2 rounded text-sm">
-            Download Top Users CSV
+          <CSVLink data={userData} headers={userHeaders} filename="store-data.csv" className="text-white bg-blue-500 px-4 py-2 rounded text-sm">
+            Download Top Stores CSV
           </CSVLink>
 
           {!pendingData && (

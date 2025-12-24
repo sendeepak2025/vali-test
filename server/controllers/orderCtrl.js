@@ -2589,8 +2589,10 @@ const getEnhancedDashboardData = async (req, res) => {
       }
     ]);
 
-    // 7. Underperforming Stores (stores with declining orders)
-    const underperformingStores = await orderModel.aggregate([
+    // 7. Underperforming Stores (stores with declining orders OR no orders in last week)
+    
+    // First, get stores with declining orders
+    const decliningStores = await orderModel.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfLastWeek }
@@ -2669,12 +2671,51 @@ const getEnhancedDashboardData = async (req, res) => {
               },
               100
             ]
-          }
+          },
+          noOrdersLastWeek: false
         }
       },
       { $sort: { decline: -1 } },
       { $limit: 5 }
     ]);
+
+    // Get all stores that had orders in last week
+    const storesWithOrdersLastWeek = await orderModel.distinct("store", {
+      createdAt: { $gte: startOfLastWeek }
+    });
+
+    // Get all active stores that had NO orders in last week
+    const storesWithNoOrders = await authModel.aggregate([
+      {
+        $match: {
+          role: "store",
+          _id: { $nin: storesWithOrdersLastWeek }
+        }
+      },
+      {
+        $project: {
+          storeName: 1,
+          ownerName: 1,
+          email: 1
+        }
+      },
+      { $limit: 10 }
+    ]);
+
+    // Format stores with no orders
+    const noOrderStores = storesWithNoOrders.map(store => ({
+      _id: store._id,
+      storeName: store.storeName,
+      ownerName: store.ownerName,
+      email: store.email,
+      currentWeek: { orderCount: 0, totalAmount: 0 },
+      lastWeek: { orderCount: 0, totalAmount: 0 },
+      decline: 100,
+      noOrdersLastWeek: true
+    }));
+
+    // Combine both lists - no order stores first, then declining stores
+    const underperformingStores = [...noOrderStores, ...decliningStores].slice(0, 10);
 
     // 8. Order Status Distribution
     const orderStatusDist = await orderModel.aggregate([

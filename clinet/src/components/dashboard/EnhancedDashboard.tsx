@@ -66,6 +66,7 @@ interface EnhancedDashboardData {
     decline: number;
     currentWeek: { orderCount: number; totalAmount: number };
     lastWeek: { orderCount: number; totalAmount: number };
+    noOrdersLastWeek?: boolean;
   }>;
   orderStatusDistribution: Array<{ _id: string; count: number; amount: number }>;
   lowStockProducts: Array<{ name: string; quantity: number; unit: string }>;
@@ -302,7 +303,7 @@ export default function EnhancedDashboard() {
       {/* Store Performance Section */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Top Performing Stores */}
-        <Card>
+        <Card className="h-[540px] flex flex-col">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-green-600" />
@@ -310,102 +311,116 @@ export default function EnhancedDashboard() {
             </CardTitle>
             <CardDescription>Best performers this month</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Store</TableHead>
-                  <TableHead className="text-right">Orders</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {enhancedData?.topStores?.map((store, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="bg-green-100 text-green-700 text-xs">
-                            {store.storeName?.substring(0, 2).toUpperCase() || "ST"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium text-sm">{store.storeName}</div>
-                          <div className="text-xs text-muted-foreground">{store.ownerName}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">{store.orderCount}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(store.totalAmount)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(!enhancedData?.topStores || enhancedData.topStores.length === 0) && (
+          <CardContent className="flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground">
-                      No data available
-                    </TableCell>
+                    <TableHead>Store</TableHead>
+                    <TableHead className="text-right">Orders</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {enhancedData?.topStores?.map((store, index) => (
+                    <TableRow key={index}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback className="bg-green-100 text-green-700 text-xs">
+                              {store.storeName?.substring(0, 2).toUpperCase() || "ST"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium text-sm">{store.storeName}</div>
+                            <div className="text-xs text-muted-foreground">{store.ownerName}</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">{store.orderCount}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(store.totalAmount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(!enhancedData?.topStores || enhancedData.topStores.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-muted-foreground">
+                        No data available
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
 
         {/* Underperforming Stores */}
-        <Card>
+        <Card className="h-[540px] flex flex-col">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <TrendingDown className="h-5 w-5 text-red-600" />
               Stores Needing Attention
             </CardTitle>
-            <CardDescription>Declining performance vs last week</CardDescription>
+            <CardDescription>Stores with no orders or declining performance</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Store</TableHead>
-                  <TableHead className="text-right">This Week</TableHead>
-                  <TableHead className="text-right">Decline</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {enhancedData?.underperformingStores?.map((store, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarFallback className="bg-red-100 text-red-700 text-xs">
-                            {store.storeName?.substring(0, 2).toUpperCase() || "ST"}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium text-sm">{store.storeName}</div>
-                          <div className="text-xs text-muted-foreground">{store.ownerName}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {store.currentWeek?.orderCount || 0} orders
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="destructive" className="text-xs">
-                        -{Math.round(store.decline || 0)}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(!enhancedData?.underperformingStores || enhancedData.underperformingStores.length === 0) && (
+          <CardContent className="flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground">
-                      All stores performing well! 🎉
-                    </TableCell>
+                    <TableHead>Store</TableHead>
+                    <TableHead className="text-right">This Week</TableHead>
+                    <TableHead className="text-right">Decline</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {enhancedData?.underperformingStores?.map((store, index) => (
+                    <TableRow key={index}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback className={`${store.noOrdersLastWeek ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'} text-xs`}>
+                              {store.storeName?.substring(0, 2).toUpperCase() || "ST"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium text-sm">{store.storeName}</div>
+                            <div className="text-xs text-muted-foreground">{store.ownerName}</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {store.noOrdersLastWeek ? (
+                          <span className="text-orange-600 text-sm">No orders</span>
+                        ) : (
+                          <span>{store.currentWeek?.orderCount || 0} orders</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {store.noOrdersLastWeek ? (
+                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+                            Inactive
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            -{Math.round(store.decline || 0)}%
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(!enhancedData?.underperformingStores || enhancedData.underperformingStores.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-muted-foreground">
+                        All stores performing well! 🎉
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
