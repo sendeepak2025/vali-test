@@ -198,6 +198,23 @@ const ProductSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
+        // Price Tiers for different store categories
+        aPrice: {
+            type: Number,
+            default: 0,
+        },
+        bPrice: {
+            type: Number,
+            default: 0,
+        },
+        cPrice: {
+            type: Number,
+            default: 0,
+        },
+        restaurantPrice: {
+            type: Number,
+            default: 0,
+        },
         image:
         {
             type: String,
@@ -213,12 +230,12 @@ const ProductSchema = new mongoose.Schema(
 
         // Sales mode configuration - determines how product can be sold
         // "unit" = sell by individual units (lb, oz, pieces)
-        // "case" = sell by whole cases only
+        // "case" = sell by whole cases only (DEFAULT)
         // "both" = customer can choose either method
         salesMode: {
             type: String,
             enum: ["unit", "case", "both"],
-            default: "both"
+            default: "case"
         },
 
         // Case dimensions for pallet calculation (in inches)

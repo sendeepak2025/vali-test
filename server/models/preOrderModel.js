@@ -22,6 +22,17 @@ const palletDataSchema = new mongoose.Schema(
     chargePerPallet: Number,
     totalPalletCharge: Number,
     selectedItems: [String], // or [mongoose.Schema.Types.ObjectId] if referencing items
+    palletBreakdown: {
+      type: Map,
+      of: {
+        boxes: Number,
+        casesPerPallet: Number,
+        palletsNeeded: Number,
+        fullPallets: Number,
+        partialCases: Number
+      }
+    },
+    calculatedAt: Date,
     createdAt: {
       type: Date,
       default: Date.now,

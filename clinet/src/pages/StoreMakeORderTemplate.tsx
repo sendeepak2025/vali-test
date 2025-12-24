@@ -63,7 +63,7 @@ const CreateOrderModalStore = () => {
   const storeId = urlParams.get("storeId")
   const templateId = urlParams.get("templateId")
   // const priceCategory = urlParams.get("cat") || "price"
-  const [priceCategory,setPriceCategory] = useState("pricePerBox")
+  const [priceCategory,setPriceCategory] = useState("aPrice")
   const navigate = useNavigate()
   const location = useLocation(); // React Router v6+
   const [nextWeek, setNextWeek] = useState(false);
@@ -189,7 +189,18 @@ const [preOrderNum, setPreOrderNum] = useState("");
       try {
         const tempLate = await getSinglePriceAPI(templateId)
         console.log(tempLate)
-        setTemlate(tempLate)
+        // Template already has products with prices set (aPrice, bPrice, cPrice, restaurantPrice)
+        if (tempLate && tempLate.products) {
+          // Just ensure id field exists, don't override prices
+          const processedProducts = tempLate.products.map((p: any) => ({
+            ...p,
+            id: p.id || p._id,
+            salesMode: p.salesMode || "case" // Default to case only
+          }))
+          setTemlate({ ...tempLate, products: processedProducts })
+        } else {
+          setTemlate(tempLate)
+        }
       } catch (error) {
         console.error("Error fetching stores:", error)
       } finally {
@@ -217,8 +228,8 @@ const [preOrderNum, setPreOrderNum] = useState("");
         return;
       }
 
-      if (response.priceCategory === "price") {
-        setPriceCategory("pricePerBox");
+      if (response.priceCategory === "price" || !response.priceCategory) {
+        setPriceCategory("aPrice");
       } else {
         setPriceCategory(response.priceCategory);
       }
@@ -307,7 +318,16 @@ const [preOrderNum, setPreOrderNum] = useState("");
     return template.products.reduce((total, product) => {
       const quantity = quantities[product.id] || 0;
       const type = priceType[product.id] || "box"; // Default to 'box'
-      const price = type === "unit" ? product.price : product[priceCategory] ||product.pricePerBox;
+      
+      let price = 0;
+      if (type === "unit") {
+        price = product.price || 0;
+      } else {
+        // Get price based on store's price category
+        const categoryPrice = product[priceCategory]
+        // If category price is set and > 0, use it, otherwise fallback to pricePerBox
+        price = (categoryPrice && categoryPrice > 0) ? categoryPrice : (product.pricePerBox || 0)
+      }
 
       return total + price * quantity;
     }, 0);
@@ -364,7 +384,15 @@ const [preOrderNum, setPreOrderNum] = useState("");
         const quantity = quantities[product.id] || 0;
         const pricingType = priceType[product.id] || "box"; // default to 'box'
 
-        const unitPrice = pricingType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
+        // Get price based on store's price category
+        let unitPrice = 0;
+        if (pricingType === "unit") {
+          unitPrice = product.price || 0;
+        } else {
+          const categoryPrice = product[priceCategory]
+          // If category price is set and > 0, use it, otherwise fallback to pricePerBox
+          unitPrice = (categoryPrice && categoryPrice > 0) ? categoryPrice : (product.pricePerBox || 0)
+        }
  
       
         return {
@@ -715,7 +743,8 @@ exportInvoiceToPDF({
                               .map((product) => {
                                 const quantity = quantities[product.id] || 0;
                                 const selectedType = priceType[product.id] || "box";
-                                const price = selectedType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
+                                const categoryPrice = product[priceCategory];
+                                const price = selectedType === "unit" ? (product.price || 0) : ((categoryPrice && categoryPrice > 0) ? categoryPrice : (product.pricePerBox || 0));
                                 const total = price * quantity;
 
                                 return (
@@ -833,8 +862,10 @@ exportInvoiceToPDF({
                       <TableBody>
                         {filteredProducts.map((product) => {
                           const quantity = quantities[product.id] || 0;
-                          const selectedType = priceType[product.id] || "box"; // default to box
-                          const price = selectedType === "unit" ? product.price : product[priceCategory] || product.pricePerBox;
+                          const salesMode = product.salesMode || "case"; // Default to case only
+                          const selectedType = priceType[product.id] || (salesMode === "unit" ? "unit" : "box"); // default based on salesMode
+                          const categoryPrice = product[priceCategory];
+                          const price = selectedType === "unit" ? (product.price || 0) : ((categoryPrice && categoryPrice > 0) ? categoryPrice : (product.pricePerBox || 0));
                           const total = price * quantity;
                           const isSelected = quantity > 0;
 
@@ -859,14 +890,21 @@ exportInvoiceToPDF({
 
                          {!nextWeek &&     <TableCell className="text-right text-xs sm:text-sm">
                                 <div className="flex flex-col items-end gap-1">
-                                  <select
-                                    value={selectedType}
-                                    onChange={(e) => handlePriceTypeChange(product.id, e.target.value)}
-                                    className="text-xs border rounded px-2 py-1 bg-white"
-                                  >
-                                    <option value="unit">Per LB</option>
-                                    <option value="box">Per Box</option>
-                                  </select>
+                                  {/* Show dropdown only if salesMode is "both", otherwise show fixed type */}
+                                  {salesMode === "both" ? (
+                                    <select
+                                      value={selectedType}
+                                      onChange={(e) => handlePriceTypeChange(product.id, e.target.value)}
+                                      className="text-xs border rounded px-2 py-1 bg-white"
+                                    >
+                                      <option value="unit">Per LB</option>
+                                      <option value="box">Per Box</option>
+                                    </select>
+                                  ) : (
+                                    <span className="text-xs text-gray-500">
+                                      {salesMode === "unit" ? "Per LB" : "Per Box"}
+                                    </span>
+                                  )}
                                   <span className="font-medium">{formatCurrency(price)}</span>
                                 </div>
                               </TableCell>}
@@ -1044,7 +1082,7 @@ exportInvoiceToPDF({
                             {product.productName || product.name}
                           </TableCell>
                           <TableCell className="text-right text-xs sm:text-sm">
-                            {formatCurrency(product[priceCategory] || product.unitPrice || product.pricePerBox)}
+                            {formatCurrency(product[priceCategory] || product.unitPrice || product.aPrice)}
                           </TableCell>
                           <TableCell className="text-center text-xs sm:text-sm">
   {product.quantity}{" "}
@@ -1057,7 +1095,7 @@ exportInvoiceToPDF({
 
 
                           <TableCell className="text-right text-xs sm:text-sm">
-                            {formatCurrency((product.unitPrice || product.pricePerBox) * product.quantity)}
+                            {formatCurrency((product.unitPrice || product.aPrice) * product.quantity)}
                           </TableCell>
                         </TableRow>
                       ))}

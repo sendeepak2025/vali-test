@@ -1,5 +1,4 @@
 const PriceListTemplate = require("../models/PriceListTemplate");
-const mailSender = require("../utils/mailSender");
 
 // ✅ Create a new Price List Template
 exports.createPriceListTemplate = async (req, res) => {
@@ -15,7 +14,7 @@ exports.createPriceListTemplate = async (req, res) => {
       name,
       description,
       status,
-      products,  // Storing full product objects instead of just IDs
+      products,
       emailDistributionGroups,
       lastSent,
       emailSubject,
@@ -38,7 +37,7 @@ exports.getAllPriceListTemplates = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const search = req.query.search || "";
-    const status = req.query.status || ""; // optional filter
+    const status = req.query.status || "";
 
     const match = {};
     if (search) {
@@ -52,7 +51,7 @@ exports.getAllPriceListTemplates = async (req, res) => {
     const total = await PriceListTemplate.countDocuments(match);
 
     const templates = await PriceListTemplate.find(match)
-      .sort({ createdAt: -1 }) // newest first
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
@@ -122,71 +121,3 @@ exports.deletePriceListTemplate = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error.", error: error.message });
   }
 };
-exports.sendOrderEmail = async (req, res) => {
-  try {
-    const { email, templateId } = req.body;  // email = array
-
-    // Validate email array
-    if (!email || !Array.isArray(email) || email.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Email array is required",
-      });
-    }
-
-    // Validate templateId
-    if (!templateId) {
-      return res.status(400).json({
-        success: false,
-        message: "Template ID is required",
-      });
-    }
-
-    // Base URL for all emails
-    const baseUrl = `https://valiproduce.shop/store/template?templateId=${templateId}`;
-
-    // Send email to each store (one by one)
-    for (const singleEmail of email) {
-  const finalUrl = `${baseUrl}&email=${singleEmail}`;
-
-  const subject = "Your Customized Order Form is Ready!";
-  const message = `
-    <p>Dear Valued Customer,</p>
-    
-    <p>Thank you for choosing <strong>Vali Produce</strong> for your fresh produce needs.</p>
-    
-    <p>Your customized order form is ready. You can view our latest price list and place your order directly through the link below:</p>
-    
-    <p>👉 <a href="${finalUrl}" target="_blank">${finalUrl}</a></p>
-    
-    <p>Please review the prices listed on the form and submit your order at your convenience. Once received, our team will confirm availability and schedule your delivery promptly.</p>
-    
-    <p>If you have any questions or need assistance with ordering, feel free to reach out — we’re always happy to help.</p>
-    
-    <p>Thank you for your business and continued trust in <strong>Vali Produce</strong>!</p>
-    
-    <p>Warm regards,<br/>
-    Vali Produce Team</p>
-  `;
-
-  await mailSender(singleEmail, subject, message);
-}
-
-
-    return res.status(200).json({
-      success: true,
-      message: "Order email sent to all selected stores",
-    });
-
-  } catch (error) {
-    console.error("Error sending order email:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to send order email",
-      error: error.message,
-    });
-  }
-};
-
-

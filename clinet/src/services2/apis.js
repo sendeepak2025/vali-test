@@ -72,8 +72,6 @@ export const priceList = {
   GET_PRICE_LIST: BASE_URL + "/price-list-templates/get",
   DELETE_PRICE_LIST: BASE_URL + "/price-list-templates/delete",
   UPDATE_PRICE_LIST: BASE_URL + "/price-list-templates/update",
-  SEND_ORDER_TO_STORE: BASE_URL + "/price-list-templates/send-order-to-store",
-
 }
 
 export const groupPricing = {
@@ -113,6 +111,9 @@ export const order = {
   GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
   UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
   UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",
+
+  // Regional Order Trends
+  GET_REGIONAL_ORDER_TRENDS: BASE_URL + "/order/regional-trends",
 
 }
 export const crm = {

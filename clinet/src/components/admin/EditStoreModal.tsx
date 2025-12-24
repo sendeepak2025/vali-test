@@ -27,7 +27,7 @@ const storeEditSchema = z.object({
   zipCode: z.string().min(5, "Zip code is required"),
   shippingCost: z.string().optional(),
   businessDescription: z.string().optional(),
-  priceCategory: z.enum(["price", "aPrice", "bPrice", "restaurantPrice"]),
+  priceCategory: z.enum(["aPrice", "bPrice", "cPrice", "restaurantPrice"]),
 })
 
 type StoreEditValues = z.infer<typeof storeEditSchema>
@@ -58,7 +58,7 @@ const StoreEditModal = ({ storeId, isOpen, onClose, onSuccess }: StoreEditModalP
       zipCode: "",
       shippingCost: 0,
       businessDescription: "",
-      priceCategory: "price", // Default value
+      priceCategory: "aPrice", // Default value
     },
   })
 
@@ -85,7 +85,7 @@ const StoreEditModal = ({ storeId, isOpen, onClose, onSuccess }: StoreEditModalP
           zipCode: storeData.zipCode || "",
           shippingCost: storeData.shippingCost || 0,
           businessDescription: storeData.businessDescription || "",
-          priceCategory: storeData.priceCategory || "price",
+          priceCategory: storeData.priceCategory || "aPrice",
         })
       }
     } catch (error) {
@@ -264,18 +264,17 @@ const StoreEditModal = ({ storeId, isOpen, onClose, onSuccess }: StoreEditModalP
                   name="priceCategory"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Price Category</FormLabel>
+                      <FormLabel>Store Price List</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select price category" />
+                            <SelectValue placeholder="Select price list" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="price">Price</SelectItem>
-                          <SelectItem value="aPrice">A Price</SelectItem>
-                          <SelectItem value="bPrice">B Price</SelectItem>
-                          <SelectItem value="cPrice">C Price</SelectItem>
+                          <SelectItem value="aPrice">Price List A</SelectItem>
+                          <SelectItem value="bPrice">Price List B</SelectItem>
+                          <SelectItem value="cPrice">Price List C</SelectItem>
                           <SelectItem value="restaurantPrice">Restaurant Price</SelectItem>
                         </SelectContent>
                       </Select>

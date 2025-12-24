@@ -713,9 +713,9 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                   <Button variant="outline" size="sm" className="hidden sm:flex" onClick={handleImport}>
                     <Upload size={16} className="mr-2" /> Import
                   </Button>
-                  <Button variant="outline" size="sm" className="bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100 hidden sm:flex" onClick={handleOpenPriceList}>
+                  {/* <Button variant="outline" size="sm" className="bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100 hidden sm:flex" onClick={handleOpenPriceList}>
                     <ListFilter size={16} className="mr-2" /> Price List
-                  </Button>
+                  </Button> */}
                   <Button variant="outline" size="sm" className="bg-green-50 border-green-200 text-green-600 hover:bg-green-100 hidden sm:flex" onClick={handleOpenBulkDiscount}>
                     <Tags size={16} className="mr-2" /> Volume Discounts
                   </Button>

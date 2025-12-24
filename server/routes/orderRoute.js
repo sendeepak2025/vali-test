@@ -24,7 +24,8 @@ const {
     getUserLatestOrdersCtrl,
     getOrderMatrixDataCtrl,
     updateOrderMatrixItemCtrl,
-    updatePreOrderMatrixItemCtrl
+    updatePreOrderMatrixItemCtrl,
+    getRegionalOrderTrends
 
 } = require("../controllers/orderCtrl");
 
@@ -56,6 +57,9 @@ router.get("/latest/:storeId", getUserLatestOrdersCtrl);
 router.get("/matrix", auth, getOrderMatrixDataCtrl);
 router.post("/matrix/update", auth, updateOrderMatrixItemCtrl);
 router.post("/matrix/preorder", auth, updatePreOrderMatrixItemCtrl);
+
+// Regional Order Trends for warehouse planning
+router.get("/regional-trends", auth, getRegionalOrderTrends);
 
 
 

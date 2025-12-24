@@ -207,70 +207,86 @@ exports.getInventorySummaryByStore = async (req, res) => {
  */
 exports.getInventoryByRegion = async (req, res) => {
   try {
-    const pipeline = [
-      {
-        $lookup: {
-          from: "auths",
-          localField: "store",
-          foreignField: "_id",
-          as: "storeDetails",
-        },
-      },
-      { $unwind: "$storeDetails" },
-      {
-        $lookup: {
-          from: "products",
-          localField: "product",
-          foreignField: "_id",
-          as: "productDetails",
-        },
-      },
-      { $unwind: "$productDetails" },
+    // First get all stores grouped by state
+    const storesByState = await authModel.aggregate([
+      { $match: { role: "store" } },
       {
         $group: {
-          _id: "$storeDetails.state",
-          state: { $first: "$storeDetails.state" },
-          storeCount: { $addToSet: "$store" },
-          totalProducts: { $sum: 1 },
-          totalQuantity: { $sum: "$quantity" },
-          totalValue: {
-            $sum: { $multiply: ["$quantity", "$productDetails.price"] },
-          },
-          lowStockItems: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $gt: ["$quantity", 0] },
-                    { $lte: ["$quantity", "$reorderPoint"] },
-                  ],
-                },
-                1,
-                0,
-              ],
-            },
-          },
-          outOfStockItems: {
-            $sum: { $cond: [{ $lte: ["$quantity", 0] }, 1, 0] },
-          },
-        },
+          _id: "$state",
+          state: { $first: "$state" },
+          storeIds: { $push: "$_id" },
+          storeCount: { $sum: 1 }
+        }
       },
-      {
-        $project: {
-          _id: 1,
-          state: 1,
-          storeCount: { $size: "$storeCount" },
-          totalProducts: 1,
-          totalQuantity: 1,
-          totalValue: 1,
-          lowStockItems: 1,
-          outOfStockItems: 1,
-        },
-      },
-      { $sort: { totalValue: -1 } },
-    ];
+      { $match: { _id: { $ne: null } } }
+    ]);
 
-    const regionData = await StoreInventory.aggregate(pipeline);
+    // Get inventory stats for each state
+    const regionData = await Promise.all(
+      storesByState.map(async (region) => {
+        const inventoryStats = await StoreInventory.aggregate([
+          { $match: { store: { $in: region.storeIds } } },
+          {
+            $lookup: {
+              from: "products",
+              localField: "product",
+              foreignField: "_id",
+              as: "productDetails"
+            }
+          },
+          { $unwind: { path: "$productDetails", preserveNullAndEmptyArrays: true } },
+          {
+            $group: {
+              _id: null,
+              totalProducts: { $sum: 1 },
+              totalQuantity: { $sum: "$quantity" },
+              totalValue: {
+                $sum: { $multiply: ["$quantity", { $ifNull: ["$productDetails.price", 0] }] }
+              },
+              lowStockItems: {
+                $sum: {
+                  $cond: [
+                    {
+                      $and: [
+                        { $gt: ["$quantity", 0] },
+                        { $lte: ["$quantity", "$reorderPoint"] }
+                      ]
+                    },
+                    1,
+                    0
+                  ]
+                }
+              },
+              outOfStockItems: {
+                $sum: { $cond: [{ $lte: ["$quantity", 0] }, 1, 0] }
+              }
+            }
+          }
+        ]);
+
+        const stats = inventoryStats[0] || {
+          totalProducts: 0,
+          totalQuantity: 0,
+          totalValue: 0,
+          lowStockItems: 0,
+          outOfStockItems: 0
+        };
+
+        return {
+          _id: region._id,
+          state: region.state || "Unknown",
+          storeCount: region.storeCount,
+          totalProducts: stats.totalProducts,
+          totalQuantity: stats.totalQuantity,
+          totalValue: stats.totalValue,
+          lowStockItems: stats.lowStockItems,
+          outOfStockItems: stats.outOfStockItems
+        };
+      })
+    );
+
+    // Sort by store count descending
+    regionData.sort((a, b) => b.storeCount - a.storeCount);
 
     res.status(200).json({ success: true, data: regionData });
   } catch (error) {
@@ -463,7 +479,11 @@ exports.getStoresWithInventory = async (req, res) => {
 
     const stores = await authModel.find(storeQuery).select(
       "storeName ownerName email state city address"
-    );
+    ).lean();
+
+    if (stores.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
 
     // Get inventory stats for each store
     const storeIds = stores.map((s) => s._id);
@@ -498,7 +518,7 @@ exports.getStoresWithInventory = async (req, res) => {
     });
 
     const result = stores.map((store) => ({
-      ...store.toObject(),
+      ...store,
       inventory: statsMap[store._id.toString()] || {
         totalProducts: 0,
         totalQuantity: 0,

@@ -157,7 +157,8 @@ const authSchema = new mongoose.Schema(
     },
     priceCategory: {
       type: String,
-      default: "price",
+      enum: ["aPrice", "bPrice", "cPrice", "restaurantPrice"],
+      default: "aPrice",
     },
     shippingCost: {
       type: Number,

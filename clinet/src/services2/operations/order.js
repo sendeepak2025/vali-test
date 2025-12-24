@@ -25,7 +25,8 @@ const { CREATE_PRODUCT,
     GET_USER_LATEST_ORDERS,
     GET_ORDER_MATRIX,
     UPDATE_ORDER_MATRIX_ITEM,
-    UPDATE_PREORDER_MATRIX_ITEM
+    UPDATE_PREORDER_MATRIX_ITEM,
+    GET_REGIONAL_ORDER_TRENDS
 } = order
 
 
@@ -768,5 +769,43 @@ export const updatePreOrderMatrixItemAPI = async (formData, token) => {
     console.error("updatePreOrderMatrixItemAPI ERROR:", error);
     toast.error(error?.response?.data?.message || "Failed to update preorder matrix item");
     return null;
+  }
+};
+
+
+// Get Regional Order Trends for warehouse planning
+export const getRegionalOrderTrendsAPI = async (token, weeks = 4) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${GET_REGIONAL_ORDER_TRENDS}?weeks=${weeks}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to fetch regional order trends");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("getRegionalOrderTrendsAPI ERROR:", error);
+    return {
+      success: false,
+      data: {
+        summary: {
+          totalRegions: 0,
+          totalOrders: 0,
+          totalAmount: 0,
+          totalPallets: 0,
+          avgWeeklyPallets: 0,
+          weeksAnalyzed: weeks
+        },
+        regions: []
+      }
+    };
   }
 };

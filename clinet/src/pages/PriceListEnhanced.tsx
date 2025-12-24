@@ -444,7 +444,7 @@ const PriceListEnhanced = () => {
       products: prev.products.map(p => {
         if (p.id === productId) {
           const basePrice = p.pricePerBox || p.price || 0
-          return { ...p, aPrice: basePrice, bPrice: basePrice, cPrice: basePrice }
+          return { ...p, aPrice: basePrice, bPrice: basePrice, cPrice: basePrice, restaurantPrice: basePrice }
         }
         return p
       })
@@ -510,7 +510,7 @@ const PriceListEnhanced = () => {
       products: prev.products.map(p => {
         if (targetIds.includes(p.id)) {
           const basePrice = p.pricePerBox || p.price || 0
-          return { ...p, aPrice: basePrice, bPrice: basePrice, cPrice: basePrice }
+          return { ...p, aPrice: basePrice, bPrice: basePrice, cPrice: basePrice, restaurantPrice: basePrice }
         }
         return p
       })
@@ -845,17 +845,17 @@ const PriceListEnhanced = () => {
   }
 
   // Quick Price Update - Parse input and update price
-  // Formats: "01 25.99" (base), "01a 24.99" (A price), "01b 23.99" (B price), "01c 22.99" (C price)
+  // Formats: "01 25.99" (base), "01a 24.99" (A), "01b 23.99" (B), "01c 22.99" (C), "01r 21.99" (Restaurant)
   const handleQuickPriceUpdate = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return
     
     const input = quickPriceInput.trim()
     if (!input) return
     
-    // Parse input: "01 25.99" or "01a 24.99" or "01b 23.99" or "01c 22.99"
-    const match = input.match(/^(\d+)(a|b|c)?\s+([\d.]+)$/i)
+    // Parse input: "01 25.99" or "01a/b/c/r 24.99"
+    const match = input.match(/^(\d+)(a|b|c|r)?\s+([\d.]+)$/i)
     if (!match) {
-      toast({ variant: "destructive", title: "Invalid format", description: "Use: 01 25.99 (base) or 01a 24.99 (A price)" })
+      toast({ variant: "destructive", title: "Invalid format", description: "Use: 01 25.99 (base) or 01a/b/c/r for price tiers" })
       return
     }
     
@@ -876,6 +876,7 @@ const PriceListEnhanced = () => {
       if (tierLower === "a") { field = "aPrice"; fieldLabel = "A" }
       else if (tierLower === "b") { field = "bPrice"; fieldLabel = "B" }
       else if (tierLower === "c") { field = "cPrice"; fieldLabel = "C" }
+      else if (tierLower === "r") { field = "restaurantPrice"; fieldLabel = "Restaurant" }
     }
     
     // Find product by shortCode
@@ -919,7 +920,7 @@ const PriceListEnhanced = () => {
     if (quickPriceHistory.length === 0) return
     
     const last = quickPriceHistory[0]
-    const fieldMap: Record<string, string> = { "Base": "pricePerBox", "A": "aPrice", "B": "bPrice", "C": "cPrice" }
+    const fieldMap: Record<string, string> = { "Base": "pricePerBox", "A": "aPrice", "B": "bPrice", "C": "cPrice", "Restaurant": "restaurantPrice" }
     const field = fieldMap[last.field]
     
     setFormData(prev => ({
@@ -1361,7 +1362,7 @@ const PriceListEnhanced = () => {
                       
                       <div className="flex gap-2 mb-3">
                         <Input
-                          placeholder="Type: 01 25.99 or 01a 24.99 or 01b 23.99 or 01c 22.99"
+                          placeholder="Type: 01 25.99 or 01a/b/c/r 24.99"
                           value={quickPriceInput}
                           onChange={(e) => setQuickPriceInput(e.target.value)}
                           onKeyDown={handleQuickPriceUpdate}
@@ -1383,6 +1384,7 @@ const PriceListEnhanced = () => {
                         <span className="bg-white px-2 py-1 rounded"><strong>01a 24.99</strong> = A Price</span>
                         <span className="bg-white px-2 py-1 rounded"><strong>01b 23.99</strong> = B Price</span>
                         <span className="bg-white px-2 py-1 rounded"><strong>01c 22.99</strong> = C Price</span>
+                        <span className="bg-white px-2 py-1 rounded"><strong>01r 21.99</strong> = Restaurant</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -1567,6 +1569,7 @@ const PriceListEnhanced = () => {
                           <TableHead className="text-right w-24">A Price</TableHead>
                           <TableHead className="text-right w-24">B Price</TableHead>
                           <TableHead className="text-right w-24">C Price</TableHead>
+                          <TableHead className="text-right w-24">Restaurant</TableHead>
                           <TableHead className="w-20 text-center">Quick</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1586,7 +1589,7 @@ const PriceListEnhanced = () => {
                               </TableCell>
                               
                               {/* Editable Price Cells */}
-                              {["pricePerBox", "aPrice", "bPrice", "cPrice"].map((field) => (
+                              {["pricePerBox", "aPrice", "bPrice", "cPrice", "restaurantPrice"].map((field) => (
                                 <TableCell key={field} className="text-right p-1">
                                   {editingCell?.productId === product.id && editingCell?.field === field ? (
                                     <Input

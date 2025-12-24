@@ -472,7 +472,13 @@ const UpdatePreOrder = () => {
       const confirmResponse = await confirmPreOrderAPI(token, id)
       
       if (confirmResponse) {
-        toast({ title: "Pre-Order Confirmed!", description: `Pre-Order has been confirmed and converted to a regular order` })
+        // Show pallet info if available
+        const palletInfo = confirmResponse.palletInfo
+        let description = `Pre-Order has been confirmed and converted to a regular order`
+        if (palletInfo && palletInfo.totalPallets > 0) {
+          description += ` | Pallets: ${palletInfo.totalPallets} | Boxes: ${palletInfo.totalBoxes}`
+        }
+        toast({ title: "Pre-Order Confirmed!", description })
         navigate("/admin/orders")
       }
     } catch (error) {

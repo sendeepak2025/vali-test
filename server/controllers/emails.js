@@ -134,13 +134,14 @@ exports.sendByPriceCategory = async (req, res) => {
       });
     }
 
-    const priceCategoryMap = {
-      "pricePerBox": "price",
-      "price": "price",
-      "aPrice": "aPrice",
-      "bPrice": "bPrice",
-      "cPrice": "cPrice",
-      "restaurantPrice": "restaurantPrice"
+    const priceCategoryLabels = {
+      "aPrice": "Price List A",
+      "bPrice": "Price List B",
+      "cPrice": "Price List C",
+      "restaurantPrice": "Restaurant Price",
+      // Legacy fallbacks
+      "pricePerBox": "Price List A",
+      "price": "Price List A"
     };
 
     let successCount = 0;
@@ -148,8 +149,8 @@ exports.sendByPriceCategory = async (req, res) => {
 
     for (const store of stores) {
       try {
-        const priceCategory = store.priceCategory || "pricePerBox";
-        const catValue = priceCategoryMap[priceCategory] || "price";
+        const priceCategory = store.priceCategory || "aPrice";
+        const priceLabel = priceCategoryLabels[priceCategory] || "Price List A";
 
         // const url = `http://valiproduce.shop/store/template?templateId=${templateId}&cat=${catValue}`;
         const url = `http://valiproduce.shop/store/mobile`;
@@ -166,7 +167,7 @@ exports.sendByPriceCategory = async (req, res) => {
             </div>
             <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <p style="color: #333; font-size: 14px; margin: 0;">
-                <strong>Your Pricing Category:</strong> ${priceCategory === "pricePerBox" ? "Standard Price" : priceCategory.toUpperCase()}
+                <strong>Your Price List:</strong> ${priceLabel}
               </p>
             </div>
             <p style="color: #666; font-size: 14px; text-align: center;">If you have any questions, feel free to contact us.</p>
@@ -175,7 +176,7 @@ exports.sendByPriceCategory = async (req, res) => {
           </div>
         `;
 
-        const subject = `📜 New Price List Available - ${priceCategory === "pricePerBox" ? "Standard" : priceCategory.toUpperCase()} Pricing`;
+        const subject = `📜 New Price List Available - ${priceLabel}`;
 
         // ❌ MAIL SENDING DISABLED
         // await mailSender(store.email, subject, html, null, null, null);

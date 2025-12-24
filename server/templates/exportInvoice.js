@@ -275,6 +275,30 @@ doc.setFont('helvetica', 'bold');
 doc.text('Total:', PAGE_WIDTH - MARGIN - 60, yPos + 4);
 doc.text(formatCurrency(allTotal), PAGE_WIDTH - MARGIN, yPos + 4, { align: 'right' });
 
+yPos += 12;
+
+// Pallet Information Section
+if (order.palletData && order.palletData.palletCount > 0) {
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(41, 98, 255);
+  doc.text('Pallet Information:', MARGIN, yPos);
+  yPos += 6;
+  
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(70, 70, 70);
+  doc.setFontSize(8);
+  
+  doc.text(`Total Pallets: ${order.palletData.palletCount}`, MARGIN, yPos);
+  doc.text(`Total Boxes: ${order.palletData.totalBoxes || 0}`, MARGIN + 50, yPos);
+  yPos += 5;
+  
+  // Reset font size
+  doc.setFontSize(9);
+}
+
+// Reset text color
+doc.setTextColor(0, 0, 0);
+
 // // Show payment status on the right side (same line as Total)
 // const paymentStatusText = order.paymentStatus === 'paid' ? 'Paid' : 'Pending';
 

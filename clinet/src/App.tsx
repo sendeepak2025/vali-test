@@ -10,7 +10,6 @@ import ClientProfile from "./pages/ClientProfile";
 import Inventory from "./pages/Inventory";
 import InventoryEnhanced from "./pages/InventoryEnhanced";
 import Orders from "./pages/Orders";
-import PriceList from "./pages/PriceList";
 import PriceListEnhanced from "./pages/PriceListEnhanced";
 import NewOrder from "./pages/NewOrder";
 import NewOrderEnhanced from "./pages/NewOrderEnhanced";
@@ -398,14 +397,6 @@ export default function App() {
           element={
             <PrivateRoute>
               <PriceListEnhanced />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/price-list-old"
-          element={
-            <PrivateRoute>
-              <PriceList />
             </PrivateRoute>
           }
         />

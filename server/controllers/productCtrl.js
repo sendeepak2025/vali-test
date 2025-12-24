@@ -28,6 +28,11 @@ const createProductCtrl = async (req, res) => {
             storageInstructions,
             boxSize,
             pricePerBox,
+            // Price tiers
+            aPrice,
+            bPrice,
+            cPrice,
+            restaurantPrice,
             image,
             shippinCost=0,
             // New fields for sales mode and pallet tracking
@@ -71,6 +76,11 @@ console.log(req.body)
             storageInstructions,
             boxSize,
             pricePerBox,
+            // Price tiers
+            aPrice: aPrice || 0,
+            bPrice: bPrice || 0,
+            cPrice: cPrice || 0,
+            restaurantPrice: restaurantPrice || 0,
             image: image,
             // New fields
             salesMode: salesMode || "both",
@@ -341,6 +351,11 @@ const updateProductCtrl = async (req, res) => {
             storageInstructions,
             boxSize,
             pricePerBox,
+            // Price tiers
+            aPrice,
+            bPrice,
+            cPrice,
+            restaurantPrice,
             image,
             shippinCost,
             totalPurchase,
@@ -395,6 +410,11 @@ const updateProductCtrl = async (req, res) => {
         product.storageInstructions = storageInstructions || product.storageInstructions;
         product.boxSize = boxSize || product.boxSize;
         product.pricePerBox = pricePerBox || product.pricePerBox;
+        // Update price tiers
+        if (aPrice !== undefined) product.aPrice = aPrice;
+        if (bPrice !== undefined) product.bPrice = bPrice;
+        if (cPrice !== undefined) product.cPrice = cPrice;
+        if (restaurantPrice !== undefined) product.restaurantPrice = restaurantPrice;
         product.image = image;
         product.shippinCost = shippinCost;
         product.totalPurchase = totalPurchase;
@@ -429,13 +449,25 @@ const updateProductCtrl = async (req, res) => {
 
 const updateProductPrice = async (req, res) => {
     try {
-        const priceUpdates = req.body; // Expected: { 'id1': price1, 'id2': price2, ... }
+        const priceUpdates = req.body; 
+        // Expected format: { 'id1': { pricePerBox: 10, aPrice: 9, bPrice: 8 }, 'id2': {...} }
+        // OR legacy format: { 'id1': price1, 'id2': price2, ... }
 
-       
-
-        const updatePromises = Object.entries(priceUpdates).map(([id, price]) =>
-            productModel.findByIdAndUpdate(id, { pricePerBox:price }, { new: true })
-        );
+        const updatePromises = Object.entries(priceUpdates).map(([id, priceData]) => {
+            // Support both new format (object with multiple prices) and legacy format (single number)
+            if (typeof priceData === 'object' && priceData !== null) {
+                const updateFields = {};
+                if (priceData.pricePerBox !== undefined) updateFields.pricePerBox = priceData.pricePerBox;
+                if (priceData.aPrice !== undefined) updateFields.aPrice = priceData.aPrice;
+                if (priceData.bPrice !== undefined) updateFields.bPrice = priceData.bPrice;
+                if (priceData.cPrice !== undefined) updateFields.cPrice = priceData.cPrice;
+                if (priceData.restaurantPrice !== undefined) updateFields.restaurantPrice = priceData.restaurantPrice;
+                return productModel.findByIdAndUpdate(id, updateFields, { new: true });
+            } else {
+                // Legacy format - just update pricePerBox
+                return productModel.findByIdAndUpdate(id, { pricePerBox: priceData }, { new: true });
+            }
+        });
 
         // Wait for all updates to complete
         const updatedProducts = await Promise.all(updatePromises);

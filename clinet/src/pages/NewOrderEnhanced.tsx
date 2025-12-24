@@ -817,6 +817,12 @@ const NewOrderEnhanced = () => {
                                 min={1}
                                 value={quickAddQuantity}
                                 onChange={(e) => setQuickAddQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    handleQuickAddSubmit()
+                                  }
+                                }}
                                 className="w-16 h-8 text-center font-medium"
                               />
                               <Button
@@ -1227,6 +1233,53 @@ const NewOrderEnhanced = () => {
                   placeholder="Search products..."
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && displayedProducts.length > 0) {
+                      e.preventDefault()
+                      const product = displayedProducts[0]
+                      const salesMode = product.salesMode || "both"
+                      const defaultPricingType = salesMode === "unit" ? "unit" : "box"
+                      
+                      // Check if product already exists in order with same pricing type
+                      const existingIndex = orderItems.findIndex(
+                        item => item.productId === product.id && item.pricingType === defaultPricingType
+                      )
+                      
+                      if (existingIndex >= 0) {
+                        // Increase quantity by 1
+                        const updated = [...orderItems]
+                        updated[existingIndex].quantity += 1
+                        setOrderItems(updated)
+                        toast({
+                          title: "Quantity Updated!",
+                          description: `${product.name} quantity increased to ${updated[existingIndex].quantity}`
+                        })
+                      } else {
+                        // Add new product
+                        setOrderItems([...orderItems, {
+                          productId: product.id,
+                          productName: product.name,
+                          quantity: 1,
+                          unitPrice: defaultPricingType === "box" ? product.pricePerBox : product.price,
+                          pricingType: defaultPricingType,
+                          shippinCost: product.shippinCost || 0,
+                          shortCode: product.shortCode
+                        }])
+                        toast({
+                          title: "Added!",
+                          description: `${product.name} added to order`
+                        })
+                      }
+                      
+                      // Add to recently added
+                      setRecentlyAddedProducts(prev => {
+                        const filtered = prev.filter(p => p.id !== product.id)
+                        return [product, ...filtered].slice(0, 10)
+                      })
+                      
+                      setProductSearch("")
+                    }
+                  }}
                   className="pl-9"
                   autoFocus
                 />

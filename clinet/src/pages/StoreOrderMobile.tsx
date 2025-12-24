@@ -56,7 +56,7 @@ const StoreOrderMobile = () => {
   const [searchValue, setSearchValue] = useState("")
   const [storeInfo, setStoreInfo] = useState<any>(null)
   const [storeLoading, setStoreLoading] = useState(false)
-  const [priceCategory, setPriceCategory] = useState("pricePerBox")
+  const [priceCategory, setPriceCategory] = useState("aPrice")
   const [lastWeekOrder, setLastWeekOrder] = useState<any[]>([])
   const [userPreOrders, setUserPreOrders] = useState<any[]>([])
   const [preOrdersLoading, setPreOrdersLoading] = useState(false)
@@ -66,35 +66,87 @@ const StoreOrderMobile = () => {
   const [sameAsBilling, setSameAsBilling] = useState(true)
   const isNextWeek = location.pathname.includes('/nextweek')
 
+  // Helper function to get correct price based on store's price category
+  const getProductPrice = (product: any, pricingType: "box" | "unit" = "box") => {
+    if (pricingType === "unit") {
+      return product.price || product.pricePerUnit || 0
+    }
+    
+    // Get price based on store's price category
+    // priceCategory is like "aPrice", "bPrice", "cPrice", "restaurantPrice"
+    const categoryPrice = product[priceCategory]
+    
+    // If category price is set and > 0, use it
+    // Otherwise fallback to pricePerBox (base price)
+    if (categoryPrice && categoryPrice > 0) {
+      return categoryPrice
+    }
+    
+    // Fallback to base price
+    return product.pricePerBox || 0
+  }
+
   // Fetch template/products
   useEffect(() => {
     const fetchTemplate = async () => {
       if (!templateId) { setLoading(false); return }
       try {
         if (templateId === "demo" || templateId === "all") {
+          // Try to get active template first, fallback to all products
+          try {
+            const { getAllPriceListAPI } = await import("@/services2/operations/priceList")
+            const templatesRes = await getAllPriceListAPI("status=active&limit=1")
+            if (templatesRes?.data && templatesRes.data.length > 0) {
+              // Use the most recent active template
+              const activeTemplate = templatesRes.data[0]
+              const processedProducts = activeTemplate.products.map((p: any) => ({
+                ...p,
+                id: p.id || p._id,
+                salesMode: p.salesMode || "case" // Default to case only
+              }))
+              setTemplate({ ...activeTemplate, products: processedProducts })
+              setLoading(false)
+              return
+            }
+          } catch (e) {
+            console.log("No active template found, using all products")
+          }
+          
+          // Fallback to all products
           const products = await getAllProductAPI()
           if (products && products.length > 0) {
             const formattedProducts = products.map((p: any) => ({
-              id: p._id, name: p.name, category: p.category?.name || "Other",
-              pricePerBox: p.pricePerBox || p.price || 0, price: p.price || 0,
-              pricePerUnit: p.price || (p.pricePerBox ? p.pricePerBox / (p.boxSize || 1) : 0),
+              id: p._id, name: p.name, category: p.category || "Other",
+              // Include all price tiers from product
+              aPrice: p.aPrice, bPrice: p.bPrice, cPrice: p.cPrice, restaurantPrice: p.restaurantPrice,
+              pricePerBox: p.pricePerBox, price: p.price || 0, pricePerUnit: p.price || 0,
               image: p.image || "", description: p.description || "",
-              unit: p.unit || "lb", boxSize: p.boxSize || 1, palette: p.palette || ""
+              unit: p.unit || "lb", boxSize: p.boxSize || 1, palette: p.palette || "",
+              salesMode: p.salesMode || "case" // Default to case only
             }))
             setTemplate({ _id: "all-products", name: "All Products", products: formattedProducts })
           }
         } else {
+          // Template already has products with prices set (aPrice, bPrice, cPrice, restaurantPrice)
           const data = await getSinglePriceAPI(templateId)
-          if (data) { setTemplate(data) }
-          else {
+          if (data && data.products) {
+            // Just ensure id field exists, don't override prices
+            const processedProducts = data.products.map((p: any) => ({
+              ...p,
+              id: p.id || p._id,
+              salesMode: p.salesMode || "case" // Default to case only
+            }))
+            setTemplate({ ...data, products: processedProducts })
+          } else {
             const products = await getAllProductAPI()
             if (products && products.length > 0) {
               const formattedProducts = products.map((p: any) => ({
-                id: p._id, name: p.name, category: p.category?.name || "Other",
-                pricePerBox: p.pricePerBox || p.price || 0, price: p.price || 0,
-                pricePerUnit: p.price || (p.pricePerBox ? p.pricePerBox / (p.boxSize || 1) : 0),
+                id: p._id, name: p.name, category: p.category || "Other",
+                aPrice: p.aPrice, bPrice: p.bPrice, cPrice: p.cPrice, restaurantPrice: p.restaurantPrice,
+                pricePerBox: p.pricePerBox, price: p.price || 0, pricePerUnit: p.price || 0,
                 image: p.image || "", description: p.description || "",
-                unit: p.unit || "lb", boxSize: p.boxSize || 1, palette: p.palette || ""
+                unit: p.unit || "lb", boxSize: p.boxSize || 1, palette: p.palette || "",
+                salesMode: p.salesMode || "case" // Default to case only
               }))
               setTemplate({ _id: "all-products", name: "All Products", products: formattedProducts })
             }
@@ -125,7 +177,7 @@ const StoreOrderMobile = () => {
       if (!response) { toast({ variant: "destructive", title: "Not Found", description: "Store not found." }); return }
       
       setStoreInfo(response)
-      setPriceCategory(response.priceCategory === "price" ? "pricePerBox" : response.priceCategory)
+      setPriceCategory(response.priceCategory === "price" || !response.priceCategory ? "aPrice" : response.priceCategory)
       const addr = { 
         name: response.ownerName || response.storeName || "", 
         email: response.email || "", 
@@ -166,13 +218,29 @@ const StoreOrderMobile = () => {
     finally { setStoreLoading(false) }
   }
 
-  // Fetch user preorders
+  // Fetch user preorders - only current week and not confirmed
   const fetchUserPreOrders = async (userId: string) => {
     setPreOrdersLoading(true)
     try {
+      // Get current week's Monday
+      const now = new Date()
+      const dayOfWeek = now.getDay()
+      const monday = new Date(now)
+      monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+      monday.setHours(0, 0, 0, 0)
+      
       const queryParams = `clientId=${userId}&confirmed=false`
       const response = await getAllPreOrderAPI(token, queryParams)
-      setUserPreOrders(response?.preOrders || [])
+      
+      // Filter to show only current week's pre-orders that are NOT confirmed
+      const currentWeekPreOrders = (response?.preOrders || []).filter((order: any) => {
+        const orderDate = new Date(order.createdAt || order.date)
+        const isCurrentWeek = orderDate >= monday
+        const isNotConfirmed = !order.confirmed && order.status !== "confirmed"
+        return isCurrentWeek && isNotConfirmed
+      })
+      
+      setUserPreOrders(currentWeekPreOrders)
     } catch (error) {
       console.error("Error fetching preorders:", error)
       setUserPreOrders([])
@@ -209,8 +277,8 @@ const StoreOrderMobile = () => {
   
   const cartTotal = cartItems.reduce((sum: number, p: any) => {
     const qty = quantities[p.id] || { box: 0, unit: 0 }
-    const boxPrice = p.pricePerBox || 0
-    const unitPrice = p.pricePerUnit || p.price || 0
+    const boxPrice = getProductPrice(p, "box")
+    const unitPrice = getProductPrice(p, "unit")
     return sum + (boxPrice * qty.box) + (unitPrice * qty.unit)
   }, 0)
   
@@ -279,19 +347,21 @@ const StoreOrderMobile = () => {
     try {
       const orderedProducts = cartItems.flatMap((product: any) => {
         const qty = quantities[product.id] || { box: 0, unit: 0 }
+        const boxPrice = getProductPrice(product, "box")
+        const unitPrice = getProductPrice(product, "unit")
         const items = []
         if (qty.box > 0) {
           items.push({
             product: product.id, name: product.name, productId: product.id, productName: product.name,
-            price: product.pricePerBox, unitPrice: product.pricePerBox, quantity: qty.box,
-            pricingType: "box", total: product.pricePerBox * qty.box
+            price: boxPrice, unitPrice: boxPrice, quantity: qty.box,
+            pricingType: "box", total: boxPrice * qty.box
           })
         }
         if (qty.unit > 0) {
           items.push({
             product: product.id, name: product.name, productId: product.id, productName: product.name,
-            price: product.pricePerUnit || product.price, unitPrice: product.pricePerUnit || product.price,
-            quantity: qty.unit, pricingType: "unit", total: (product.pricePerUnit || product.price) * qty.unit
+            price: unitPrice, unitPrice: unitPrice,
+            quantity: qty.unit, pricingType: "unit", total: unitPrice * qty.unit
           })
         }
         return items
@@ -702,8 +772,8 @@ const StoreOrderMobile = () => {
        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
   {filteredProducts.map((product: any) => {
     const qty = quantities[product.id] || { box: 0, unit: 0 }
-    const boxPrice = product.pricePerBox || 0
-    const unitPrice = product.pricePerUnit || product.price || 0
+    const boxPrice = getProductPrice(product, "box")
+    const unitPrice = getProductPrice(product, "unit")
     const isLastWeek = lastWeekProductIds.has(product.id)
     const lastWeekItem = lastWeekOrder.find((item: any) => (item.productId || item.product) === product.id)
     const hasQty = qty.box > 0 || qty.unit > 0
@@ -743,7 +813,8 @@ const StoreOrderMobile = () => {
                 )}
               </div>
 
-              {/* Box Quantity */}
+              {/* Box Quantity - Show if salesMode is "case" or "both" */}
+              {(product.salesMode === "case" || product.salesMode === "both") && (
               <div className="flex items-center justify-between mt-2 bg-gray-50 rounded-lg p-2">
                 <div className="flex items-center gap-1">
                   <Box className="h-4 w-4 text-blue-600" />
@@ -771,8 +842,10 @@ const StoreOrderMobile = () => {
                   </button>
                 </div>
               </div>
+              )}
 
-              {/* Unit Quantity */}
+              {/* Unit Quantity - Show if salesMode is "unit" or "both" */}
+              {(product.salesMode === "unit" || product.salesMode === "both") && (
               <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg p-2">
                 <div className="flex items-center gap-1">
                   <Scale className="h-4 w-4 text-green-600" />
@@ -800,6 +873,7 @@ const StoreOrderMobile = () => {
                   </button>
                 </div>
               </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -855,6 +929,8 @@ const StoreOrderMobile = () => {
             <div className="space-y-2">
               {cartItems.map((product: any) => {
                 const qty = quantities[product.id] || { box: 0, unit: 0 }
+                const boxPrice = getProductPrice(product, "box")
+                const unitPrice = getProductPrice(product, "unit")
                 return (
                   <div key={product.id} className="p-2 bg-gray-50 rounded-lg">
                     <div className="flex items-center justify-between mb-1">
@@ -863,14 +939,14 @@ const StoreOrderMobile = () => {
                     </div>
                     {qty.box > 0 && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600"><Box className="h-3 w-3 inline mr-1" />{qty.box} box × {formatCurrency(product.pricePerBox)}</span>
-                        <span className="font-medium">{formatCurrency(product.pricePerBox * qty.box)}</span>
+                        <span className="text-gray-600"><Box className="h-3 w-3 inline mr-1" />{qty.box} box × {formatCurrency(boxPrice)}</span>
+                        <span className="font-medium">{formatCurrency(boxPrice * qty.box)}</span>
                       </div>
                     )}
                     {qty.unit > 0 && (
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600"><Scale className="h-3 w-3 inline mr-1" />{qty.unit} {product.unit} × {formatCurrency(product.pricePerUnit || product.price)}</span>
-                        <span className="font-medium">{formatCurrency((product.pricePerUnit || product.price) * qty.unit)}</span>
+                        <span className="text-gray-600"><Scale className="h-3 w-3 inline mr-1" />{qty.unit} {product.unit} × {formatCurrency(unitPrice)}</span>
+                        <span className="font-medium">{formatCurrency(unitPrice * qty.unit)}</span>
                       </div>
                     )}
                   </div>
@@ -918,10 +994,12 @@ const StoreOrderMobile = () => {
             <div className="bg-gray-50 rounded-lg p-2 space-y-1 max-h-32 overflow-y-auto text-xs">
               {cartItems.map((product: any) => {
                 const qty = quantities[product.id] || { box: 0, unit: 0 }
+                const boxPrice = getProductPrice(product, "box")
+                const unitPrice = getProductPrice(product, "unit")
                 return (
                   <div key={product.id}>
-                    {qty.box > 0 && <div className="flex justify-between"><span>{qty.box} box - {product.name}</span>{!isNextWeek && <span>{formatCurrency(product.pricePerBox * qty.box)}</span>}</div>}
-                    {qty.unit > 0 && <div className="flex justify-between"><span>{qty.unit} {product.unit} - {product.name}</span>{!isNextWeek && <span>{formatCurrency((product.pricePerUnit || product.price) * qty.unit)}</span>}</div>}
+                    {qty.box > 0 && <div className="flex justify-between"><span>{qty.box} box - {product.name}</span>{!isNextWeek && <span>{formatCurrency(boxPrice * qty.box)}</span>}</div>}
+                    {qty.unit > 0 && <div className="flex justify-between"><span>{qty.unit} {product.unit} - {product.name}</span>{!isNextWeek && <span>{formatCurrency(unitPrice * qty.unit)}</span>}</div>}
                   </div>
                 )
               })}

@@ -7,8 +7,7 @@ const {
     GET_ALL_PRICE_LIST,
     UPDATE_PRICE_LIST,
     GET_PRICE_LIST,
-    DELETE_PRICE_LIST,
-    SEND_ORDER_TO_STORE
+    DELETE_PRICE_LIST
 } = priceList
 
 
@@ -154,32 +153,4 @@ export const deltePriceAPI = async (id) => {
 
     }
 
-};
-
-
-export const sendOrderToStoreAPI = async (formData, token) => {
-    const toastId = toast.loading("Sending order to store...");
-
-    try {
-        const response = await apiConnector("POST", SEND_ORDER_TO_STORE, formData, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-            },
-        });
-
-        if (!response?.data?.success) {
-            throw new Error(response?.data?.message || "Something went wrong!");
-        }
-
-        toast.success(response?.data?.message );
-        return response?.data;
-    } catch (error) {
-        console.error("send order to store:", error);
-        const errorMessage = error?.response?.data?.message || "Failed to send order to store!";
-        toast.error(errorMessage);
-        return { success: false, message: errorMessage };
-    } finally {
-        toast.dismiss(toastId);
-    }
 };

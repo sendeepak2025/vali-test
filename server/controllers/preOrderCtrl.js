@@ -208,6 +208,9 @@ const updatePreOrderCtrl = async (req, res) => {
 };
 
 
+const { calculatePalletsNeeded } = require("../utils/palletCalculator");
+const Product = require("../models/productModel");
+
 const confirmOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
@@ -218,6 +221,62 @@ const confirmOrderCtrl = async (req, res) => {
     if (pre.confirmed) {
       return res.status(400).json({ success: false, message: "PreOrder is already confirmed" });
     }
+
+    // --- Calculate Pallet Data ---
+    let totalPallets = 0;
+    let totalBoxes = 0;
+    const palletBreakdown = {};
+    
+    // Get product IDs from items
+    const productIds = pre.items
+      .filter(item => item.pricingType === "box")
+      .map(item => item.productId || item.product);
+    
+    // Fetch products with pallet capacity
+    const products = await Product.find({ _id: { $in: productIds } })
+      .select('_id palletCapacity')
+      .lean();
+    
+    // Create a map for quick lookup
+    const productPalletMap = {};
+    products.forEach(p => {
+      if (p.palletCapacity?.totalCasesPerPallet > 0) {
+        productPalletMap[p._id.toString()] = p.palletCapacity.totalCasesPerPallet;
+      }
+    });
+    
+    // Calculate pallets for each item
+    pre.items.forEach(item => {
+      if (item.pricingType === "box" && item.quantity > 0) {
+        const productId = (item.productId || item.product)?.toString();
+        const casesPerPallet = productPalletMap[productId];
+        
+        totalBoxes += item.quantity;
+        
+        if (casesPerPallet) {
+          const palletInfo = calculatePalletsNeeded(item.quantity, casesPerPallet);
+          if (palletInfo) {
+            palletBreakdown[productId] = {
+              boxes: item.quantity,
+              casesPerPallet,
+              palletsNeeded: palletInfo.totalPallets,
+              fullPallets: palletInfo.fullPallets,
+              partialCases: palletInfo.partialPalletCases
+            };
+            totalPallets += palletInfo.totalPallets;
+          }
+        }
+      }
+    });
+    
+    // Update palletData in preOrder
+    pre.palletData = {
+      palletCount: totalPallets,
+      totalBoxes,
+      palletBreakdown,
+      calculatedAt: new Date()
+    };
+    pre.plateCount = totalPallets;
 
     // --- Prepare fake req.body for createOrderCtrl ---
     const fakeReq = {
@@ -231,6 +290,8 @@ const confirmOrderCtrl = async (req, res) => {
         orderType: "Regural",
         createdAt: pre.createdAt,
         preOrder: pre._id,
+        palletData: pre.palletData,
+        plateCount: totalPallets
       },
     };
 
@@ -263,6 +324,11 @@ const confirmOrderCtrl = async (req, res) => {
       message: "PreOrder confirmed and Order created successfully",
       order: createdOrderData,
       preOrder: pre,
+      palletInfo: {
+        totalPallets,
+        totalBoxes,
+        breakdown: palletBreakdown
+      }
     });
   } catch (error) {
     console.error("ConfirmOrder Error:", error);

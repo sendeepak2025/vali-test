@@ -16,6 +16,40 @@ const notificationService = require("../services/notificationService");
 // High-value order threshold for admin alerts (configurable)
 const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
+/**
+ * Get the correct price for a product based on store's price category
+ * @param {Object} product - Product document
+ * @param {string} priceCategory - Store's price category (aPrice, bPrice, cPrice, restaurantPrice)
+ * @param {string} pricingType - "box" or "unit"
+ * @returns {number} - The correct price
+ */
+const getProductPriceForStore = (product, priceCategory, pricingType = "box") => {
+  if (pricingType === "unit") {
+    return product.price || 0;
+  }
+
+  // Map price category to product field (only 4 price lists now)
+  const priceCategoryMap = {
+    aPrice: "aPrice",
+    bPrice: "bPrice",
+    cPrice: "cPrice",
+    restaurantPrice: "restaurantPrice",
+    // Legacy fallbacks
+    price: "aPrice",
+    pricePerBox: "aPrice"
+  };
+
+  const priceField = priceCategoryMap[priceCategory] || "aPrice";
+  const price = product[priceField];
+
+  // If the specific price tier is 0 or undefined, fallback to aPrice
+  if (!price || price === 0) {
+    return product.aPrice || 0;
+  }
+
+  return price;
+};
+
 const mailSender = async (
   to,
   subject,
@@ -2275,7 +2309,7 @@ const assignProductToStore = async (req, res) => {
       productId: product._id.toString(),
       productName: product.name,
       quantity: requestedQty,
-      unitPrice: product.pricePerBox || 0,
+      unitPrice: getProductPriceForStore(product, store.priceCategory, "box"),
       shippinCost: product.shippinCost || 0,
       pricingType: "box",
     };
@@ -2877,8 +2911,8 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       .limit(pageLimit)
       .lean();
 
-    // Get all stores (ALL stores, not just approved)
-    const stores = await authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus").lean();
+    // Get all stores (ALL stores, not just approved) - include priceCategory for pricing
+    const stores = await authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean();
 
     // Build matrix data
     const matrixData = {};
@@ -2890,6 +2924,11 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         productName: product.name,
         image: product.image,
         pricePerBox: product.pricePerBox || 0,
+        // Include all price tiers for frontend to use based on store's priceCategory
+        aPrice: product.aPrice || 0,
+        bPrice: product.bPrice || 0,
+        cPrice: product.cPrice || 0,
+        restaurantPrice: product.restaurantPrice || 0,
         storeOrders: {},
         preOrderTotal: 0,
         orderTotal: 0,
@@ -3119,7 +3158,7 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
       productId: product._id.toString(),
       productName: product.name,
       quantity: requestedQty,
-      unitPrice: product.pricePerBox || 0,
+      unitPrice: getProductPriceForStore(product, store.priceCategory, "box"),
       shippinCost: product.shippinCost || 0,
       pricingType: "box",
     };
@@ -3367,7 +3406,7 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
       productId: product._id.toString(),
       productName: product.name,
       quantity: requestedQty,
-      unitPrice: product.pricePerBox || 0,
+      unitPrice: getProductPriceForStore(product, store.priceCategory, "box"),
       shippinCost: product.shippinCost || 0,
       pricingType: "box",
     };
@@ -3482,6 +3521,292 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
   }
 };
 
+// Regional Order Trends - Weekly order analysis by state/region for warehouse planning
+const getRegionalOrderTrends = async (req, res) => {
+  try {
+    const { weeks = 4 } = req.query;
+    const weeksToAnalyze = Math.min(parseInt(weeks) || 4, 12);
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - weeksToAnalyze * 7);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get weekly order trends by state with store details
+    const regionalTrends = await orderModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          isDelete: { $ne: true }
+        }
+      },
+      {
+        $lookup: {
+          from: "auths",
+          localField: "store",
+          foreignField: "_id",
+          as: "storeDetails"
+        }
+      },
+      { $unwind: "$storeDetails" },
+      {
+        $addFields: {
+          weekNumber: { $isoWeek: "$createdAt" },
+          year: { $isoWeekYear: "$createdAt" }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            state: "$storeDetails.state",
+            year: "$year",
+            week: "$weekNumber"
+          },
+          totalOrders: { $sum: 1 },
+          totalAmount: { $sum: "$total" },
+          totalPallets: { $sum: { $ifNull: ["$palletCount", 0] } },
+          uniqueStores: { $addToSet: { storeId: "$store", storeName: "$storeDetails.storeName", ownerName: "$storeDetails.ownerName", city: "$storeDetails.city" } },
+          avgOrderValue: { $avg: "$total" }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.state",
+          state: { $first: "$_id.state" },
+          weeklyData: {
+            $push: {
+              year: "$_id.year",
+              week: "$_id.week",
+              totalOrders: "$totalOrders",
+              totalAmount: "$totalAmount",
+              totalPallets: "$totalPallets",
+              activeStores: { $size: "$uniqueStores" },
+              storesList: "$uniqueStores",
+              avgOrderValue: "$avgOrderValue"
+            }
+          },
+          totalOrders: { $sum: "$totalOrders" },
+          totalAmount: { $sum: "$totalAmount" },
+          totalPallets: { $sum: "$totalPallets" },
+          allActiveStores: { $push: "$uniqueStores" }
+        }
+      },
+      { $sort: { totalAmount: -1 } }
+    ]);
+
+    // Get store count per state
+    const storeCountByState = await authModel.aggregate([
+      { $match: { role: "store" } },
+      {
+        $group: {
+          _id: "$state",
+          totalStores: { $sum: 1 },
+          stores: {
+            $push: {
+              storeId: "$_id",
+              storeName: "$storeName",
+              ownerName: "$ownerName",
+              city: "$city"
+            }
+          }
+        }
+      }
+    ]);
+
+    const storeCountMap = {};
+    const storeListMap = {};
+    storeCountByState.forEach((s) => {
+      storeCountMap[s._id] = s.totalStores;
+      storeListMap[s._id] = s.stores;
+    });
+
+    // Get top products ordered by region with product lookup
+    const topProductsByRegion = await orderModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          isDelete: { $ne: true }
+        }
+      },
+      {
+        $lookup: {
+          from: "auths",
+          localField: "store",
+          foreignField: "_id",
+          as: "storeDetails"
+        }
+      },
+      { $unwind: "$storeDetails" },
+      { $unwind: "$items" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "items.productId",
+          foreignField: "_id",
+          as: "productDetails"
+        }
+      },
+      {
+        $addFields: {
+          productName: {
+            $ifNull: [
+              "$items.name",
+              { $ifNull: [{ $arrayElemAt: ["$productDetails.name", 0] }, "Unknown Product"] }
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            state: "$storeDetails.state",
+            productId: "$items.productId"
+          },
+          productName: { $first: "$productName" },
+          totalQuantity: { $sum: "$items.quantity" },
+          totalAmount: {
+            $sum: { $multiply: ["$items.quantity", { $ifNull: ["$items.unitPrice", 0] }] }
+          },
+          orderCount: { $sum: 1 }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.state",
+          products: {
+            $push: {
+              productId: "$_id.productId",
+              productName: "$productName",
+              totalQuantity: "$totalQuantity",
+              totalAmount: "$totalAmount",
+              orderCount: "$orderCount"
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          topProducts: {
+            $slice: [{ $sortArray: { input: "$products", sortBy: { totalQuantity: -1 } } }, 5]
+          }
+        }
+      }
+    ]);
+
+    const topProductsMap = {};
+    topProductsByRegion.forEach((r) => {
+      topProductsMap[r._id] = r.topProducts;
+    });
+
+    // Calculate week-over-week growth and format response
+    const formattedData = regionalTrends.map((region) => {
+      const sortedWeeks = region.weeklyData.sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        return b.week - a.week;
+      });
+
+      const currentWeek = sortedWeeks[0] || {
+        totalOrders: 0,
+        totalAmount: 0,
+        totalPallets: 0,
+        storesList: []
+      };
+      const lastWeek = sortedWeeks[1] || { totalOrders: 0, totalAmount: 0, totalPallets: 0 };
+
+      const orderGrowth =
+        lastWeek.totalOrders > 0
+          ? (
+              ((currentWeek.totalOrders - lastWeek.totalOrders) / lastWeek.totalOrders) *
+              100
+            ).toFixed(1)
+          : 0;
+
+      const amountGrowth =
+        lastWeek.totalAmount > 0
+          ? (
+              ((currentWeek.totalAmount - lastWeek.totalAmount) / lastWeek.totalAmount) *
+              100
+            ).toFixed(1)
+          : 0;
+
+      // Calculate average weekly pallets
+      const avgWeeklyPallets =
+        region.weeklyData.length > 0
+          ? Math.round(region.totalPallets / region.weeklyData.length)
+          : 0;
+
+      // Get unique active stores from all weeks
+      const allStoresFlat = region.allActiveStores.flat();
+      const uniqueActiveStores = [];
+      const seenStoreIds = new Set();
+      allStoresFlat.forEach((store) => {
+        const storeIdStr = store.storeId?.toString();
+        if (storeIdStr && !seenStoreIds.has(storeIdStr)) {
+          seenStoreIds.add(storeIdStr);
+          uniqueActiveStores.push(store);
+        }
+      });
+
+      return {
+        state: region.state || "Unknown",
+        totalStores: storeCountMap[region.state] || 0,
+        allStores: storeListMap[region.state] || [],
+        activeStores: uniqueActiveStores,
+        summary: {
+          totalOrders: region.totalOrders,
+          totalAmount: region.totalAmount,
+          totalPallets: region.totalPallets,
+          avgWeeklyPallets,
+          avgOrderValue:
+            region.totalOrders > 0 ? Math.round(region.totalAmount / region.totalOrders) : 0
+        },
+        currentWeek: {
+          orders: currentWeek.totalOrders,
+          amount: currentWeek.totalAmount,
+          pallets: currentWeek.totalPallets,
+          activeStores: currentWeek.activeStores || 0,
+          storesList: currentWeek.storesList || []
+        },
+        lastWeek: {
+          orders: lastWeek.totalOrders,
+          amount: lastWeek.totalAmount,
+          pallets: lastWeek.totalPallets
+        },
+        growth: {
+          orders: parseFloat(orderGrowth),
+          amount: parseFloat(amountGrowth)
+        },
+        weeklyTrend: sortedWeeks.slice(0, weeksToAnalyze),
+        topProducts: topProductsMap[region.state] || []
+      };
+    });
+
+    // Overall summary
+    const overallSummary = {
+      totalRegions: formattedData.length,
+      totalOrders: formattedData.reduce((sum, r) => sum + r.summary.totalOrders, 0),
+      totalAmount: formattedData.reduce((sum, r) => sum + r.summary.totalAmount, 0),
+      totalPallets: formattedData.reduce((sum, r) => sum + r.summary.totalPallets, 0),
+      avgWeeklyPallets: Math.round(
+        formattedData.reduce((sum, r) => sum + r.summary.avgWeeklyPallets, 0)
+      ),
+      weeksAnalyzed: weeksToAnalyze
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary: overallSummary,
+        regions: formattedData
+      }
+    });
+  } catch (error) {
+    console.error("Error getting regional order trends:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createOrderCtrl,
   getAllOrderCtrl,
@@ -3505,5 +3830,6 @@ module.exports = {
   getUserLatestOrdersCtrl,
   getOrderMatrixDataCtrl,
   updateOrderMatrixItemCtrl,
-  updatePreOrderMatrixItemCtrl
+  updatePreOrderMatrixItemCtrl,
+  getRegionalOrderTrends
 };

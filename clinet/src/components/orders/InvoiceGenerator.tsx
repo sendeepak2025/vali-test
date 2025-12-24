@@ -82,7 +82,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   const [order, setOrder] = useState(orderSingle);
   const [showShipping, setShowShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState(order.shippinCost || 0);
-  const [plateCount, setPlateCount] = useState("");
+  const [plateCount, setPlateCount] = useState((order as any).plateCount || "");
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
 
  const handlePrint = () => { 
@@ -222,13 +222,20 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
 
   const updateShipping = async (cost: number, plates: number) => {
+    // Agar shipping cost aur pallet pehle se set hai to API call skip karo
+    if (orderSingle.shippinCost && (orderSingle as any).plateCount) {
+      console.log("Shipping and pallet already set, skipping update");
+      setShowShipping(false);
+      return;
+    }
+
     console.log("Shipping cost:", cost);
     console.log("Plate count:", plates);
 
     const form = {
       orderId: order._id,
-      newShippingCost: cost,
-      plateCount: plates,
+      newShippingCost: orderSingle.shippinCost || cost, // Use existing value if present
+      plateCount: (orderSingle as any).plateCount || plates, // Use existing value if present
     };
 
     const response = await updateOrderShippingAPI(form, token);
@@ -472,7 +479,10 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 value={shippingCost}
                 onChange={(e) => setShippingCost(e.target.value)}
                 placeholder="Enter shipping cost"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!!orderSingle.shippinCost}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  orderSingle.shippinCost ? "bg-gray-200 cursor-not-allowed opacity-60" : ""
+                }`}
               />
             </div>
             <div>
@@ -484,7 +494,10 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                 value={plateCount}
                 onChange={(e) => setPlateCount(e.target.value)}
                 placeholder="Enter plate count"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!!orderSingle.plateCount}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  orderSingle.plateCount ? "bg-gray-200 cursor-not-allowed opacity-60" : ""
+                }`}
               />
             </div>
             <button
