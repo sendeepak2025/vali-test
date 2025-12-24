@@ -26,6 +26,8 @@ export const endpoints = {
   // Store Analytics
   GET_STORE_ANALYTICS_API: BASE_URL + "/auth/store-analytics",
   GET_ALL_STORES_ANALYTICS_API: BASE_URL + "/auth/stores-analytics",
+  GET_PAGINATED_PAYMENT_STORES_API: BASE_URL + "/auth/stores-payment-status",
+  GET_STORE_ORDERS_PAGINATED_API: BASE_URL + "/auth/store",
   // Store Communication & Payment
   ADD_COMMUNICATION_LOG_API: BASE_URL + "/auth/store",
   GET_COMMUNICATION_LOGS_API: BASE_URL + "/auth/store",

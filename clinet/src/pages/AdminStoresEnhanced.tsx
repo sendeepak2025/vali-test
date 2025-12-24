@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useSelector } from "react-redux"
 import { RootState } from "@/redux/store"
 import Navbar from "@/components/layout/Navbar"
@@ -22,18 +22,16 @@ import {
   Trash2, Phone, Mail, MapPin, DollarSign, AlertCircle, CheckCircle2, Clock,
   History, BarChart3, RefreshCw,
   Package, Receipt, Wallet, ArrowUpRight, ArrowDownRight,
-  Loader2, FileText, UserCheck, Star, ThumbsUp,
-  TrendingDown, Award, Target, Zap, Activity, PieChart, User, Send,
-  FileDown
+  Loader2, FileText, UserCheck, Star,
+  Activity, PieChart, User,
+  FileDown, ChevronLeft, ChevronRight
 } from "lucide-react"
-import { deleteStoreAPI, getAllStoresAnalyticsAPI, addCommunicationLogAPI, getCommunicationLogsAPI, addPaymentRecordAPI, sendPaymentReminderAPI, sendStatementEmailAPI, userWithOrderDetails } from "@/services2/operations/auth"
-import { getAllOrderAPI } from "@/services2/operations/order"
+import { deleteStoreAPI, getAllStoresAnalyticsAPI, addCommunicationLogAPI, getCommunicationLogsAPI, addPaymentRecordAPI, sendPaymentReminderAPI, userWithOrderDetails, getPaginatedPaymentStoresAPI, getStoreOrdersPaginatedAPI } from "@/services2/operations/auth"
 import { format } from "date-fns"
 import StoreRegistration from "./StoreRegistration"
 import { StatementFilterPopup } from "@/components/admin/StatementPopup"
 
-interface StoreData {
-  id: string
+interface StoreWithStats {
   _id: string
   storeName: string
   ownerName: string
@@ -49,39 +47,106 @@ interface StoreData {
   isProduct: boolean
   createdAt: string
   cheques: any[]
-}
-
-interface StoreWithStats extends StoreData {
   totalOrders: number
   totalSpent: number
   totalPaid: number
   balanceDue: number
-  creditCount: number
+  // Detailed order counts
+  paidOrdersCount: number
+  partialOrdersCount: number
+  unpaidOrdersCount: number
+  creditCount: number // unpaid + partial orders
   lastOrderDate: string | null
-  paymentStatus: "good" | "warning" | "overdue"
-  // New analytics fields
+  paymentStatus: "good_standing" | "warning" | "overdue"
   avgOrderValue: number
-  orderFrequency: number // orders per month
-  paymentRate: number // percentage of orders paid on time
+  orderFrequency: number
+  paymentRate: number
   lastMonthOrders: number
   thisMonthOrders: number
   orderTrend: "up" | "down" | "stable"
   daysSinceLastOrder: number
-  avgPaymentDays: number // average days to pay
 }
+
+interface PaginationInfo {
+  page: number
+  limit: number
+  totalStores: number
+  totalPages: number
+  hasNextPage: boolean
+  hasPrevPage: boolean
+}
+
+interface SummaryStats {
+  totalStores: number
+  activeStores: number
+  totalRevenue: number
+  totalOutstanding: number
+  overdueStores: number
+  warningStores: number
+  goodStandingStores: number
+  totalOrders: number
+  totalCredits: number
+  avgOrderValue: number
+}
+
+interface OverviewData {
+  topPerformingStores: StoreWithStats[]
+  storesNeedingAttention: StoreWithStats[]
+  overdueStoresList: StoreWithStats[]
+  warningStoresList: StoreWithStats[]
+  decliningStores: StoreWithStats[]
+  creditAnalysisStores: StoreWithStats[]
+  analyticsTrends: {
+    trendingUp: number
+    stable: number
+    trendingDown: number
+  }
+}
+
+const ITEMS_PER_PAGE = 20
+const PAYMENTS_PER_PAGE = 10
 
 const AdminStoresEnhanced = () => {
   const { toast } = useToast()
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
-  const user = useSelector((state: RootState) => state.auth?.user ?? null)
-const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [isStatementFilterOpen, setIsStatementFilterOpen] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [isStatementFilterOpen, setIsStatementFilterOpen] = useState(false)
+  
   // States
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [stores, setStores] = useState<StoreWithStats[]>([])
-  const [allOrders, setAllOrders] = useState<any[]>([])
+  const [overview, setOverview] = useState<OverviewData>({
+    topPerformingStores: [],
+    storesNeedingAttention: [],
+    overdueStoresList: [],
+    warningStoresList: [],
+    decliningStores: [],
+    creditAnalysisStores: [],
+    analyticsTrends: { trendingUp: 0, stable: 0, trendingDown: 0 }
+  })
+  const [summary, setSummary] = useState<SummaryStats>({
+    totalStores: 0, activeStores: 0, totalRevenue: 0, totalOutstanding: 0,
+    overdueStores: 0, warningStores: 0, goodStandingStores: 0, totalOrders: 0, totalCredits: 0, avgOrderValue: 0
+  })
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    page: 1, limit: ITEMS_PER_PAGE, totalStores: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false
+  })
+  const [uniqueStates, setUniqueStates] = useState<string[]>([])
+  
+  // Pagination for Payments tab - server-side
+  const [overdueCurrentPage, setOverdueCurrentPage] = useState(1)
+  const [warningCurrentPage, setWarningCurrentPage] = useState(1)
+  const [overdueStores, setOverdueStores] = useState<StoreWithStats[]>([])
+  const [warningStores, setWarningStores] = useState<StoreWithStats[]>([])
+  const [overduePagination, setOverduePagination] = useState({ totalStores: 0, totalPages: 0 })
+  const [warningPagination, setWarningPagination] = useState({ totalStores: 0, totalPages: 0 })
+  const [loadingOverdue, setLoadingOverdue] = useState(false)
+  const [loadingWarning, setLoadingWarning] = useState(false)
+  
+  // Filter states
   const [searchTerm, setSearchTerm] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [filterState, setFilterState] = useState("all")
   const [filterPaymentStatus, setFilterPaymentStatus] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
@@ -91,6 +156,9 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [storeDetailOpen, setStoreDetailOpen] = useState(false)
   const [storeOrders, setStoreOrders] = useState<any[]>([])
   const [loadingStoreDetails, setLoadingStoreDetails] = useState(false)
+  const [modalOrdersPage, setModalOrdersPage] = useState(1) // Pagination for modal orders
+  const [modalOrdersPagination, setModalOrdersPagination] = useState({ totalOrders: 0, totalPages: 0 })
+  const [loadingModalOrders, setLoadingModalOrders] = useState(false)
   const [addStoreOpen, setAddStoreOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [storeToDelete, setStoreToDelete] = useState<StoreWithStats | null>(null)
@@ -110,60 +178,115 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [paymentNotes, setPaymentNotes] = useState("")
   const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<string | null>(null)
 
-  // Fetch all stores with analytics from optimized backend API
-  const fetchData = async () => {
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Fetch overdue stores (server-side pagination)
+  const fetchOverdueStores = useCallback(async (page = 1) => {
+    setLoadingOverdue(true)
+    try {
+      const response = await getPaginatedPaymentStoresAPI({ page, limit: PAYMENTS_PER_PAGE, type: "overdue" })
+      setOverdueStores(response.stores || [])
+      setOverduePagination({
+        totalStores: response.pagination?.totalStores || 0,
+        totalPages: response.pagination?.totalPages || 0
+      })
+    } catch (error) {
+      console.error("Error fetching overdue stores:", error)
+    } finally {
+      setLoadingOverdue(false)
+    }
+  }, [])
+
+  // Fetch warning stores (server-side pagination)
+  const fetchWarningStores = useCallback(async (page = 1) => {
+    setLoadingWarning(true)
+    try {
+      const response = await getPaginatedPaymentStoresAPI({ page, limit: PAYMENTS_PER_PAGE, type: "warning" })
+      setWarningStores(response.stores || [])
+      setWarningPagination({
+        totalStores: response.pagination?.totalStores || 0,
+        totalPages: response.pagination?.totalPages || 0
+      })
+    } catch (error) {
+      console.error("Error fetching warning stores:", error)
+    } finally {
+      setLoadingWarning(false)
+    }
+  }, [])
+
+  // Fetch modal orders (server-side pagination)
+  const fetchModalOrders = useCallback(async (storeId: string, page = 1) => {
+    setLoadingModalOrders(true)
+    try {
+      const response = await getStoreOrdersPaginatedAPI(storeId, { page, limit: PAYMENTS_PER_PAGE })
+      setStoreOrders(response.orders || [])
+      setModalOrdersPagination({
+        totalOrders: response.pagination?.totalOrders || 0,
+        totalPages: response.pagination?.totalPages || 0
+      })
+    } catch (error) {
+      console.error("Error fetching modal orders:", error)
+    } finally {
+      setLoadingModalOrders(false)
+    }
+  }, [])
+
+  // Effect to fetch overdue stores when page changes
+  useEffect(() => {
+    if (activeTab === "payments") {
+      fetchOverdueStores(overdueCurrentPage)
+    }
+  }, [overdueCurrentPage, activeTab, fetchOverdueStores])
+
+  // Effect to fetch warning stores when page changes
+  useEffect(() => {
+    if (activeTab === "payments") {
+      fetchWarningStores(warningCurrentPage)
+    }
+  }, [warningCurrentPage, activeTab, fetchWarningStores])
+
+  // Effect to fetch modal orders when page changes
+  useEffect(() => {
+    if (selectedStore && storeDetailOpen) {
+      fetchModalOrders(selectedStore._id, modalOrdersPage)
+    }
+  }, [modalOrdersPage, selectedStore, storeDetailOpen, fetchModalOrders])
+  // Fetch stores with pagination
+  const fetchData = useCallback(async (page = 1) => {
     setLoading(true)
     try {
-      // Use the new optimized API that returns stores with pre-calculated analytics
-      const response = await getAllStoresAnalyticsAPI()
+      const params = {
+        page,
+        limit: ITEMS_PER_PAGE,
+        search: debouncedSearch,
+        state: filterState === "all" ? "" : filterState,
+        paymentStatus: filterPaymentStatus === "all" ? "" : filterPaymentStatus
+      }
+      
+      const response = await getAllStoresAnalyticsAPI(params)
       
       if (response?.stores) {
-        // Map backend response to frontend interface
-        const storesWithStats: StoreWithStats[] = response.stores.map((store: any) => ({
-          id: store._id,
-          _id: store._id,
-          storeName: store.storeName || "",
-          ownerName: store.ownerName || "",
-          email: store.email || "",
-          phone: store.phone || "",
-          address: store.address || "",
-          city: store.city || "",
-          state: store.state || "",
-          zipCode: store.zipCode || "",
-          priceCategory: store.priceCategory || "",
-          shippingCost: store.shippingCost || 0,
-          isOrder: store.isOrder || false,
-          isProduct: store.isProduct || false,
-          createdAt: store.createdAt,
-          cheques: store.cheques || [],
-          totalOrders: store.totalOrders || 0,
-          totalSpent: store.totalSpent || 0,
-          totalPaid: store.totalPaid || 0,
-          balanceDue: store.balanceDue || 0,
-          creditCount: store.creditCount || 0,
-          lastOrderDate: store.lastOrderDate,
-          paymentStatus: store.paymentStatus || "good",
-          avgOrderValue: store.avgOrderValue || 0,
-          orderFrequency: store.orderFrequency || 0,
-          paymentRate: store.paymentRate || 100,
-          lastMonthOrders: store.lastMonthOrders || 0,
-          thisMonthOrders: store.thisMonthOrders || 0,
-          orderTrend: store.orderTrend || "stable",
-          daysSinceLastOrder: store.daysSinceLastOrder || 999,
-          avgPaymentDays: store.avgPaymentDays || 0
-        }))
+        setStores(response.stores)
+        setSummary(response.summary || {
+          totalStores: 0, activeStores: 0, totalRevenue: 0, totalOutstanding: 0,
+          overdueStores: 0, warningStores: 0, goodStandingStores: 0, totalOrders: 0, totalCredits: 0, avgOrderValue: 0
+        })
+        setPagination(response.pagination || { page: 1, limit: ITEMS_PER_PAGE, totalStores: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false })
         
-        setStores(storesWithStats)
-        
-        // Fetch ALL orders for detail view (no pagination limit)
-        const ordersRes = await getAllOrderAPI(token, "limit=10000")
-        let orders: any[] = []
-        if (Array.isArray(ordersRes)) {
-          orders = ordersRes
-        } else if (ordersRes?.orders && Array.isArray(ordersRes.orders)) {
-          orders = ordersRes.orders
+        // Set overview data from backend
+        if (response.overview) {
+          setOverview(response.overview)
         }
-        setAllOrders(orders)
+        
+        if (response.filters?.uniqueStates) {
+          setUniqueStates(response.filters.uniqueStates)
+        }
       }
     } catch (error) {
       console.error("Error fetching data:", error)
@@ -171,103 +294,54 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     } finally {
       setLoading(false)
     }
-  }
+  }, [debouncedSearch, filterState, filterPaymentStatus, toast])
 
+  // Initial load
   useEffect(() => {
-    fetchData()
-  }, [token])
+    fetchData(1)
+  }, [])
 
-  // Calculate overall stats
-  const stats = useMemo(() => {
-    const totalStores = stores.length
-    const activeStores = stores.filter(s => s.daysSinceLastOrder < 30).length
-    const totalRevenue = stores.reduce((sum, s) => sum + s.totalSpent, 0)
-    const totalOutstanding = stores.reduce((sum, s) => sum + s.balanceDue, 0)
-    const overdueStores = stores.filter(s => s.paymentStatus === "overdue").length
-    const warningStores = stores.filter(s => s.paymentStatus === "warning").length
-    const avgOrderValue = stores.length > 0 
-      ? stores.reduce((sum, s) => sum + s.avgOrderValue, 0) / stores.length 
-      : 0
-    const totalOrders = stores.reduce((sum, s) => sum + s.totalOrders, 0)
-    const totalCredits = stores.reduce((sum, s) => sum + s.creditCount, 0)
-    
-    return {
-      totalStores,
-      activeStores,
-      totalRevenue,
-      totalOutstanding,
-      overdueStores,
-      warningStores,
-      avgOrderValue,
-      totalOrders,
-      totalCredits
+  // Refetch when filters change
+  useEffect(() => {
+    fetchData(1)
+  }, [debouncedSearch, filterState, filterPaymentStatus])
+
+  // Page change handler
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      fetchData(newPage)
     }
-  }, [stores])
-
-  // Filter stores
-  const filteredStores = useMemo(() => {
-    return stores.filter(store => {
-      const matchesSearch = 
-        store.storeName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        store.ownerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        store.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        store.phone?.includes(searchTerm)
-      
-      const matchesState = filterState === "all" || store.state === filterState
-      const matchesPayment = filterPaymentStatus === "all" || store.paymentStatus === filterPaymentStatus
-      
-      return matchesSearch && matchesState && matchesPayment
-    })
-  }, [stores, searchTerm, filterState, filterPaymentStatus])
-
-  // Get unique states for filter
-  const uniqueStates = useMemo(() => {
-    const states = [...new Set(stores.map(s => s.state).filter(Boolean))]
-    return states.sort()
-  }, [stores])
+  }
 
   // View store details
   const viewStoreDetails = async (store: StoreWithStats) => {
     setSelectedStore(store)
     setLoadingStoreDetails(true)
     setStoreDetailOpen(true)
+    setModalOrdersPage(1) // Reset pagination when opening modal
+    setStoreOrders([]) // Clear previous orders
     
     try {
-      // Fetch store details with orders directly from API for accurate data
-      const storeDetails = await userWithOrderDetails(store._id)
+      // Fetch first page of orders via paginated API
+      const ordersResponse = await getStoreOrdersPaginatedAPI(store._id, { page: 1, limit: PAYMENTS_PER_PAGE })
+      setStoreOrders(ordersResponse.orders || [])
+      setModalOrdersPagination({
+        totalOrders: ordersResponse.pagination?.totalOrders || 0,
+        totalPages: ordersResponse.pagination?.totalPages || 0
+      })
       
-      if (storeDetails?.orders && Array.isArray(storeDetails.orders)) {
-        // Use orders from API response
-        setStoreOrders(storeDetails.orders.sort((a: any, b: any) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ))
-        
-        // Update selected store with accurate totals from API
+      // Also fetch store details for totals
+      const storeDetails = await userWithOrderDetails(store._id)
+      if (storeDetails) {
         setSelectedStore({
           ...store,
-          totalOrders: storeDetails.totalOrders || storeDetails.orders.length,
+          totalOrders: storeDetails.totalOrders || ordersResponse.pagination?.totalOrders || 0,
           totalSpent: storeDetails.totalSpent || 0,
           totalPaid: storeDetails.totalPay || 0,
           balanceDue: storeDetails.balanceDue || 0
         })
-        
-        console.log("Store ID:", store._id, "Orders from API:", storeDetails.orders.length)
-      } else {
-        // Fallback to filtering from allOrders
-        const storeOrdersData = allOrders.filter((o: any) => {
-          const orderStoreId = o.store?._id?.toString() || o.store?.toString() || ""
-          const currentStoreId = store._id?.toString() || ""
-          return orderStoreId === currentStoreId
-        })
-        
-        console.log("Store ID:", store._id, "Found orders (fallback):", storeOrdersData.length)
-        
-        setStoreOrders(storeOrdersData.sort((a: any, b: any) => 
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        ))
       }
       
-      // Fetch communication logs
       const logs = await getCommunicationLogsAPI(store._id)
       setCommunicationLogs(logs || [])
     } catch (error) {
@@ -324,12 +398,10 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
         notes: paymentNotes,
         orderId: selectedOrderForPayment
       })
-         fetchData();
-         viewStoreDetails(selectedStore)
       
       if (result) {
-        // Refresh store data
-        await fetchData()
+        await fetchData(pagination.page)
+        await viewStoreDetails(selectedStore)
         setPaymentAmount("")
         setPaymentType("cash")
         setPaymentReference("")
@@ -353,7 +425,6 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     try {
       const result = await sendPaymentReminderAPI(selectedStore._id)
       if (result) {
-        // Refresh communication logs
         const logs = await getCommunicationLogsAPI(selectedStore._id)
         setCommunicationLogs(logs || [])
       }
@@ -364,61 +435,6 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     }
   }
 
-  // Handle send statement
-  const handleSendStatement = async () => {
-    if (!selectedStore) return
-    
-    setLoadingAction(true)
-    try {
-      const result = await sendStatementEmailAPI(selectedStore._id)
-      if (result) {
-        // Refresh communication logs
-        const logs = await getCommunicationLogsAPI(selectedStore._id)
-        setCommunicationLogs(logs || [])
-      }
-    } catch (error) {
-      console.error("Error sending statement:", error)
-    } finally {
-      setLoadingAction(false)
-    }
-  }
-
-  // Handle download PDF statement
-  const handleDownloadStatement = () => {
-    if (!selectedStore) return
-    
-    // Create a simple text-based statement for download
-    const statement = `
-ACCOUNT STATEMENT
-=================
-Store: ${selectedStore.storeName}
-Owner: ${selectedStore.ownerName}
-Address: ${selectedStore.address}, ${selectedStore.city}, ${selectedStore.state} ${selectedStore.zipCode}
-Date: ${format(new Date(), "MMM dd, yyyy")}
-
-SUMMARY
--------
-Total Invoiced: ${formatCurrency(selectedStore.totalSpent)}
-Total Paid: ${formatCurrency(selectedStore.totalPaid)}
-Balance Due: ${formatCurrency(selectedStore.balanceDue)}
-
-RECENT TRANSACTIONS
--------------------
-${storeOrders.slice(0, 10).map(o => 
-  `${format(new Date(o.createdAt), "MM/dd/yy")} - Invoice #${o.orderNumber || o._id?.slice(-6)} - ${formatCurrency(o.total || 0)} - ${o.paymentStatus}`
-).join('\n')}
-    `.trim()
-    
-    const blob = new Blob([statement], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `statement-${selectedStore.storeName}-${format(new Date(), "yyyy-MM-dd")}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast({ title: "Downloaded", description: "Statement downloaded successfully" })
-  }
-
   // Delete store
   const handleDeleteStore = async () => {
     if (!storeToDelete) return
@@ -426,7 +442,7 @@ ${storeOrders.slice(0, 10).map(o =>
     try {
       const success = await deleteStoreAPI(storeToDelete._id, token)
       if (success) {
-        setStores(prev => prev.filter(s => s._id !== storeToDelete._id))
+        await fetchData(pagination.page)
         toast({ title: "Success", description: "Store deleted successfully" })
       }
     } catch (error) {
@@ -440,7 +456,7 @@ ${storeOrders.slice(0, 10).map(o =>
   // Export to CSV
   const exportToCSV = () => {
     const headers = ["Store Name", "Owner", "Email", "Phone", "City", "State", "Total Orders", "Total Spent", "Balance Due", "Payment Status"]
-    const rows = filteredStores.map(s => [
+    const rows = stores.map(s => [
       s.storeName, s.ownerName, s.email, s.phone, s.city, s.state,
       s.totalOrders, s.totalSpent.toFixed(2), s.balanceDue.toFixed(2),
       s.paymentStatus
@@ -477,7 +493,7 @@ ${storeOrders.slice(0, 10).map(o =>
   }
 
   // Loading state
-  if (loading) {
+  if (loading && stores.length === 0) {
     return (
       <div className="flex min-h-screen bg-gray-50">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
@@ -514,7 +530,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Total Stores</p>
-                    <p className="text-2xl font-bold">{stats.totalStores}</p>
+                    <p className="text-2xl font-bold">{summary.totalStores}</p>
                   </div>
                   <Store className="h-8 w-8 text-blue-500 opacity-50" />
                 </div>
@@ -525,7 +541,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Active (30d)</p>
-                    <p className="text-2xl font-bold text-green-600">{stats.activeStores}</p>
+                    <p className="text-2xl font-bold text-green-600">{summary.activeStores}</p>
                   </div>
                   <UserCheck className="h-8 w-8 text-green-500 opacity-50" />
                 </div>
@@ -536,7 +552,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Total Revenue</p>
-                    <p className="text-xl font-bold text-green-600">{formatCurrency(stats.totalRevenue)}</p>
+                    <p className="text-xl font-bold text-green-600">{formatCurrency(summary.totalRevenue)}</p>
                   </div>
                   <DollarSign className="h-8 w-8 text-green-500 opacity-50" />
                 </div>
@@ -547,7 +563,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Outstanding</p>
-                    <p className="text-xl font-bold text-red-600">{formatCurrency(stats.totalOutstanding)}</p>
+                    <p className="text-xl font-bold text-red-600">{formatCurrency(summary.totalOutstanding)}</p>
                   </div>
                   <Wallet className="h-8 w-8 text-red-500 opacity-50" />
                 </div>
@@ -558,7 +574,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Good Standing</p>
-                    <p className="text-2xl font-bold text-green-600">{stores.filter(s => s.paymentStatus === "good_standing").length}</p>
+                    <p className="text-2xl font-bold text-green-600">{summary.goodStandingStores || 0}</p>
                   </div>
                   <CheckCircle2 className="h-8 w-8 text-green-500 opacity-50" />
                 </div>
@@ -569,7 +585,7 @@ ${storeOrders.slice(0, 10).map(o =>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Overdue</p>
-                    <p className="text-2xl font-bold text-red-600">{stores.filter(s => s.paymentStatus === "overdue").length}</p>
+                    <p className="text-2xl font-bold text-red-600">{summary.overdueStores}</p>
                   </div>
                   <AlertCircle className="h-8 w-8 text-red-500 opacity-50" />
                 </div>
@@ -588,8 +604,8 @@ ${storeOrders.slice(0, 10).map(o =>
               </TabsList>
               
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => fetchData()}>
-                  <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+                <Button variant="outline" size="sm" onClick={() => fetchData(pagination.page)} disabled={loading}>
+                  <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
                 </Button>
                 <Button variant="outline" size="sm" onClick={exportToCSV}>
                   <Download className="h-4 w-4 mr-1" /> Export
@@ -613,15 +629,15 @@ ${storeOrders.slice(0, 10).map(o =>
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                       <span className="text-sm text-green-700">Good Standing</span>
-                      <span className="font-bold text-green-700">{stores.filter(s => s.paymentStatus === "good").length}</span>
+                      <span className="font-bold text-green-700">{summary.goodStandingStores || 0}</span>
                     </div>
                     <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
                       <span className="text-sm text-yellow-700">Warning</span>
-                      <span className="font-bold text-yellow-700">{stats.warningStores}</span>
+                      <span className="font-bold text-yellow-700">{summary.warningStores}</span>
                     </div>
                     <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
                       <span className="text-sm text-red-700">Overdue</span>
-                      <span className="font-bold text-red-700">{stats.overdueStores}</span>
+                      <span className="font-bold text-red-700">{summary.overdueStores}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -636,20 +652,20 @@ ${storeOrders.slice(0, 10).map(o =>
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Total Orders</span>
-                      <span className="font-semibold">{stats.totalOrders}</span>
+                      <span className="font-semibold">{summary.totalOrders}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Avg Order Value</span>
-                      <span className="font-semibold">{formatCurrency(stats.avgOrderValue)}</span>
+                      <span className="font-semibold">{formatCurrency(summary.avgOrderValue || 0)}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Total Credits</span>
-                      <span className="font-semibold text-orange-600">{stats.totalCredits}</span>
+                      <span className="font-semibold text-orange-600">{summary.totalCredits}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Collection Rate</span>
                       <span className="font-semibold text-green-600">
-                        {stats.totalRevenue > 0 ? ((stats.totalRevenue - stats.totalOutstanding) / stats.totalRevenue * 100).toFixed(1) : 100}%
+                        {summary.totalRevenue > 0 ? ((summary.totalRevenue - summary.totalOutstanding) / summary.totalRevenue * 100).toFixed(1) : 100}%
                       </span>
                     </div>
                   </CardContent>
@@ -666,25 +682,21 @@ ${storeOrders.slice(0, 10).map(o =>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {stores
-                        .filter(s => s.totalSpent > 0)
-                        .sort((a, b) => b.totalSpent - a.totalSpent)
-                        .slice(0, 5)
-                        .map((store, idx) => (
-                          <div key={store._id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
-                            <div className="flex items-center gap-3">
-                              <span className="w-6 h-6 bg-yellow-100 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span>
-                              <div>
-                                <p className="font-medium text-sm">{store.storeName}</p>
-                                <p className="text-xs text-gray-500">{store.totalOrders} orders</p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold text-green-600">{formatCurrency(store.totalSpent)}</p>
+                      {overview.topPerformingStores.map((store, idx) => (
+                        <div key={store._id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 bg-yellow-100 text-yellow-700 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span>
+                            <div>
+                              <p className="font-medium text-sm">{store.storeName}</p>
+                              <p className="text-xs text-gray-500">{store.totalOrders} orders</p>
                             </div>
                           </div>
-                        ))}
-                      {stores.filter(s => s.totalSpent > 0).length === 0 && (
+                          <div className="text-right">
+                            <p className="font-semibold text-green-600">{formatCurrency(store.totalSpent)}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {overview.topPerformingStores.length === 0 && (
                         <p className="text-center text-gray-500 py-4">No stores with orders yet</p>
                       )}
                     </div>
@@ -699,22 +711,18 @@ ${storeOrders.slice(0, 10).map(o =>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {stores
-                        .filter(s => s.paymentStatus === "overdue" || s.paymentStatus === "warning")
-                        .sort((a, b) => b.balanceDue - a.balanceDue)
-                        .slice(0, 5)
-                        .map(store => (
-                          <div key={store._id} className="flex items-center justify-between p-2 bg-red-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
-                            <div>
-                              <p className="font-medium text-sm">{store.storeName}</p>
-                              <p className="text-xs text-gray-500">{store.daysSinceLastOrder} days since last order</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold text-red-600">{formatCurrency(store.balanceDue)} due</p>
-                            </div>
+                      {overview.storesNeedingAttention.map(store => (
+                        <div key={store._id} className="flex items-center justify-between p-2 bg-red-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
+                          <div>
+                            <p className="font-medium text-sm">{store.storeName}</p>
+                            <p className="text-xs text-gray-500">{store.daysSinceLastOrder} days since last order</p>
                           </div>
-                        ))}
-                      {stores.filter(s => s.paymentStatus === "overdue" || s.paymentStatus === "warning").length === 0 && (
+                          <div className="text-right">
+                            <p className="font-semibold text-red-600">{formatCurrency(store.balanceDue)} due</p>
+                          </div>
+                        </div>
+                      ))}
+                      {overview.storesNeedingAttention.length === 0 && (
                         <p className="text-center text-gray-500 py-4">No stores needing attention</p>
                       )}
                     </div>
@@ -754,7 +762,7 @@ ${storeOrders.slice(0, 10).map(o =>
                       className="border rounded-md px-3 py-2 text-sm"
                     >
                       <option value="all">All Payment Status</option>
-                      <option value="good">Good Standing</option>
+                      <option value="good_standing">Good Standing</option>
                       <option value="warning">Warning</option>
                       <option value="overdue">Overdue</option>
                     </select>
@@ -765,7 +773,12 @@ ${storeOrders.slice(0, 10).map(o =>
               {/* Stores Table */}
               <Card>
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
+                  {loading && (
+                    <div className="absolute inset-0 bg-white/50 flex items-center justify-center z-10">
+                      <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                    </div>
+                  )}
+                  <div className="overflow-x-auto relative">
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b">
                         <tr>
@@ -779,7 +792,7 @@ ${storeOrders.slice(0, 10).map(o =>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredStores.map(store => (
+                        {stores.map(store => (
                           <tr key={store._id} className="border-b hover:bg-gray-50">
                             <td className="p-4">
                               <div className="flex items-center gap-3">
@@ -828,10 +841,40 @@ ${storeOrders.slice(0, 10).map(o =>
                       </tbody>
                     </table>
                   </div>
-                  {filteredStores.length === 0 && (
+                  {stores.length === 0 && !loading && (
                     <div className="text-center py-12 text-gray-500">
                       <Store className="h-12 w-12 mx-auto mb-3 opacity-50" />
                       <p>No stores found</p>
+                    </div>
+                  )}
+                  
+                  {/* Pagination */}
+                  {pagination.totalPages > 1 && (
+                    <div className="flex items-center justify-between p-4 border-t">
+                      <p className="text-sm text-gray-500">
+                        Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalStores)} of {pagination.totalStores} stores
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(pagination.page - 1)}
+                          disabled={!pagination.hasPrevPage || loading}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm px-3">
+                          Page {pagination.page} of {pagination.totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(pagination.page + 1)}
+                          disabled={!pagination.hasNextPage || loading}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -847,7 +890,7 @@ ${storeOrders.slice(0, 10).map(o =>
                       <CheckCircle2 className="h-10 w-10 text-green-600" />
                       <div>
                         <p className="text-sm text-green-600">Total Collected</p>
-                        <p className="text-2xl font-bold text-green-700">{formatCurrency(stats.totalRevenue - stats.totalOutstanding)}</p>
+                        <p className="text-2xl font-bold text-green-700">{formatCurrency(summary.totalRevenue - summary.totalOutstanding)}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -858,7 +901,7 @@ ${storeOrders.slice(0, 10).map(o =>
                       <AlertCircle className="h-10 w-10 text-red-600" />
                       <div>
                         <p className="text-sm text-red-600">Outstanding</p>
-                        <p className="text-2xl font-bold text-red-700">{formatCurrency(stats.totalOutstanding)}</p>
+                        <p className="text-2xl font-bold text-red-700">{formatCurrency(summary.totalOutstanding)}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -870,7 +913,7 @@ ${storeOrders.slice(0, 10).map(o =>
                       <div>
                         <p className="text-sm text-blue-600">Collection Rate</p>
                         <p className="text-2xl font-bold text-blue-700">
-                          {stats.totalRevenue > 0 ? ((stats.totalRevenue - stats.totalOutstanding) / stats.totalRevenue * 100).toFixed(1) : 100}%
+                          {summary.totalRevenue > 0 ? ((summary.totalRevenue - summary.totalOutstanding) / summary.totalRevenue * 100).toFixed(1) : 100}%
                         </p>
                       </div>
                     </div>
@@ -880,78 +923,160 @@ ${storeOrders.slice(0, 10).map(o =>
 
               {/* Overdue Stores */}
               <Card className="border-red-200">
-                <CardHeader>
-                  <CardTitle className="text-red-600 flex items-center gap-2">
-                    <AlertCircle className="h-5 w-5" /> Overdue Payments
-                  </CardTitle>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-red-600 flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5" /> Overdue Payments
+                    </CardTitle>
+                    <span className="text-sm text-gray-500">{overduePagination.totalStores} stores</span>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {stores
-                      .filter(s => s.paymentStatus === "overdue")
-                      .sort((a, b) => b.balanceDue - a.balanceDue)
-                      .map(store => (
-                        <div key={store._id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100" onClick={() => viewStoreDetails(store)}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                              <Store className="h-5 w-5 text-red-600" />
+                  {loadingOverdue ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-red-500" />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {overdueStores.map(store => (
+                          <div key={store._id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100" onClick={() => viewStoreDetails(store)}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                                <Store className="h-5 w-5 text-red-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium">{store.storeName}</p>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-gray-500">{store.totalOrders} total</span>
+                                  <span className="text-green-600">{store.paidOrdersCount} paid</span>
+                                  <span className="text-yellow-600">{store.partialOrdersCount} partial</span>
+                                  <span className="text-red-600">{store.unpaidOrdersCount} unpaid</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium">{store.storeName}</p>
-                              <p className="text-sm text-gray-500">{store.creditCount} unpaid orders</p>
+                            <div className="text-right">
+                              <p className="text-xl font-bold text-red-600">{formatCurrency(store.balanceDue)}</p>
+                              <p className="text-xs text-gray-500">Last order: {store.lastOrderDate ? format(new Date(store.lastOrderDate), "MMM dd") : "N/A"}</p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xl font-bold text-red-600">{formatCurrency(store.balanceDue)}</p>
-                            <p className="text-xs text-gray-500">Last order: {store.lastOrderDate ? format(new Date(store.lastOrderDate), "MMM dd") : "N/A"}</p>
-                          </div>
+                        ))}
+                      {overdueStores.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
+                          <p>No overdue payments!</p>
                         </div>
-                      ))}
-                    {stores.filter(s => s.paymentStatus === "overdue").length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
-                        <p>No overdue payments!</p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Overdue Pagination */}
+                  {overduePagination.totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 mt-4 border-t">
+                      <p className="text-sm text-gray-500">
+                        Showing {((overdueCurrentPage - 1) * PAYMENTS_PER_PAGE) + 1} to {Math.min(overdueCurrentPage * PAYMENTS_PER_PAGE, overduePagination.totalStores)} of {overduePagination.totalStores}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setOverdueCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={overdueCurrentPage === 1 || loadingOverdue}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm px-2">
+                          {overdueCurrentPage} / {overduePagination.totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setOverdueCurrentPage(p => Math.min(overduePagination.totalPages, p + 1))}
+                          disabled={overdueCurrentPage === overduePagination.totalPages || loadingOverdue}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Warning Stores */}
               <Card className="border-yellow-200">
-                <CardHeader>
-                  <CardTitle className="text-yellow-600 flex items-center gap-2">
-                    <Clock className="h-5 w-5" /> Payment Warnings
-                  </CardTitle>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-yellow-600 flex items-center gap-2">
+                      <Clock className="h-5 w-5" /> Payment Warnings
+                    </CardTitle>
+                    <span className="text-sm text-gray-500">{warningPagination.totalStores} stores</span>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {stores
-                      .filter(s => s.paymentStatus === "warning")
-                      .sort((a, b) => b.balanceDue - a.balanceDue)
-                      .map(store => (
-                        <div key={store._id} className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg cursor-pointer hover:bg-yellow-100" onClick={() => viewStoreDetails(store)}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
-                              <Store className="h-5 w-5 text-yellow-600" />
+                  {loadingWarning ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-yellow-500" />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {warningStores.map(store => (
+                          <div key={store._id} className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg cursor-pointer hover:bg-yellow-100" onClick={() => viewStoreDetails(store)}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                                <Store className="h-5 w-5 text-yellow-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium">{store.storeName}</p>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-gray-500">{store.totalOrders} total</span>
+                                  <span className="text-green-600">{store.paidOrdersCount} paid</span>
+                                  <span className="text-yellow-600">{store.partialOrdersCount} partial</span>
+                                  <span className="text-red-600">{store.unpaidOrdersCount} unpaid</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium">{store.storeName}</p>
-                              <p className="text-sm text-gray-500">{store.creditCount} pending payments</p>
+                            <div className="text-right">
+                              <p className="text-xl font-bold text-yellow-600">{formatCurrency(store.balanceDue)}</p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xl font-bold text-yellow-600">{formatCurrency(store.balanceDue)}</p>
-                          </div>
+                        ))}
+                      {warningStores.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
+                          <p>No payment warnings</p>
                         </div>
-                      ))}
-                    {stores.filter(s => s.paymentStatus === "warning").length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
-                        <p>No payment warnings</p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Warning Pagination */}
+                  {warningPagination.totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 mt-4 border-t">
+                      <p className="text-sm text-gray-500">
+                        Showing {((warningCurrentPage - 1) * PAYMENTS_PER_PAGE) + 1} to {Math.min(warningCurrentPage * PAYMENTS_PER_PAGE, warningPagination.totalStores)} of {warningPagination.totalStores}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setWarningCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={warningCurrentPage === 1 || loadingWarning}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm px-2">
+                          {warningCurrentPage} / {warningPagination.totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setWarningCurrentPage(p => Math.min(warningPagination.totalPages, p + 1))}
+                          disabled={warningCurrentPage === warningPagination.totalPages || loadingWarning}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -970,31 +1095,27 @@ ${storeOrders.slice(0, 10).map(o =>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     <div className="p-4 bg-green-50 rounded-lg text-center">
                       <ArrowUpRight className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-green-700">{stores.filter(s => s.orderTrend === "up").length}</p>
+                      <p className="text-2xl font-bold text-green-700">{overview.analyticsTrends.trendingUp}</p>
                       <p className="text-sm text-green-600">Trending Up</p>
                     </div>
                     <div className="p-4 bg-gray-50 rounded-lg text-center">
                       <Activity className="h-8 w-8 text-gray-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-gray-700">{stores.filter(s => s.orderTrend === "stable").length}</p>
+                      <p className="text-2xl font-bold text-gray-700">{overview.analyticsTrends.stable}</p>
                       <p className="text-sm text-gray-600">Stable</p>
                     </div>
                     <div className="p-4 bg-red-50 rounded-lg text-center">
                       <ArrowDownRight className="h-8 w-8 text-red-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-red-700">{stores.filter(s => s.orderTrend === "down").length}</p>
+                      <p className="text-2xl font-bold text-red-700">{overview.analyticsTrends.trendingDown}</p>
                       <p className="text-sm text-red-600">Trending Down</p>
                     </div>
                   </div>
 
                   {/* Stores with declining orders */}
-                  {stores.filter(s => s.orderTrend === "down").length > 0 && (
+                  {overview.decliningStores.length > 0 && (
                     <div className="border-t pt-4">
                       <h4 className="font-medium mb-3 text-red-600">Stores with Declining Orders</h4>
                       <div className="space-y-2">
-                        {stores
-                          .filter(s => s.orderTrend === "down")
-                          .sort((a, b) => (b.lastMonthOrders - b.thisMonthOrders) - (a.lastMonthOrders - a.thisMonthOrders))
-                          .slice(0, 5)
-                          .map(store => (
+                        {overview.decliningStores.map(store => (
                             <div key={store._id} className="flex items-center justify-between p-2 bg-red-50 rounded cursor-pointer" onClick={() => viewStoreDetails(store)}>
                               <span className="font-medium">{store.storeName}</span>
                               <div className="flex items-center gap-4">
@@ -1012,52 +1133,6 @@ ${storeOrders.slice(0, 10).map(o =>
                 </CardContent>
               </Card>
 
-              {/* Store Performance Matrix */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Target className="h-5 w-5" /> Performance Matrix
-                  </CardTitle>
-                  <CardDescription>Store performance based on orders and payment behavior</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="p-4 border rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Star className="h-5 w-5 text-green-600" />
-                        <span className="font-medium">High Value</span>
-                      </div>
-                      <p className="text-2xl font-bold">{stores.filter(s => s.avgOrderValue > stats.avgOrderValue).length}</p>
-                      <p className="text-xs text-gray-500">Above avg order value</p>
-                    </div>
-                    <div className="p-4 border rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Zap className="h-5 w-5 text-blue-600" />
-                        <span className="font-medium">Frequent</span>
-                      </div>
-                      <p className="text-2xl font-bold">{stores.filter(s => s.orderFrequency > 2).length}</p>
-                      <p className="text-xs text-gray-500">2+ orders/month</p>
-                    </div>
-                    <div className="p-4 border rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className="h-5 w-5 text-green-600" />
-                        <span className="font-medium">Good Payers</span>
-                      </div>
-                      <p className="text-2xl font-bold">{stores.filter(s => s.paymentRate > 80).length}</p>
-                      <p className="text-xs text-gray-500">80%+ payment rate</p>
-                    </div>
-                    <div className="p-4 border rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Clock className="h-5 w-5 text-orange-600" />
-                        <span className="font-medium">Inactive</span>
-                      </div>
-                      <p className="text-2xl font-bold">{stores.filter(s => s.daysSinceLastOrder > 30).length}</p>
-                      <p className="text-xs text-gray-500">No orders in 30 days</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Credit Analysis */}
               <Card>
                 <CardHeader>
@@ -1068,17 +1143,18 @@ ${storeOrders.slice(0, 10).map(o =>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {stores
-                      .filter(s => s.creditCount > 0)
-                      .sort((a, b) => b.balanceDue - a.balanceDue)
-                      .slice(0, 10)
-                      .map((store, idx) => (
+                    {overview.creditAnalysisStores.map((store, idx) => (
                         <div key={store._id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 cursor-pointer" onClick={() => viewStoreDetails(store)}>
                           <div className="flex items-center gap-3">
                             <span className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center text-xs font-bold">{idx + 1}</span>
                             <div>
                               <p className="font-medium">{store.storeName}</p>
-                              <p className="text-xs text-gray-500">{store.creditCount} unpaid orders</p>
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-gray-500">{store.totalOrders} total</span>
+                                <span className="text-green-600">{store.paidOrdersCount} paid</span>
+                                <span className="text-yellow-600">{store.partialOrdersCount} partial</span>
+                                <span className="text-red-600">{store.unpaidOrdersCount} unpaid</span>
+                              </div>
                             </div>
                           </div>
                           <div className="text-right">
@@ -1087,7 +1163,7 @@ ${storeOrders.slice(0, 10).map(o =>
                           </div>
                         </div>
                       ))}
-                    {stores.filter(s => s.creditCount > 0).length === 0 && (
+                    {overview.creditAnalysisStores.length === 0 && (
                       <div className="text-center py-8 text-gray-500">
                         <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-green-500" />
                         <p>No outstanding credits!</p>
@@ -1101,9 +1177,9 @@ ${storeOrders.slice(0, 10).map(o =>
         </main>
       </div>
 
-      {/* Store Detail Modal - Enhanced with Tabs */}
+      {/* Store Detail Modal */}
       <Dialog open={storeDetailOpen} onOpenChange={setStoreDetailOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -1124,7 +1200,7 @@ ${storeOrders.slice(0, 10).map(o =>
             <Tabs defaultValue="overview" className="w-full">
               <TabsList className="grid w-full grid-cols-5 mb-4">
                 <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
-                <TabsTrigger value="orders" className="text-xs">All Orders</TabsTrigger>
+                <TabsTrigger value="orders" className="text-xs">Orders</TabsTrigger>
                 <TabsTrigger value="payments" className="text-xs">Payments</TabsTrigger>
                 <TabsTrigger value="followups" className="text-xs">Follow-ups</TabsTrigger>
                 <TabsTrigger value="statement" className="text-xs">Statement</TabsTrigger>
@@ -1149,25 +1225,6 @@ ${storeOrders.slice(0, 10).map(o =>
                           <p className="text-sm text-gray-500">Balance Due</p>
                         </div>
                       </div>
-                      {selectedStore.paymentStatus !== "good_standing" && (
-                        <div className="mt-4 pt-4 border-t">
-                          <p className="text-sm font-medium mb-2">Action Required:</p>
-                          <ul className="text-sm space-y-1">
-                            {selectedStore.paymentStatus === "overdue" && (
-                              <li className="flex items-center gap-2">
-                                <AlertCircle className="h-4 w-4 text-red-500" />
-                                Payment is overdue - follow up immediately
-                              </li>
-                            )}
-                            {selectedStore.paymentStatus === "warning" && (
-                              <li className="flex items-center gap-2">
-                                <AlertCircle className="h-4 w-4 text-yellow-500" />
-                                Payment approaching due date
-                              </li>
-                            )}
-                          </ul>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
 
@@ -1205,12 +1262,16 @@ ${storeOrders.slice(0, 10).map(o =>
                   </Card>
                 </TabsContent>
 
-                {/* All Orders Tab */}
+                {/* Orders Tab */}
                 <TabsContent value="orders" className="space-y-4 mt-0">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold">All Orders ({storeOrders.length})</h3>
+                    <h3 className="font-semibold">All Orders ({modalOrdersPagination.totalOrders})</h3>
                   </div>
-                  {storeOrders.length === 0 ? (
+                  {loadingModalOrders ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                    </div>
+                  ) : storeOrders.length === 0 ? (
                     <p className="text-center text-gray-500 py-8">No orders yet</p>
                   ) : (
                     <div className="space-y-2">
@@ -1232,6 +1293,35 @@ ${storeOrders.slice(0, 10).map(o =>
                           </div>
                         </div>
                       ))}
+                      {/* Pagination Controls */}
+                      {modalOrdersPagination.totalPages > 1 && (
+                        <div className="flex items-center justify-between pt-4 border-t">
+                          <p className="text-sm text-gray-500">
+                            Showing {((modalOrdersPage - 1) * PAYMENTS_PER_PAGE) + 1} to {Math.min(modalOrdersPage * PAYMENTS_PER_PAGE, modalOrdersPagination.totalOrders)} of {modalOrdersPagination.totalOrders}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => setModalOrdersPage(p => Math.max(1, p - 1))}
+                              disabled={modalOrdersPage === 1 || loadingModalOrders}
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <span className="text-sm px-2">
+                              Page {modalOrdersPage} of {modalOrdersPagination.totalPages}
+                            </span>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => setModalOrdersPage(p => Math.min(modalOrdersPagination.totalPages, p + 1))}
+                              disabled={modalOrdersPage >= modalOrdersPagination.totalPages || loadingModalOrders}
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </TabsContent>
@@ -1265,7 +1355,7 @@ ${storeOrders.slice(0, 10).map(o =>
                         <p className="text-center text-gray-500 py-4">No unpaid invoices</p>
                       ) : (
                         <div className="space-y-2">
-                          {storeOrders.filter(o => o.paymentStatus !== 'paid').map(order => (
+                          {storeOrders.filter(o => o.paymentStatus !== 'paid').slice(0, 10).map(order => (
                             <div key={order._id} className="flex items-center justify-between p-2 border rounded">
                               <div>
                                 <p className="font-medium text-sm">Invoice #{order.orderNumber || order._id?.slice(-6)}</p>
@@ -1281,83 +1371,34 @@ ${storeOrders.slice(0, 10).map(o =>
                       )}
                     </CardContent>
                   </Card>
-
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CreditCard className="h-4 w-4" /> Payment Records</CardTitle></CardHeader>
-                    <CardContent>
-                      {!selectedStore.cheques?.length ? (
-                        <p className="text-center text-gray-500 py-4">No payment records</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {selectedStore.cheques?.slice(0, 10).map((cheque: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between p-2 border rounded">
-                              <div>
-                                <p className="font-medium text-sm">Cheque #{cheque.chequeNumber || 'N/A'}</p>
-                                <p className="text-xs text-gray-500">{cheque.date ? format(new Date(cheque.date), "MMM dd, yyyy") : '-'}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge className={cheque.status === 'cleared' ? 'bg-green-100 text-green-700' : cheque.status === 'bounced' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{cheque.status || 'pending'}</Badge>
-                                <p className="font-semibold text-green-600">{formatCurrency(cheque.amount || 0)}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                  
                 </TabsContent>
 
                 {/* Follow-ups Tab */}
                 <TabsContent value="followups" className="space-y-4 mt-0">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold">Follow-ups & Communications</h3>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setLogCallOpen(true)}><Phone className="h-4 w-4 mr-1" /> Log Call</Button>
-                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setLogCallOpen(true)}><Phone className="h-4 w-4 mr-1" /> Log Call</Button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-  {/* Send Payment Reminder */}
-  <Button 
-    variant="outline" 
-    className="h-auto py-4 flex flex-col gap-2" 
-    onClick={handleSendReminder} 
-    disabled={loadingAction}
-  >
-    {loadingAction ? (
-      <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-    ) : (
-      <Mail className="h-6 w-6 text-blue-600" />
-    )}
-    <span className="text-sm">Send Payment Reminder</span>
-  </Button>
-
-  {/* Download Statement */}
-  <Button
-    variant="outline"
-    className="h-auto py-4 flex flex-col gap-2"
-    onClick={() => setIsStatementFilterOpen(true)}
-    disabled={isGeneratingPDF}
-  >
-    {isGeneratingPDF ? (
-      <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-    ) : (
-      <FileDown className="h-6 w-6 text-blue-600" />
-    )}
-    <span className="text-sm">Download Statement</span>
-  </Button>
-</div>
-
+                    <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={handleSendReminder} disabled={loadingAction}>
+                      {loadingAction ? <Loader2 className="h-6 w-6 animate-spin text-blue-600" /> : <Mail className="h-6 w-6 text-blue-600" />}
+                      <span className="text-sm">Send Payment Reminder</span>
+                    </Button>
+                    <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={() => setIsStatementFilterOpen(true)} disabled={isGeneratingPDF}>
+                      {isGeneratingPDF ? <Loader2 className="h-6 w-6 animate-spin text-blue-600" /> : <FileDown className="h-6 w-6 text-blue-600" />}
+                      <span className="text-sm">Download Statement</span>
+                    </Button>
+                  </div>
 
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Communication History</CardTitle></CardHeader>
                     <CardContent>
                       {communicationLogs.length === 0 ? (
-                        <p className="text-center text-gray-500 py-8">No communication records yet.<br /><span className="text-sm">Start by logging a call or sending a reminder.</span></p>
+                        <p className="text-center text-gray-500 py-8">No communication records yet.</p>
                       ) : (
                         <div className="space-y-2">
-                          {communicationLogs.map((log: any, idx: number) => (
+                          {communicationLogs.slice(0, 10).map((log: any, idx: number) => (
                             <div key={log._id || idx} className="flex items-start gap-3 p-3 border rounded">
                               <div className={`p-2 rounded-full ${log.type === 'call' ? 'bg-blue-100' : log.type === 'payment_reminder' ? 'bg-orange-100' : 'bg-green-100'}`}>
                                 {log.type === 'call' ? <Phone className="h-4 w-4 text-blue-600" /> : log.type === 'payment_reminder' ? <Mail className="h-4 w-4 text-orange-600" /> : <FileText className="h-4 w-4 text-green-600" />}
@@ -1368,7 +1409,6 @@ ${storeOrders.slice(0, 10).map(o =>
                                   <p className="text-xs text-gray-500">{log.createdAt ? format(new Date(log.createdAt), "MMM dd, yyyy HH:mm") : '-'}</p>
                                 </div>
                                 {log.notes && <p className="text-sm text-gray-600 mt-1">{log.notes}</p>}
-                                {log.outcome && <p className="text-xs text-gray-500 mt-1">Outcome: {log.outcome}</p>}
                               </div>
                             </div>
                           ))}
@@ -1382,17 +1422,9 @@ ${storeOrders.slice(0, 10).map(o =>
                 <TabsContent value="statement" className="space-y-4 mt-0">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold">Account Statement</h3>
-                    <div className="flex gap-2">
-                     {
-            <Button
-            size="sm" variant="outline"
-              onClick={() => setIsStatementFilterOpen(true)}
-              disabled={isGeneratingPDF}
-            >
-              {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
-            </Button>
-          }
-                    </div>
+                    <Button size="sm" variant="outline" onClick={() => setIsStatementFilterOpen(true)} disabled={isGeneratingPDF}>
+                      {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
+                    </Button>
                   </div>
 
                   <Card className="bg-gray-50">
@@ -1423,7 +1455,7 @@ ${storeOrders.slice(0, 10).map(o =>
                   </Card>
 
                   <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-base">Transaction History</CardTitle></CardHeader>
+                    <CardHeader className="pb-2"><CardTitle className="text-base">Recent Transactions</CardTitle></CardHeader>
                     <CardContent>
                       <div className="space-y-1">
                         <div className="grid grid-cols-4 text-xs font-medium text-gray-500 p-2 bg-gray-100 rounded">
@@ -1437,26 +1469,13 @@ ${storeOrders.slice(0, 10).map(o =>
                             <span className="text-right">-</span>
                           </div>
                         ))}
-                        {selectedStore.cheques?.slice(0, 5).map((cheque: any, idx: number) => (
-                          <div key={`cheque-${idx}`} className="grid grid-cols-4 text-sm p-2 border-b">
-                            <span>{cheque.date ? format(new Date(cheque.date), "MM/dd/yy") : '-'}</span>
-                            <span>Payment - {cheque.type || 'Cash'}</span>
-                            <span className="text-right">-</span>
-                            <span className="text-right text-green-600">{formatCurrency(cheque.amount || 0)}</span>
-                          </div>
-                        ))}
                       </div>
                     </CardContent>
                   </Card>
-
                 </TabsContent>
               </div>
-
             </Tabs>
-            
           )}
-
-        
 
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setStoreDetailOpen(false)}>Close</Button>

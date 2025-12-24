@@ -564,7 +564,7 @@ const ManageTripsEnhanced = () => {
 
       {/* Add/Edit Trip Modal */}
       <Dialog open={showTripModal} onOpenChange={setShowTripModal}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl h-[70vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editTrip ? "Edit Trip" : "Create New Trip"}</DialogTitle>
           </DialogHeader>

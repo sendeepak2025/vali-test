@@ -1038,44 +1038,89 @@ const getStoreAnalyticsCtrl = async (req, res) => {
   }
 };
 
-// Get analytics for all stores (bulk)
+// Get analytics for all stores (bulk) - with pagination support
 const getAllStoresAnalyticsCtrl = async (req, res) => {
   try {
-    const stores = await authModel.find({ role: "store" }).sort({ storeName: 1 });
-    const allOrders = await Order.find({ isDelete: { $ne: true } });
+    // Pagination params for stores list
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    const search = req.query.search || "";
+    const filterState = req.query.state || "";
+    const filterPaymentStatus = req.query.paymentStatus || "";
+    const sortBy = req.query.sortBy || "storeName";
+    const sortOrder = req.query.sortOrder === "desc" ? -1 : 1;
 
     const now = new Date();
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
 
-    const storesWithAnalytics = stores.map(store => {
-      const storeOrders = allOrders.filter(o => 
-        o.store?.toString() === store._id.toString()
-      ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    // Get ALL stores for overview calculations
+    const allStores = await authModel.find({ role: "store" }).lean();
+    const allStoreIds = allStores.map(s => s._id);
 
-      const totalOrders = storeOrders.length;
-      const totalSpent = storeOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-      
-      const totalPaid = storeOrders
-        .filter(o => o.paymentStatus === "paid")
-        .reduce((sum, o) => sum + (o.total || 0), 0) +
-        storeOrders
-          .filter(o => o.paymentStatus === "partial")
-          .reduce((sum, o) => sum + (parseFloat(o.paymentAmount) || 0), 0);
-      
+    // Get order stats for ALL stores using aggregation
+    const allOrderStats = await Order.aggregate([
+      { 
+        $match: { 
+          store: { $in: allStoreIds }, 
+          isDelete: { $ne: true } 
+        } 
+      },
+      {
+        $group: {
+          _id: "$store",
+          totalOrders: { $sum: 1 },
+          totalSpent: { $sum: { $ifNull: ["$total", 0] } },
+          paidTotal: {
+            $sum: {
+              $cond: [{ $eq: ["$paymentStatus", "paid"] }, { $ifNull: ["$total", 0] }, 0]
+            }
+          },
+          partialPaid: {
+            $sum: {
+              $cond: [{ $eq: ["$paymentStatus", "partial"] }, { $toDouble: { $ifNull: ["$paymentAmount", 0] } }, 0]
+            }
+          },
+          // Count orders by payment status
+          paidOrdersCount: { $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 1, 0] } },
+          partialOrdersCount: { $sum: { $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0] } },
+          lastOrderDate: { $max: "$createdAt" },
+          firstOrderDate: { $min: "$createdAt" },
+          orders: { $push: { createdAt: "$createdAt", paymentStatus: "$paymentStatus" } }
+        }
+      }
+    ]);
+
+    // Create map for quick lookup
+    const orderStatsMap = new Map();
+    allOrderStats.forEach(stat => orderStatsMap.set(stat._id.toString(), stat));
+
+    // Helper function to process store with analytics
+    const processStore = (store) => {
+      const stats = orderStatsMap.get(store._id.toString()) || {
+        totalOrders: 0, totalSpent: 0, paidTotal: 0, partialPaid: 0,
+        paidOrdersCount: 0, partialOrdersCount: 0,
+        lastOrderDate: null, firstOrderDate: null, orders: []
+      };
+
+      const totalOrders = stats.totalOrders;
+      const totalSpent = stats.totalSpent;
+      const totalPaid = stats.paidTotal + stats.partialPaid;
       const balanceDue = totalSpent - totalPaid;
       
-      const creditCount = storeOrders.filter(o => 
-        o.paymentStatus === "unpaid" || o.paymentStatus === "partial"
-      ).length;
+      // Detailed order counts - calculate unpaid as remaining orders
+      const paidOrdersCount = stats.paidOrdersCount;
+      const partialOrdersCount = stats.partialOrdersCount;
+      const unpaidOrdersCount = totalOrders - paidOrdersCount - partialOrdersCount; // This ensures it adds up correctly
+      
+      const lastOrderDate = stats.lastOrderDate;
 
-      const lastOrderDate = storeOrders[0]?.createdAt || null;
-
-      const thisMonthOrders = storeOrders.filter(o => new Date(o.createdAt) >= thisMonthStart).length;
-      const lastMonthOrders = storeOrders.filter(o => {
-        const orderDate = new Date(o.createdAt);
-        return orderDate >= lastMonthStart && orderDate <= lastMonthEnd;
+      const thisMonthOrders = stats.orders.filter(o => new Date(o.createdAt) >= thisMonthStart).length;
+      const lastMonthOrders = stats.orders.filter(o => {
+        const d = new Date(o.createdAt);
+        return d >= lastMonthStart && d <= lastMonthEnd;
       }).length;
 
       let orderTrend = "stable";
@@ -1083,39 +1128,34 @@ const getAllStoresAnalyticsCtrl = async (req, res) => {
       else if (thisMonthOrders < lastMonthOrders) orderTrend = "down";
 
       const daysSinceLastOrder = lastOrderDate 
-        ? Math.floor((now - new Date(lastOrderDate)) / (1000 * 60 * 60 * 24))
-        : 999;
+        ? Math.floor((now - new Date(lastOrderDate)) / (1000 * 60 * 60 * 24)) : 999;
 
-      const firstOrderDate = storeOrders[storeOrders.length - 1]?.createdAt;
-      const monthsSinceFirst = firstOrderDate 
-        ? Math.max(1, Math.floor((now - new Date(firstOrderDate)) / (1000 * 60 * 60 * 24 * 30)))
-        : 1;
+      const monthsSinceFirst = stats.firstOrderDate 
+        ? Math.max(1, Math.floor((now - new Date(stats.firstOrderDate)) / (1000 * 60 * 60 * 24 * 30))) : 1;
       const orderFrequency = totalOrders / monthsSinceFirst;
-
-      const paidOrders = storeOrders.filter(o => o.paymentStatus === "paid").length;
-      const paymentRate = totalOrders > 0 ? (paidOrders / totalOrders) * 100 : 100;
-
+      const paymentRate = totalOrders > 0 ? (paidOrdersCount / totalOrders) * 100 : 100;
       const avgOrderValue = totalOrders > 0 ? totalSpent / totalOrders : 0;
 
-      let paymentStatus = "good";
+      let paymentStatus = "good_standing";
       if (balanceDue > 0) {
-        const unpaidOrders = storeOrders.filter(o => o.paymentStatus !== "paid");
-        const oldestUnpaid = unpaidOrders.sort((a, b) => 
-          new Date(a.createdAt) - new Date(b.createdAt)
-        )[0];
-        
-        if (oldestUnpaid) {
-          const daysSinceOrder = Math.floor(
-            (Date.now() - new Date(oldestUnpaid.createdAt).getTime()) / (1000 * 60 * 60 * 24)
-          );
+        const unpaidOrdersList = stats.orders.filter(o => o.paymentStatus !== "paid");
+        if (unpaidOrdersList.length > 0) {
+          const oldestUnpaidDate = unpaidOrdersList.reduce((oldest, o) => {
+            const d = new Date(o.createdAt);
+            return d < oldest ? d : oldest;
+          }, new Date());
+          const daysSinceOrder = Math.floor((now - oldestUnpaidDate) / (1000 * 60 * 60 * 24));
           if (daysSinceOrder > 30) paymentStatus = "overdue";
           else if (daysSinceOrder > 14) paymentStatus = "warning";
         }
       }
 
       const { rating: storeRating, score: ratingScore } = calculateStoreRating({
-        paymentStatus, creditCount, totalOrders, daysSinceLastOrder, orderTrend
+        paymentStatus, creditCount: unpaidOrdersCount + partialOrdersCount, totalOrders, daysSinceLastOrder, orderTrend
       });
+
+      // creditCount = unpaid + partial orders (for backward compatibility)
+      const creditCount = unpaidOrdersCount + partialOrdersCount;
 
       return {
         _id: store._id,
@@ -1129,48 +1169,152 @@ const getAllStoresAnalyticsCtrl = async (req, res) => {
         zipCode: store.zipCode,
         priceCategory: store.priceCategory,
         shippingCost: store.shippingCost,
+        isOrder: store.isOrder,
+        isProduct: store.isProduct,
         createdAt: store.createdAt,
         cheques: store.cheques || [],
-        // Analytics
-        totalOrders,
-        totalSpent,
-        totalPaid,
-        balanceDue,
-        creditCount,
-        lastOrderDate,
-        thisMonthOrders,
-        lastMonthOrders,
-        orderTrend,
-        daysSinceLastOrder,
+        totalOrders, totalSpent, totalPaid, balanceDue, lastOrderDate,
+        // Detailed order counts
+        paidOrdersCount,
+        partialOrdersCount,
+        unpaidOrdersCount,
+        creditCount, // unpaid + partial orders
+        thisMonthOrders, lastMonthOrders, orderTrend, daysSinceLastOrder,
         orderFrequency: parseFloat(orderFrequency.toFixed(2)),
         paymentRate: parseFloat(paymentRate.toFixed(2)),
         avgOrderValue: parseFloat(avgOrderValue.toFixed(2)),
-        paymentStatus,
-        storeRating,
-        ratingScore
+        paymentStatus, storeRating, ratingScore
       };
+    };
+
+    // Process ALL stores for overview data
+    const allStoresWithAnalytics = allStores.map(processStore);
+
+    // Calculate summary from ALL stores
+    const summary = {
+      totalStores: allStoresWithAnalytics.length,
+      activeStores: allStoresWithAnalytics.filter(s => s.daysSinceLastOrder < 30).length,
+      totalRevenue: allStoresWithAnalytics.reduce((sum, s) => sum + s.totalSpent, 0),
+      totalOutstanding: allStoresWithAnalytics.reduce((sum, s) => sum + s.balanceDue, 0),
+      overdueStores: allStoresWithAnalytics.filter(s => s.paymentStatus === "overdue").length,
+      warningStores: allStoresWithAnalytics.filter(s => s.paymentStatus === "warning").length,
+      goodStandingStores: allStoresWithAnalytics.filter(s => s.paymentStatus === "good_standing").length,
+      totalOrders: allStoresWithAnalytics.reduce((sum, s) => sum + s.totalOrders, 0),
+      totalCredits: allStoresWithAnalytics.reduce((sum, s) => sum + s.creditCount, 0),
+      avgOrderValue: allStoresWithAnalytics.length > 0 
+        ? allStoresWithAnalytics.reduce((sum, s) => sum + s.avgOrderValue, 0) / allStoresWithAnalytics.filter(s => s.totalOrders > 0).length || 0
+        : 0
+    };
+
+    // Top performing stores (by total spent) - from ALL stores
+    const topPerformingStores = [...allStoresWithAnalytics]
+      .filter(s => s.totalSpent > 0)
+      .sort((a, b) => b.totalSpent - a.totalSpent)
+      .slice(0, 5);
+
+    // Stores needing attention (overdue/warning with balance) - from ALL stores
+    const storesNeedingAttention = [...allStoresWithAnalytics]
+      .filter(s => s.paymentStatus === "overdue" || s.paymentStatus === "warning")
+      .sort((a, b) => b.balanceDue - a.balanceDue)
+      .slice(0, 5);
+
+    // Overdue stores for payments tab - from ALL stores
+    const overdueStoresList = [...allStoresWithAnalytics]
+      .filter(s => s.paymentStatus === "overdue")
+      .sort((a, b) => b.balanceDue - a.balanceDue);
+
+    // Warning stores for payments tab - from ALL stores
+    const warningStoresList = [...allStoresWithAnalytics]
+      .filter(s => s.paymentStatus === "warning")
+      .sort((a, b) => b.balanceDue - a.balanceDue);
+
+    // Stores with declining orders for analytics tab
+    const decliningStores = [...allStoresWithAnalytics]
+      .filter(s => s.orderTrend === "down")
+      .sort((a, b) => (b.lastMonthOrders - b.thisMonthOrders) - (a.lastMonthOrders - a.thisMonthOrders))
+      .slice(0, 5);
+
+    // Credit analysis stores
+    const creditAnalysisStores = [...allStoresWithAnalytics]
+      .filter(s => s.creditCount > 0)
+      .sort((a, b) => b.balanceDue - a.balanceDue)
+      .slice(0, 10);
+
+    // Analytics trends from ALL stores
+    const analyticsTrends = {
+      trendingUp: allStoresWithAnalytics.filter(s => s.orderTrend === "up").length,
+      stable: allStoresWithAnalytics.filter(s => s.orderTrend === "stable").length,
+      trendingDown: allStoresWithAnalytics.filter(s => s.orderTrend === "down").length
+    };
+
+    // Now handle PAGINATED stores for "All Stores" tab
+    let filteredStores = [...allStoresWithAnalytics];
+    
+    // Apply search filter
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filteredStores = filteredStores.filter(s => 
+        s.storeName?.toLowerCase().includes(searchLower) ||
+        s.ownerName?.toLowerCase().includes(searchLower) ||
+        s.email?.toLowerCase().includes(searchLower) ||
+        s.phone?.includes(search)
+      );
+    }
+    
+    // Apply state filter
+    if (filterState) {
+      filteredStores = filteredStores.filter(s => s.state === filterState);
+    }
+    
+    // Apply payment status filter
+    if (filterPaymentStatus) {
+      filteredStores = filteredStores.filter(s => s.paymentStatus === filterPaymentStatus);
+    }
+
+    // Sort
+    filteredStores.sort((a, b) => {
+      const aVal = a[sortBy] || "";
+      const bVal = b[sortBy] || "";
+      if (typeof aVal === "string") {
+        return sortOrder === 1 ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return sortOrder === 1 ? aVal - bVal : bVal - aVal;
     });
 
-    // Calculate summary stats
-    const summary = {
-      totalStores: storesWithAnalytics.length,
-      activeStores: storesWithAnalytics.filter(s => s.daysSinceLastOrder < 30).length,
-      totalRevenue: storesWithAnalytics.reduce((sum, s) => sum + s.totalSpent, 0),
-      totalOutstanding: storesWithAnalytics.reduce((sum, s) => sum + s.balanceDue, 0),
-      overdueStores: storesWithAnalytics.filter(s => s.paymentStatus === "overdue").length,
-      warningStores: storesWithAnalytics.filter(s => s.paymentStatus === "warning").length,
-      excellentStores: storesWithAnalytics.filter(s => s.storeRating === "excellent").length,
-      goodStores: storesWithAnalytics.filter(s => s.storeRating === "good").length,
-      needsImprovementStores: storesWithAnalytics.filter(s => s.storeRating === "needs_improvement").length,
-      atRiskStores: storesWithAnalytics.filter(s => s.storeRating === "at_risk").length,
-      totalOrders: storesWithAnalytics.reduce((sum, s) => sum + s.totalOrders, 0),
-      totalCredits: storesWithAnalytics.reduce((sum, s) => sum + s.creditCount, 0)
-    };
+    // Pagination
+    const totalFilteredStores = filteredStores.length;
+    const totalPages = Math.ceil(totalFilteredStores / limit);
+    const paginatedStores = filteredStores.slice(skip, skip + limit);
+
+    // Get unique states for filter dropdown
+    const uniqueStates = [...new Set(allStores.map(s => s.state).filter(Boolean))].sort();
 
     res.status(200).json({
       success: true,
-      stores: storesWithAnalytics,
-      summary
+      // Paginated stores for "All Stores" tab
+      stores: paginatedStores,
+      // Full data for overview/analytics tabs
+      overview: {
+        topPerformingStores,
+        storesNeedingAttention,
+        overdueStoresList,
+        warningStoresList,
+        decliningStores,
+        creditAnalysisStores,
+        analyticsTrends
+      },
+      summary,
+      pagination: {
+        page,
+        limit,
+        totalStores: totalFilteredStores,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+      },
+      filters: {
+        uniqueStates
+      }
     });
   } catch (error) {
     console.error("Error fetching all stores analytics:", error);
@@ -1798,6 +1942,167 @@ const rejectStoreCtrl = async (req, res) => {
   }
 };
 
+// Get paginated overdue/warning stores
+const getPaginatedPaymentStoresCtrl = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, type = "overdue" } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
+
+    const Order = require("../models/orderModle");
+
+    // Get all stores
+    const allStores = await authModel.find({ role: "store" }).lean();
+    const allStoreIds = allStores.map(s => s._id);
+
+    // Get order stats for all stores
+    const orderStats = await Order.aggregate([
+      { $match: { store: { $in: allStoreIds }, isDelete: { $ne: true } } },
+      {
+        $group: {
+          _id: "$store",
+          totalOrders: { $sum: 1 },
+          totalSpent: { $sum: { $ifNull: ["$total", 0] } },
+          paidTotal: {
+            $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, { $ifNull: ["$total", 0] }, 0] }
+          },
+          partialPaid: {
+            $sum: { $cond: [{ $eq: ["$paymentStatus", "partial"] }, { $toDouble: { $ifNull: ["$paymentAmount", 0] } }, 0] }
+          },
+          paidOrdersCount: { $sum: { $cond: [{ $eq: ["$paymentStatus", "paid"] }, 1, 0] } },
+          partialOrdersCount: { $sum: { $cond: [{ $eq: ["$paymentStatus", "partial"] }, 1, 0] } },
+          unpaidOrders: {
+            $push: {
+              $cond: [{ $ne: ["$paymentStatus", "paid"] }, { createdAt: "$createdAt", total: "$total" }, "$$REMOVE"]
+            }
+          }
+        }
+      }
+    ]);
+
+    const statsMap = new Map();
+    orderStats.forEach(s => statsMap.set(s._id.toString(), s));
+
+    // Process stores and filter by payment status
+    const processedStores = allStores.map(store => {
+      const stats = statsMap.get(store._id.toString()) || {
+        totalOrders: 0, totalSpent: 0, paidTotal: 0, partialPaid: 0,
+        paidOrdersCount: 0, partialOrdersCount: 0, unpaidOrders: []
+      };
+
+      const totalPaid = stats.paidTotal + stats.partialPaid;
+      const balanceDue = stats.totalSpent - totalPaid;
+      const unpaidOrdersCount = stats.totalOrders - stats.paidOrdersCount - stats.partialOrdersCount;
+      const creditCount = unpaidOrdersCount + stats.partialOrdersCount;
+
+      let paymentStatus = "good_standing";
+      let oldestUnpaidDays = 0;
+
+      if (balanceDue > 0 && stats.unpaidOrders.length > 0) {
+        const oldestDate = stats.unpaidOrders.reduce((oldest, o) => {
+          const d = new Date(o.createdAt);
+          return d < oldest ? d : oldest;
+        }, new Date());
+        oldestUnpaidDays = Math.floor((now - oldestDate) / (1000 * 60 * 60 * 24));
+        
+        if (oldestUnpaidDays > 30) paymentStatus = "overdue";
+        else if (oldestUnpaidDays > 14) paymentStatus = "warning";
+      }
+
+      return {
+        _id: store._id,
+        storeName: store.storeName,
+        ownerName: store.ownerName,
+        email: store.email,
+        phone: store.phone,
+        city: store.city,
+        state: store.state,
+        totalOrders: stats.totalOrders,
+        totalSpent: stats.totalSpent,
+        totalPaid,
+        balanceDue,
+        paidOrdersCount: stats.paidOrdersCount,
+        partialOrdersCount: stats.partialOrdersCount,
+        unpaidOrdersCount,
+        creditCount,
+        paymentStatus,
+        oldestUnpaidDays
+      };
+    });
+
+    // Filter by type
+    const filteredStores = processedStores
+      .filter(s => s.paymentStatus === type)
+      .sort((a, b) => b.balanceDue - a.balanceDue);
+
+    const totalStores = filteredStores.length;
+    const totalPages = Math.ceil(totalStores / limitNum);
+    const paginatedStores = filteredStores.slice(skip, skip + limitNum);
+
+    res.status(200).json({
+      success: true,
+      stores: paginatedStores,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalStores,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching paginated payment stores:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+};
+
+// Get paginated orders for a specific store
+const getStoreOrdersPaginatedCtrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const Order = require("../models/orderModle");
+
+    // Get total count
+    const totalOrders = await Order.countDocuments({ store: id, isDelete: { $ne: true } });
+    const totalPages = Math.ceil(totalOrders / limitNum);
+
+    // Get paginated orders
+    const orders = await Order.find({ store: id, isDelete: { $ne: true } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .select("orderNumber total paymentStatus paymentAmount items createdAt")
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalOrders,
+        totalPages,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching store orders:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+};
+
 // Forgot Password Controller
 const forgotPasswordCtrl = async (req, res) => {
   try {
@@ -2035,6 +2340,9 @@ module.exports = {
   getAllChequesCtrl,
   getStoreAnalyticsCtrl,
   getAllStoresAnalyticsCtrl,
+  // Paginated APIs
+  getPaginatedPaymentStoresCtrl,
+  getStoreOrdersPaginatedCtrl,
   // New store management functions
   addCommunicationLogCtrl,
   getCommunicationLogsCtrl,

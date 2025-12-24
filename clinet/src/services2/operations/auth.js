@@ -633,10 +633,21 @@ export const getStoreAnalyticsAPI = async (storeId) => {
   }
 };
 
-// Get analytics for all stores (bulk) - optimized for admin dashboard
-export const getAllStoresAnalyticsAPI = async () => {
+// Get analytics for all stores (bulk) - optimized for admin dashboard with pagination
+export const getAllStoresAnalyticsAPI = async (params = {}) => {
   try {
-    const response = await apiConnector("GET", GET_ALL_STORES_ANALYTICS_API);
+    const { page = 1, limit = 20, search = "", state = "", paymentStatus = "", sortBy = "storeName", sortOrder = "asc" } = params;
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      search,
+      state,
+      paymentStatus,
+      sortBy,
+      sortOrder
+    }).toString();
+    
+    const response = await apiConnector("GET", `${GET_ALL_STORES_ANALYTICS_API}?${queryParams}`);
 
     if (!response?.data?.success) {
       throw new Error(response?.data?.message || "Something went wrong!");
@@ -646,7 +657,52 @@ export const getAllStoresAnalyticsAPI = async () => {
   } catch (error) {
     console.error("GET ALL STORES ANALYTICS API ERROR:", error);
     toast.error(error?.response?.data?.message || "Failed to fetch stores analytics!");
-    return { stores: [], summary: {} };
+    return { stores: [], summary: {}, pagination: { page: 1, limit: 20, totalStores: 0, totalPages: 0 }, filters: { uniqueStates: [] } };
+  }
+};
+
+// Get paginated overdue/warning stores for Payments tab
+export const getPaginatedPaymentStoresAPI = async (params = {}) => {
+  try {
+    const { page = 1, limit = 10, type = "overdue" } = params;
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+      type
+    }).toString();
+    
+    const response = await apiConnector("GET", `${endpoints.GET_PAGINATED_PAYMENT_STORES_API}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data;
+  } catch (error) {
+    console.error("GET PAGINATED PAYMENT STORES API ERROR:", error);
+    return { stores: [], pagination: { page: 1, limit: 10, totalStores: 0, totalPages: 0 } };
+  }
+};
+
+// Get paginated orders for a specific store (modal)
+export const getStoreOrdersPaginatedAPI = async (storeId, params = {}) => {
+  try {
+    const { page = 1, limit = 10 } = params;
+    const queryParams = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString()
+    }).toString();
+    
+    const response = await apiConnector("GET", `${endpoints.GET_STORE_ORDERS_PAGINATED_API}/${storeId}/orders-paginated?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data;
+  } catch (error) {
+    console.error("GET STORE ORDERS PAGINATED API ERROR:", error);
+    return { orders: [], pagination: { page: 1, limit: 10, totalOrders: 0, totalPages: 0 } };
   }
 };
 

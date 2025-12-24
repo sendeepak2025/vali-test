@@ -1,5 +1,5 @@
 const express = require("express")
-const { registerCtrl, loginCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
+const { registerCtrl, loginCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, getPaginatedPaymentStoresCtrl, getStoreOrdersPaginatedCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
 const { auth, isAdmin } = require("../middleware/auth")
 const router = express.Router()
 
@@ -33,6 +33,8 @@ router.get("/all-cheques", getAllChequesCtrl)
 // Store Analytics routes
 router.get("/store-analytics/:id", getStoreAnalyticsCtrl)
 router.get("/stores-analytics", getAllStoresAnalyticsCtrl)
+router.get("/stores-payment-status", getPaginatedPaymentStoresCtrl)
+router.get("/store/:id/orders-paginated", getStoreOrdersPaginatedCtrl)
 
 // Store Communication & Payment routes
 router.post("/store/:id/communication", addCommunicationLogCtrl)

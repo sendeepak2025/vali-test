@@ -748,7 +748,7 @@ useEffect(() => {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="bg-white rounded-xl w-full max-w-2xl h-[70vh] overflow-y-auto shadow-2xl">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-2xl font-bold text-gray-800 text-center">
             {editData ? "Edit Trip" : "Create New Trip"}
