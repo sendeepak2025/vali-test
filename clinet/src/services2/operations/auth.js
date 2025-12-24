@@ -104,7 +104,7 @@ export async function signUp(formData, navigate, dispatch) {
 
     if (isStoreRegistration && registrationRef) {
       // Show pending approval message for store registrations
-      Swal.fire({
+      await Swal.fire({
         title: "Registration Submitted!",
         html: `
           <div style="text-align: left; padding: 10px;">
@@ -121,6 +121,9 @@ export async function signUp(formData, navigate, dispatch) {
         confirmButtonColor: "#3B82F6",
         allowOutsideClick: false,
       });
+      
+      // Navigate to login page after store registration
+      navigate("/auth");
     } else {
       Swal.fire({
         title: `User Register Successful!`,
@@ -131,11 +134,6 @@ export async function signUp(formData, navigate, dispatch) {
         allowOutsideClick: true,
       });
     }
-
-    // dispatch(setToken(response?.data?.token));
-    // dispatch(setUser(response?.data?.user));
-
-
 
     return response?.data?.success;
   } catch (error) {
@@ -867,15 +865,16 @@ export const getPendingStoresAPI = async (token) => {
 /**
  * Approve a store registration
  * @param {string} storeId - Store ID to approve
+ * @param {string} priceCategory - Price category to assign (aPrice, bPrice, cPrice, restaurantPrice)
  * @param {string} token - Auth token
  */
-export const approveStoreAPI = async (storeId, token) => {
+export const approveStoreAPI = async (storeId, priceCategory, token) => {
   const toastId = toast.loading("Approving store...");
   try {
     const response = await apiConnector(
       "POST",
       `${storeApproval.APPROVE_STORE}/${storeId}`,
-      null,
+      { priceCategory },
       { Authorization: `Bearer ${token}` }
     );
 

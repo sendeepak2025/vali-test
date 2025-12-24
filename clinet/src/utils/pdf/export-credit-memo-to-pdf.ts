@@ -4,6 +4,7 @@ import { formatCurrency } from "@/lib/data"
 
 export const exportCreditMemoToPDF = (
   creditMemo: any,
+  returnDocOnly: boolean = false,
   options: {
     includeHeader?: boolean
     includeCompanyDetails?: boolean
@@ -338,7 +339,9 @@ doc.text(`Original Order Date: ${formattedOriginalDate}`, leftX, yPos + 19);
     angle: 45,
   })
 
-  doc.save(`credit-memo-${creditMemo.id}.pdf`)
+  if (!returnDocOnly) {
+    doc.save(`credit-memo-${creditMemo.id}.pdf`)
+  }
 
   return doc
 }

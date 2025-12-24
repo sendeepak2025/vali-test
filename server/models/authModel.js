@@ -108,6 +108,172 @@ const paymentRecordSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Legal document schema for storing all legal records
+const legalDocumentSchema = new mongoose.Schema(
+  {
+    documentType: {
+      type: String,
+      enum: [
+        "terms_acceptance",      // Terms & Conditions acceptance record
+        "credit_application",    // Credit application form
+        "personal_guarantee",    // Personal guarantee document
+        "business_license",      // Business license copy
+        "tax_certificate",       // Tax ID / Resale certificate
+        "insurance_certificate", // Insurance certificate
+        "w9_form",              // W-9 form
+        "signed_agreement",      // Signed credit agreement
+        "id_document",          // Owner ID (driver's license, etc.)
+        "bank_reference",       // Bank reference letter
+        "trade_reference",      // Trade reference
+        "other"                 // Other documents
+      ],
+      required: true,
+    },
+    documentName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    // For file uploads
+    fileUrl: {
+      type: String,
+      trim: true,
+    },
+    fileName: {
+      type: String,
+      trim: true,
+    },
+    fileType: {
+      type: String,
+      trim: true,
+    },
+    fileSize: {
+      type: Number,
+    },
+    // For terms acceptance - store the actual content agreed to
+    documentContent: {
+      type: String, // Store HTML/text of terms at time of acceptance
+    },
+    documentVersion: {
+      type: String,
+      trim: true,
+    },
+    // Acceptance/signature details
+    acceptedAt: {
+      type: Date,
+    },
+    acceptedByName: {
+      type: String,
+      trim: true,
+    },
+    acceptedByEmail: {
+      type: String,
+      trim: true,
+    },
+    ipAddress: {
+      type: String,
+      trim: true,
+    },
+    userAgent: {
+      type: String,
+      trim: true,
+    },
+    // Digital signature (if applicable)
+    signatureData: {
+      type: String, // Base64 encoded signature image
+    },
+    // Document status
+    status: {
+      type: String,
+      enum: ["pending", "received", "verified", "expired", "rejected"],
+      default: "received",
+    },
+    expiryDate: {
+      type: Date,
+    },
+    verifiedAt: {
+      type: Date,
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "auth",
+    },
+    verifiedByName: {
+      type: String,
+      trim: true,
+    },
+    // Notes for admin
+    adminNotes: {
+      type: String,
+      trim: true,
+    },
+    // Who uploaded/created this record
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "auth",
+    },
+    uploadedByName: {
+      type: String,
+      trim: true,
+    },
+  },
+  { timestamps: true }
+);
+
+// Credit terms agreement schema
+const creditAgreementSchema = new mongoose.Schema(
+  {
+    creditLimit: {
+      type: Number,
+      default: 0,
+    },
+    paymentTermsDays: {
+      type: Number,
+      default: 7, // Net 7 days
+    },
+    interestRate: {
+      type: Number,
+      default: 1.5, // 1.5% monthly
+    },
+    agreedAt: {
+      type: Date,
+    },
+    agreedByName: {
+      type: String,
+      trim: true,
+    },
+    agreedByEmail: {
+      type: String,
+      trim: true,
+    },
+    ipAddress: {
+      type: String,
+      trim: true,
+    },
+    // Store snapshot of terms at time of agreement
+    termsSnapshot: {
+      type: String,
+    },
+    status: {
+      type: String,
+      enum: ["active", "suspended", "revoked"],
+      default: "active",
+    },
+    suspendedAt: {
+      type: Date,
+    },
+    suspendedReason: {
+      type: String,
+      trim: true,
+    },
+  },
+  { timestamps: true }
+);
+
 const authSchema = new mongoose.Schema(
   {
     name: {
@@ -258,6 +424,128 @@ const authSchema = new mongoose.Schema(
     
     // Payment records (cash/card/bank transfer - separate from cheques)
     paymentRecords: [paymentRecordSchema],
+
+    // Legal documents for store accounts
+    legalDocuments: [legalDocumentSchema],
+    
+    // Credit agreement history
+    creditAgreements: [creditAgreementSchema],
+    
+    // Current active credit terms
+    currentCreditTerms: {
+      creditLimit: {
+        type: Number,
+        default: 0,
+      },
+      paymentTermsDays: {
+        type: Number,
+        default: 7,
+      },
+      interestRate: {
+        type: Number,
+        default: 1.5,
+      },
+      status: {
+        type: String,
+        enum: ["none", "active", "suspended", "cod_only"],
+        default: "none",
+      },
+    },
+    
+    // Business verification info
+    businessInfo: {
+      legalBusinessName: {
+        type: String,
+        trim: true,
+      },
+      dba: { // Doing Business As
+        type: String,
+        trim: true,
+      },
+      businessType: {
+        type: String,
+        enum: ["sole_proprietor", "partnership", "llc", "corporation", "other"],
+      },
+      taxId: { // EIN or SSN (store encrypted/masked)
+        type: String,
+        trim: true,
+      },
+      stateTaxId: {
+        type: String,
+        trim: true,
+      },
+      businessLicenseNumber: {
+        type: String,
+        trim: true,
+      },
+      yearEstablished: {
+        type: Number,
+      },
+      // Owner/Principal information
+      principalName: {
+        type: String,
+        trim: true,
+      },
+      principalTitle: {
+        type: String,
+        trim: true,
+      },
+      principalPhone: {
+        type: String,
+        trim: true,
+      },
+      principalEmail: {
+        type: String,
+        trim: true,
+      },
+      principalSSN: { // Last 4 digits only for verification
+        type: String,
+        trim: true,
+      },
+      principalDOB: {
+        type: Date,
+      },
+      principalAddress: {
+        type: String,
+        trim: true,
+      },
+      // Bank information
+      bankName: {
+        type: String,
+        trim: true,
+      },
+      bankAccountType: {
+        type: String,
+        enum: ["checking", "savings"],
+      },
+      bankRoutingNumber: {
+        type: String,
+        trim: true,
+      },
+      bankAccountNumber: { // Store masked
+        type: String,
+        trim: true,
+      },
+    },
+    
+    // Terms acceptance tracking
+    termsAcceptance: {
+      acceptedAt: {
+        type: Date,
+      },
+      acceptedVersion: {
+        type: String,
+        trim: true,
+      },
+      ipAddress: {
+        type: String,
+        trim: true,
+      },
+      userAgent: {
+        type: String,
+        trim: true,
+      },
+    },
 
     // Store approval workflow fields
     approvalStatus: {

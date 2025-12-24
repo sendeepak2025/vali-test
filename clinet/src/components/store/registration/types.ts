@@ -14,6 +14,16 @@ export const storeRegistrationSchema = z
     state: z.string().min(2, { message: "State is required" }),
     zipCode: z.string().min(5, { message: "Valid ZIP code is required" }),
     businessDescription: z.string().optional(),
+    
+    // Business legal information
+    legalBusinessName: z.string().optional(),
+    businessType: z.string().optional(),
+    taxId: z.string().optional(),
+    
+    // Document URLs (uploaded to cloud)
+    businessLicenseUrl: z.string().optional(),
+    taxCertificateUrl: z.string().optional(),
+    
     password: z
       .string()
       .min(8, { message: "Password must be at least 8 characters" })
@@ -33,4 +43,4 @@ export const storeRegistrationSchema = z
 
 export type StoreRegistrationValues = z.infer<typeof storeRegistrationSchema>;
 
-export type StepType = "business" | "address" | "account";
+export type StepType = "business" | "address" | "documents" | "account";

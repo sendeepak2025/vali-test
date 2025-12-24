@@ -53,6 +53,7 @@ import SettingsPage from "./components/settings/Settings";
 import { fetchMyProfile } from "@/services2/operations/auth";
 import Vendors from "./pages/Vendors";
 import VendorsEnhanced from "./pages/VendorsEnhanced";
+import VendorsSimplified from "./pages/VendorsSimplified";
 import NewVendor from "./pages/NewVendor";
 import NewPurchase from "./pages/NewPurchase";
 import VendorQualityControl from "./pages/VendorQualityControl";
@@ -72,6 +73,8 @@ import PreOrder from "./pages/PreOrder";
 import UpdatePreOrder from "./pages/UpdatePreOrder";
 import OrderToPOWorkflow from "./pages/OrderToPOWorkflow";
 import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
+import TermsAndConditions from "./pages/TermsAndConditions";
+import StoreLegalDocuments from "./pages/StoreLegalDocuments";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -158,6 +161,11 @@ export default function App() {
             </OpenRoute>
           }
         />
+        {/* Terms and Conditions - Public Route */}
+        <Route
+          path="/terms-and-conditions"
+          element={<TermsAndConditions />}
+        />
         {/* Pending Approval Page for stores awaiting approval */}
         <Route
           path="/pending-approval"
@@ -197,6 +205,14 @@ export default function App() {
           element={
             <PrivateRoute isAdmin={isAdmin}>
               <AdminApprovalDashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/store/:storeId/legal"
+          element={
+            <PrivateRoute isAdmin={isAdmin}>
+              <StoreLegalDocuments />
             </PrivateRoute>
           }
         />
@@ -526,7 +542,7 @@ export default function App() {
           path="/vendors"
           element={
             <PrivateRoute>
-              <VendorsEnhanced />
+              <VendorsSimplified />
             </PrivateRoute>
           }
         />

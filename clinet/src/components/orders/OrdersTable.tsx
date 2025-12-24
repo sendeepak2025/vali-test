@@ -404,19 +404,37 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
     })
   }
 
-  const handleBulkDelete = async () => {
+  const handleBulkVoid = async () => {
     if (selectedOrders.size === 0) return
+    
+    const { value: reason, isConfirmed } = await Swal.fire({
+      title: "Void Selected Orders",
+      input: "textarea",
+      inputLabel: `Reason for voiding ${selectedOrders.size} orders?`,
+      inputPlaceholder: "Enter the reason for voiding these orders...",
+      showCancelButton: true,
+      confirmButtonText: "Void Orders",
+      confirmButtonColor: "#d33",
+      inputValidator: (value) => {
+        if (!value) {
+          return "Reason is required!"
+        }
+      },
+    })
+    
+    if (!isConfirmed || !reason) return
+    
     setIsProcessingBulk(true)
     
     try {
-      const deletePromises = Array.from(selectedOrders).map(orderId => 
-        deleteOrderAPI(orderId, token, "Bulk delete")
+      const voidPromises = Array.from(selectedOrders).map(orderId => 
+        deleteOrderAPI(orderId, token, reason)
       )
-      await Promise.all(deletePromises)
+      await Promise.all(voidPromises)
       
       toast({
-        title: "Orders Deleted",
-        description: `${selectedOrders.size} orders deleted`,
+        title: "Orders Voided",
+        description: `${selectedOrders.size} orders voided`,
       })
       
       setSelectedOrders(new Set())
@@ -424,7 +442,7 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to delete some orders",
+        description: "Failed to void some orders",
         variant: "destructive",
       })
     } finally {
@@ -537,17 +555,17 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
   };
 
 
-  const handleDelete = async (id: string, orderNumber: string) => {
+  const handleVoidOrder = async (id: string, orderNumber: string) => {
     const { value: reason, isConfirmed } = await Swal.fire({
-      title: "Reason for Deletion",
+      title: "Void Order",
       input: "textarea",
-      inputLabel: `Why are you deleting order ${orderNumber}?`,
-      inputPlaceholder: "Enter the reason here...",
+      inputLabel: `Reason for voiding order ${orderNumber}?`,
+      inputPlaceholder: "Enter the reason for voiding this order...",
       inputAttributes: {
         "aria-label": "Type your reason here",
       },
       showCancelButton: true,
-      confirmButtonText: "Submit",
+      confirmButtonText: "Void Order",
       confirmButtonColor: "#d33",
       cancelButtonColor: "#3085d6",
       inputValidator: (value) => {
@@ -560,12 +578,12 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
     if (isConfirmed && reason) {
       const confirmed = await Swal.fire({
         title: "Are you sure?",
-        text: `You are about to delete order ${orderNumber}. This action cannot be undone!`,
+        text: `You are about to void order ${orderNumber}. This action cannot be undone!`,
         icon: "warning",
         showCancelButton: true,
         confirmButtonColor: "#d33",
         cancelButtonColor: "#3085d6",
-        confirmButtonText: "Yes, delete it!",
+        confirmButtonText: "Yes, void it!",
       })
 
       if (confirmed.isConfirmed) {
@@ -1177,7 +1195,7 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
           onClearSelection={() => setSelectedOrders(new Set())}
           onBulkStatusUpdate={handleBulkStatusUpdate}
           onBulkPrint={handleBulkPrint}
-          onBulkDelete={handleBulkDelete}
+          onBulkDelete={handleBulkVoid}
           isProcessing={isProcessingBulk}
         />
       )}
@@ -1731,11 +1749,11 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
 
                           {!order?.isDelete && user.role === "admin" && (
                             <DropdownMenuItem
-                              onClick={() => handleDelete(order?._id, order?.id)}
+                              onClick={() => handleVoidOrder(order?._id, order?.id)}
                               className="text-red-600 hover:text-red-700 focus:text-red-700"
                             >
-                              <Trash size={14} className="mr-2" />
-                              Delete
+                              <Ban size={14} className="mr-2" />
+                              Void
                             </DropdownMenuItem>
                           )}
                           {order?.isDelete && user.role === "admin" && (
@@ -1744,7 +1762,7 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
                               className="text-red-600 hover:text-red-700 focus:text-red-700"
                             >
                               <Trash size={14} className="mr-2" />
-                              Delete Permanet
+                              Delete Permanent
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>

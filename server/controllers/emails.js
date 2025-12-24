@@ -211,3 +211,198 @@ exports.sendByPriceCategory = async (req, res) => {
   }
 };
 
+
+
+// Send Credit Memo Email
+exports.sendCreditMemoEmail = async (req, res) => {
+  try {
+    const { 
+      orderId, 
+      creditMemoId, 
+      creditMemoNumber, 
+      customerEmail, 
+      customerName,
+      pdfBase64 
+    } = req.body;
+
+    if (!customerEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer email is required",
+      });
+    }
+
+    const subject = `Credit Memo ${creditMemoNumber} - Vali Produce`;
+    
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background: #ffffff;">
+        <h2 style="color: #2962ff; text-align: center;">📄 Credit Memo</h2>
+        <p style="color: #555; font-size: 16px;">Hello ${customerName || 'Valued Customer'},</p>
+        <p style="color: #555; font-size: 16px;">Please find attached your credit memo <strong>${creditMemoNumber}</strong>.</p>
+        
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p style="color: #333; font-size: 14px; margin: 0;">
+            <strong>Credit Memo #:</strong> ${creditMemoNumber}
+          </p>
+        </div>
+
+        <p style="color: #666; font-size: 14px;">If you have any questions about this credit memo, please don't hesitate to contact us.</p>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+        <p style="color: #888; font-size: 12px; text-align: center;">
+          Vali Produce LLC<br>
+          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          order@valiproduce.shop
+        </p>
+      </div>
+    `;
+
+    // Convert base64 PDF to buffer for attachment
+    let attachments = [];
+    if (pdfBase64) {
+      const base64Data = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+      attachments = [{
+        filename: `credit-memo-${creditMemoNumber}.pdf`,
+        content: Buffer.from(base64Data, 'base64'),
+        contentType: 'application/pdf'
+      }];
+    }
+
+    const nodemailer = require("nodemailer");
+    let transporter = nodemailer.createTransport({
+      host: process.env.MAIL_HOST,
+      auth: {
+        user: process.env.MAIL_USER,
+        pass: process.env.MAIL_PASS,
+      },
+      secure: false,
+    });
+
+    await transporter.sendMail({
+      from: "order@valiproduce.shop",
+      to: customerEmail,
+      subject: subject,
+      html: html,
+      attachments: attachments
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Credit memo email sent successfully!",
+    });
+
+  } catch (error) {
+    console.error("Send credit memo email error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error sending credit memo email",
+      error: error.message,
+    });
+  }
+};
+
+
+// Send Work Order Email
+exports.sendWorkOrderEmail = async (req, res) => {
+  try {
+    const { 
+      orderId, 
+      workOrderNumber, 
+      assignedTo,
+      department,
+      priority,
+      customerEmail,
+      customerName,
+      pdfBase64 
+    } = req.body;
+
+    // Work orders are typically sent internally, but can also go to customer
+    const recipientEmail = customerEmail || process.env.INTERNAL_EMAIL || "order@valiproduce.shop";
+
+    const subject = `Work Order ${workOrderNumber} - ${priority ? priority.toUpperCase() : 'NORMAL'} Priority`;
+    
+    const priorityColors = {
+      low: '#28a745',
+      medium: '#ffc107',
+      high: '#fd7e14',
+      urgent: '#dc3545'
+    };
+    const priorityColor = priorityColors[priority] || '#6c757d';
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background: #ffffff;">
+        <h2 style="color: #2962ff; text-align: center;">🔧 Work Order</h2>
+        <p style="color: #555; font-size: 16px;">A new work order has been created and assigned.</p>
+        
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+          <p style="color: #333; font-size: 14px; margin: 5px 0;">
+            <strong>Work Order #:</strong> ${workOrderNumber}
+          </p>
+          <p style="color: #333; font-size: 14px; margin: 5px 0;">
+            <strong>Assigned To:</strong> ${assignedTo || 'Unassigned'}
+          </p>
+          <p style="color: #333; font-size: 14px; margin: 5px 0;">
+            <strong>Department:</strong> ${department || 'N/A'}
+          </p>
+          <p style="color: #333; font-size: 14px; margin: 5px 0;">
+            <strong>Priority:</strong> <span style="color: ${priorityColor}; font-weight: bold;">${(priority || 'normal').toUpperCase()}</span>
+          </p>
+          ${customerName ? `<p style="color: #333; font-size: 14px; margin: 5px 0;"><strong>Customer:</strong> ${customerName}</p>` : ''}
+        </div>
+
+        <p style="color: #666; font-size: 14px;">Please review the attached work order PDF for complete details and instructions.</p>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+        <p style="color: #888; font-size: 12px; text-align: center;">
+          Vali Produce LLC<br>
+          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          order@valiproduce.shop
+        </p>
+      </div>
+    `;
+
+    // Convert base64 PDF to buffer for attachment
+    let attachments = [];
+    if (pdfBase64) {
+      const base64Data = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+      attachments = [{
+        filename: `work-order-${workOrderNumber}.pdf`,
+        content: Buffer.from(base64Data, 'base64'),
+        contentType: 'application/pdf'
+      }];
+    }
+
+    const nodemailer = require("nodemailer");
+    let transporter = nodemailer.createTransport({
+      host: process.env.MAIL_HOST,
+      auth: {
+        user: process.env.MAIL_USER,
+        pass: process.env.MAIL_PASS,
+      },
+      secure: false,
+    });
+
+    await transporter.sendMail({
+      from: "order@valiproduce.shop",
+      to: recipientEmail,
+      subject: subject,
+      html: html,
+      attachments: attachments
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Work order email sent successfully!",
+    });
+
+  } catch (error) {
+    console.error("Send work order email error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error sending work order email",
+      error: error.message,
+    });
+  }
+};

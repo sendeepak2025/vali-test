@@ -18,6 +18,8 @@ import {
   XCircle,
   Edit,
   Plus,
+  Mail,
+  RefreshCw,
 } from "lucide-react"
 import { formatCurrency, formatDate } from "@/lib/data"
 import { getCreditMemosByOrderId } from "@/services2/operations/creditMemo"
@@ -71,6 +73,7 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
   const [editingMemo, setEditingMemo] = useState<CreditMemo | null>(null)
   const [editFormOpen, setEditFormOpen] = useState(false)
   const [createFormOpen, setCreateFormOpen] = useState(false)
+  const [emailLoading, setEmailLoading] = useState<string | null>(null)
 
   // Fetch credit memos when dialog opens
   useEffect(() => {
@@ -157,6 +160,69 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
       title: "PDF Downloaded",
       description: `Credit memo ${memo.creditMemoNumber} PDF has been downloaded`,
     })
+  }
+
+  const handleEmailCreditMemo = async (memo: CreditMemo) => {
+    if (!order.customer?.email) {
+      toast({
+        title: "No Email Address",
+        description: "Customer does not have an email address on file",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setEmailLoading(memo._id || memo.id || null)
+    try {
+      // Generate PDF as base64
+      const creditMemoForPDF = {
+        ...memo,
+        store: order.store,
+        billingAddress: order.billingAddress || {},
+        shippingAddress: order.shippingAddress || {},
+        originalOrderId: order.orderNumber || order.id,
+        originalOrderDate: order.date,
+      }
+      
+      const pdfDoc = exportCreditMemoToPDF(creditMemoForPDF, true) // true = return doc instead of download
+      const pdfBase64 = pdfDoc.output('datauristring')
+      
+      // For now, use the existing invoice email API pattern
+      // In production, you'd want a dedicated credit memo email endpoint
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/email/send-credit-memo`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: order._id || order.id,
+          creditMemoId: memo._id || memo.id,
+          creditMemoNumber: memo.creditMemoNumber,
+          customerEmail: order.customer?.email,
+          customerName: order.customer?.name || memo.customerName,
+          pdfBase64,
+        }),
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Email Sent",
+          description: `Credit memo ${memo.creditMemoNumber} has been emailed to ${order.customer?.email}`,
+        })
+      } else {
+        throw new Error('Failed to send email')
+      }
+    } catch (error) {
+      console.error("Error emailing credit memo:", error)
+      toast({
+        title: "Email Failed",
+        description: "Failed to send credit memo email. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setEmailLoading(null)
+    }
   }
 
   const handleFormSuccess = () => {
@@ -315,6 +381,20 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
                           >
                             <Download className="h-4 w-4" />
                             PDF
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEmailCreditMemo(memo)}
+                            disabled={emailLoading === (memo._id || memo.id)}
+                            className="flex items-center gap-1"
+                          >
+                            {emailLoading === (memo._id || memo.id) ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Mail className="h-4 w-4" />
+                            )}
+                            Email
                           </Button>
                         </div>
                       </div>

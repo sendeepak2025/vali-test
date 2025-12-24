@@ -301,3 +301,16 @@ export const storeApproval = {
   APPROVE_STORE: BASE_URL + "/auth/approve", // append /:id
   REJECT_STORE: BASE_URL + "/auth/reject", // append /:id
 }
+
+// Legal Documents
+export const legalDocuments = {
+  GET_STORE_DOCUMENTS: BASE_URL + "/legal/store", // append /:storeId
+  GET_DOCUMENT_CHECKLIST: BASE_URL + "/legal/store", // append /:storeId/checklist
+  ADD_DOCUMENT: BASE_URL + "/legal/store", // append /:storeId/document
+  UPDATE_DOCUMENT_STATUS: BASE_URL + "/legal/store", // append /:storeId/document/:documentId/status
+  DELETE_DOCUMENT: BASE_URL + "/legal/store", // append /:storeId/document/:documentId
+  UPDATE_BUSINESS_INFO: BASE_URL + "/legal/store", // append /:storeId/business-info
+  SET_CREDIT_TERMS: BASE_URL + "/legal/store", // append /:storeId/credit-terms
+  SUSPEND_CREDIT: BASE_URL + "/legal/store", // append /:storeId/suspend-credit
+  GET_LEGAL_SUMMARY: BASE_URL + "/legal/store", // append /:storeId/legal-summary
+}

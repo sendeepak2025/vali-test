@@ -443,15 +443,16 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
     navigate(`/orders/edit/${order._id}`)
   }
 
-  const handleDelete = async (order: Order) => {
+  const handleVoidOrder = async (order: Order) => {
     const { value: reason, isConfirmed } = await Swal.fire({
-      title: "Delete Order",
+      title: "Void Order",
       input: "textarea",
-      inputLabel: `Reason for deleting ${order.id}?`,
-      inputPlaceholder: "Enter reason...",
+      inputLabel: `Reason for voiding order ${order.id}?`,
+      inputPlaceholder: "Enter reason for voiding this order...",
       showCancelButton: true,
       confirmButtonColor: "#d33",
-      inputValidator: (v) => !v ? "Reason required!" : null,
+      confirmButtonText: "Void Order",
+      inputValidator: (v) => !v ? "Reason is required!" : null,
     })
     
     if (isConfirmed && reason) {
@@ -996,8 +997,8 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
                           {user?.role === "admin" && (
                             <>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => handleDelete(order)} className="text-red-600">
-                                <Trash size={14} className="mr-2" /> Delete
+                              <DropdownMenuItem onClick={() => handleVoidOrder(order)} className="text-red-600">
+                                <Ban size={14} className="mr-2" /> Void
                               </DropdownMenuItem>
                             </>
                           )}

@@ -60,6 +60,7 @@ app.use("/api/v1/drivers", require("./routes/driverAndTruckRoute"))
 app.use("/api/v1/trips", require("./routes/tripRoute"))
 app.use("/api/v1/store-inventory", require("./routes/storeInventoryRoute"))
 app.use("/api/v1/notifications", require("./routes/notificationRoute"))
+app.use("/api/v1/legal", require("./routes/legalDocumentRoute"))
 
 
 

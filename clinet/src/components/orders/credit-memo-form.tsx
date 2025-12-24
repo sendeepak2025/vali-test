@@ -397,12 +397,12 @@ export default function CreditMemoForm({
 
       let response
       if (mode === "edit") {
-        response = await updateCreditMemoAPI(editingMemo._id || editingMemo.id, formData)
+        response = await updateCreditMemoAPI(editingMemo._id || editingMemo.id, formData, token)
       } else {
-        response = await createCreditMemoAPI(formData)
+        response = await createCreditMemoAPI(formData, token)
       }
 
-      if (!response.ok) {
+      if (!response) {
         throw new Error(`Failed to ${mode} credit memo`)
       }
 

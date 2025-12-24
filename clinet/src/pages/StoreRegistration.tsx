@@ -17,6 +17,7 @@ import {
 import RegistrationProgress from "@/components/store/registration/RegistrationProgress";
 import BusinessInfoSection from "@/components/store/registration/BusinessInfoSection";
 import AddressSection from "@/components/store/registration/AddressSection";
+import DocumentsSection from "@/components/store/registration/DocumentsSection";
 import AccountSection from "@/components/store/registration/AccountSection";
 import { useDispatch } from "react-redux";
 
@@ -38,6 +39,11 @@ const StoreRegistration = () => {
       state: "",
       zipCode: "",
       businessDescription: "",
+      legalBusinessName: "",
+      businessType: "",
+      taxId: "",
+      businessLicenseUrl: "",
+      taxCertificateUrl: "",
       password: "",
       confirmPassword: "",
       agreeTerms: false,
@@ -46,7 +52,7 @@ const StoreRegistration = () => {
     mode: "onChange",
   });
 
-  const steps: StepType[] = ["business", "address", "account"];
+  const steps: StepType[] = ["business", "address", "documents", "account"];
   const {
     step,
     steps: formSteps,
@@ -72,6 +78,10 @@ const StoreRegistration = () => {
       case "address":
         isValid = await form.trigger(["address", "city", "state", "zipCode"]);
         break;
+      case "documents":
+        // Documents are optional, always valid
+        isValid = true;
+        break;
       case "account":
         isValid = await form.trigger([
           "password",
@@ -88,7 +98,6 @@ const StoreRegistration = () => {
 
   const handleNext = async () => {
     const isValid = await validateCurrentStep();
-    console.log("first");
     if (isValid) {
       next();
     } else {
@@ -101,7 +110,6 @@ const StoreRegistration = () => {
   };
 
   const onSubmit = async (values: StoreRegistrationValues) => {
-    console.log("yes ");
     if (!isLastStep) {
       handleNext();
       return;
@@ -121,8 +129,10 @@ const StoreRegistration = () => {
         return <BusinessInfoSection form={form} />;
       case "address":
         return <AddressSection form={form} />;
+      case "documents":
+        return <DocumentsSection form={form} />;
       case "account":
-        return <AccountSection form={form} />;
+        return <AccountSection form={form} isEdit={false} />;
       default:
         return null;
     }

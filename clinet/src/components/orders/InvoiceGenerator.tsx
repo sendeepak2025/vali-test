@@ -16,8 +16,7 @@ import {
   Printer,
   Download,
   Mail,
-  Copy,
-  Share2,
+  RefreshCw,
   CalendarClock,
   BadgeCheck,
   Settings2,
@@ -66,6 +65,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 }) => {
   const { toast } = useToast();
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
 
   const [invoiceOptions, setInvoiceOptions] = useState({
     includeHeader: true,
@@ -259,46 +260,58 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   };
 
   const handleDownload = () => {
-    console.log(order);
-    exportInvoiceToPDF({
-      id: order.orderNumber as any,
-      clientId: (order.store as any)._id,
-      clientName: (order.store as any).storeName,
-      shippinCost: order.shippinCost || 0,
-      date: order.date,
-      shippingAddress: order?.shippingAddress,
-      billingAddress: order?.billingAddress,
-      status: order.status,
-      items: order.items,
-      total: order.total,
-      paymentStatus: order.paymentStatus || "pending",
-      subtotal: order.total,
-      store: order.store,
-      paymentDetails: order.paymentDetails || {},
-    });
+    setDownloadLoading(true);
+    try {
+      console.log(order);
+      exportInvoiceToPDF({
+        id: order.orderNumber as any,
+        clientId: (order.store as any)._id,
+        clientName: (order.store as any).storeName,
+        shippinCost: order.shippinCost || 0,
+        date: order.date,
+        shippingAddress: order?.shippingAddress,
+        billingAddress: order?.billingAddress,
+        status: order.status,
+        items: order.items,
+        total: order.total,
+        paymentStatus: order.paymentStatus || "pending",
+        subtotal: order.total,
+        store: order.store,
+        paymentDetails: order.paymentDetails || {},
+      });
 
-    toast({
-      title: "Download initiated",
-      description: "The invoice is being downloaded as a PDF.",
-    });
+      toast({
+        title: "Download initiated",
+        description: "The invoice is being downloaded as a PDF.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadLoading(false);
+    }
   };
 
   const handleEmail = async () => {
-    await senInvoiceAPI(order._id, token);
-  };
-
-  const handleCopyLink = () => {
-    toast({
-      title: "Link copied",
-      description: "Invoice link has been copied to clipboard.",
-    });
-  };
-
-  const handleShare = () => {
-    toast({
-      title: "Share options opened",
-      description: "Choose how you want to share this invoice.",
-    });
+    setEmailLoading(true);
+    try {
+      await senInvoiceAPI(order._id, token);
+      toast({
+        title: "Email sent",
+        description: "Invoice has been sent to the customer.",
+      });
+    } catch (error) {
+      toast({
+        title: "Email failed",
+        description: "Failed to send invoice. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setEmailLoading(false);
+    }
   };
 
   const toggleOptions = () => {
@@ -731,51 +744,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         {!showShipping && (
           <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
             <div className="flex gap-2 flex-1">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="flex-1 bg-transparent">
-                    <CalendarClock className="mr-2 h-4 w-4" />
-                    Schedule
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-80">
-                  <div className="space-y-4">
-                    <h4 className="font-medium">Schedule Invoice</h4>
-                    <div className="grid gap-2">
-                      <Label htmlFor="scheduleDate">Date</Label>
-                      <Input id="scheduleDate" type="date" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="scheduleTime">Time</Label>
-                      <Input id="scheduleTime" type="time" />
-                    </div>
-                    <Button
-                      className="w-full"
-                      onClick={() => {
-                        toast({
-                          title: "Invoice Scheduled",
-                          description:
-                            "The invoice has been scheduled for delivery.",
-                        });
-                      }}
-                    >
-                      Confirm Schedule
-                    </Button>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              <Button
-                variant="outline"
-                onClick={handleCopyLink}
-                className="flex-1 bg-transparent"
-              >
-                <Copy className="mr-2 h-4 w-4" />
-                Copy Link
-              </Button>
-            </div>
-
-            <div className="flex gap-2 flex-1">
               <Button
                 variant="outline"
                 onClick={handlePrint}
@@ -788,23 +756,28 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
               <Button
                 variant="outline"
                 onClick={handleDownload}
+                disabled={downloadLoading}
                 className="flex-1 bg-transparent"
               >
-                <Download className="mr-2 h-4 w-4" />
-                Download
+                {downloadLoading ? (
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                {downloadLoading ? "Downloading..." : "Download"}
               </Button>
 
-              <Button onClick={handleEmail} className="flex-1">
-                <Mail className="mr-2 h-4 w-4" />
-                Email
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={handleShare}
-                className="flex-none"
+              <Button 
+                onClick={handleEmail} 
+                disabled={emailLoading}
+                className="flex-1"
               >
-                <Share2 className="h-4 w-4" />
+                {emailLoading ? (
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="mr-2 h-4 w-4" />
+                )}
+                {emailLoading ? "Sending..." : "Email"}
               </Button>
             </div>
           </DialogFooter>

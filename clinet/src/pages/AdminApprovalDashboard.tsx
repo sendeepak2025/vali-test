@@ -12,11 +12,12 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import PageHeader from "@/components/shared/PageHeader"
 import {
   Store, Search, RefreshCw, CheckCircle, XCircle, Clock,
-  Mail, Phone, MapPin, Loader2, AlertCircle, User, Calendar
+  Mail, Phone, MapPin, Loader2, AlertCircle, User, Calendar, Tag
 } from "lucide-react"
 import { getPendingStoresAPI, approveStoreAPI, rejectStoreAPI } from "@/services2/operations/auth"
 import { format } from "date-fns"
@@ -32,8 +33,18 @@ interface PendingStore {
   state: string
   zipCode: string
   registrationRef: string
+  businessDescription?: string
   createdAt: string
 }
+
+type PriceCategory = "aPrice" | "bPrice" | "cPrice" | "restaurantPrice"
+
+const PRICE_CATEGORIES: { value: PriceCategory; label: string; description: string }[] = [
+  { value: "aPrice", label: "Category A", description: "Premium pricing tier" },
+  { value: "bPrice", label: "Category B", description: "Standard pricing tier" },
+  { value: "cPrice", label: "Category C", description: "Economy pricing tier" },
+  { value: "restaurantPrice", label: "Restaurant", description: "Restaurant/wholesale pricing" },
+]
 
 const AdminApprovalDashboard = () => {
   const { toast } = useToast()
@@ -50,6 +61,7 @@ const AdminApprovalDashboard = () => {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false)
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
   const [rejectionReason, setRejectionReason] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState<PriceCategory>("bPrice")
   const [actionLoading, setActionLoading] = useState(false)
 
   // Fetch pending stores
@@ -89,13 +101,19 @@ const AdminApprovalDashboard = () => {
   const handleApprove = async () => {
     if (!selectedStore) return
     
+    if (!selectedCategory) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a price category" })
+      return
+    }
+    
     setActionLoading(true)
     try {
-      const result = await approveStoreAPI(selectedStore._id, token)
+      const result = await approveStoreAPI(selectedStore._id, selectedCategory, token)
       if (result) {
         setPendingStores(prev => prev.filter(s => s._id !== selectedStore._id))
         setApproveDialogOpen(false)
         setSelectedStore(null)
+        setSelectedCategory("bPrice")
       }
     } catch (error) {
       console.error("Error approving store:", error)
@@ -132,6 +150,7 @@ const AdminApprovalDashboard = () => {
   // Open approve dialog
   const openApproveDialog = (store: PendingStore) => {
     setSelectedStore(store)
+    setSelectedCategory("bPrice")
     setApproveDialogOpen(true)
   }
 
@@ -290,51 +309,94 @@ const AdminApprovalDashboard = () => {
         </main>
       </div>
 
-      {/* Approve Confirmation Dialog */}
+      {/* Approve Confirmation Dialog with Category Selection */}
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle className="h-5 w-5 text-green-500" />
               Approve Store Registration
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to approve this store registration?
+              Review the details and assign a pricing category to this store.
             </DialogDescription>
           </DialogHeader>
           
           {selectedStore && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Store Name:</span>
-                <span className="font-medium">{selectedStore.storeName}</span>
+            <div className="space-y-4">
+              {/* Store Details */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Store Name:</span>
+                  <span className="font-medium">{selectedStore.storeName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Owner:</span>
+                  <span className="font-medium">{selectedStore.ownerName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Email:</span>
+                  <span className="font-medium">{selectedStore.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Location:</span>
+                  <span className="font-medium">{selectedStore.city}, {selectedStore.state}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Reference:</span>
+                  <span className="font-mono text-sm">{selectedStore.registrationRef}</span>
+                </div>
+                {selectedStore.businessDescription && (
+                  <div className="pt-2 border-t">
+                    <span className="text-gray-500 text-sm">Business Description:</span>
+                    <p className="text-sm mt-1">{selectedStore.businessDescription}</p>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Owner:</span>
-                <span className="font-medium">{selectedStore.ownerName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Email:</span>
-                <span className="font-medium">{selectedStore.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Reference:</span>
-                <span className="font-mono text-sm">{selectedStore.registrationRef}</span>
+
+              {/* Price Category Selection */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Tag className="h-4 w-4" />
+                  Assign Price Category *
+                </Label>
+                <Select value={selectedCategory} onValueChange={(value: PriceCategory) => setSelectedCategory(value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRICE_CATEGORIES.map((cat) => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{cat.label}</span>
+                          <span className="text-xs text-gray-500">{cat.description}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500">
+                  This determines the pricing tier for all products this store can purchase.
+                </p>
               </div>
             </div>
           )}
           
-          <p className="text-sm text-gray-600">
-            The store owner will receive an email notification and will be able to access their dashboard.
+          <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
+            The store owner will receive an email notification with their assigned category and login instructions.
           </p>
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setApproveDialogOpen(false)} disabled={actionLoading}>
               Cancel
             </Button>
-            <Button onClick={handleApprove} disabled={actionLoading} className="bg-green-600 hover:bg-green-700">
+            <Button 
+              onClick={handleApprove} 
+              disabled={actionLoading || !selectedCategory} 
+              className="bg-green-600 hover:bg-green-700"
+            >
               {actionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-              Approve
+              Approve & Assign Category
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -59,6 +59,17 @@ const emailTemplates = {
       
       <p>This process typically takes 1-2 business days.</p>
       
+      <div class="warning-box">
+        <p><strong>📋 Terms Reminder:</strong></p>
+        <p style="font-size: 13px;">By registering, you have agreed to our Terms and Conditions including:</p>
+        <ul style="font-size: 12px; margin: 10px 0;">
+          <li>Payment due within 7 days of invoice</li>
+          <li>Late payments accrue 1.5% monthly interest (18% annually)</li>
+          <li>$50 fee for returned checks</li>
+          <li>Legal jurisdiction: Atlanta, Georgia</li>
+        </ul>
+      </div>
+      
       <p>If you have any questions, please contact our support team.</p>
       
       <p>Best regards,<br>The Vali Produce Team</p>
@@ -105,6 +116,13 @@ const emailTemplates = {
       <div class="success-box">
         <p>Great news! Your store <strong>${data.storeName}</strong> has been approved!</p>
       </div>
+      
+      ${data.priceCategory ? `
+      <div class="info-box">
+        <p><strong>Your Pricing Tier:</strong> ${data.priceCategory}</p>
+        <p style="font-size: 12px; color: #666; margin-top: 5px;">This determines the pricing you'll see for all products on our platform.</p>
+      </div>
+      ` : ''}
       
       <p>You now have full access to the Vali Produce platform. Here's what you can do:</p>
       

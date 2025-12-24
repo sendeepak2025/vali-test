@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useSelector } from "react-redux"
+import { useNavigate } from "react-router-dom"
 import { RootState } from "@/redux/store"
 import Navbar from "@/components/layout/Navbar"
 import Sidebar from "@/components/layout/Sidebar"
@@ -115,6 +116,7 @@ const PAYMENTS_PER_PAGE = 10
 
 const AdminStoresEnhanced = () => {
   const { toast } = useToast()
+  const navigate = useNavigate()
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
   const [isStatementFilterOpen, setIsStatementFilterOpen] = useState(false)
@@ -1361,6 +1363,9 @@ const AdminStoresEnhanced = () => {
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => setIsStatementFilterOpen(true)}>
                       <FileDown className="h-4 w-4 mr-1" /> Statement
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => navigate(`/admin/store/${selectedStore._id}/legal`)}>
+                      <FileText className="h-4 w-4 mr-1" /> Legal Docs
                     </Button>
                   </div>
 

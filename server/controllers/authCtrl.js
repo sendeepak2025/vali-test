@@ -3,6 +3,7 @@ const authModel = require("../models/authModel");
 const jwt = require("jsonwebtoken");
 const Order = require("../models/orderModle");
 const notificationService = require("../services/notificationService");
+const { CURRENT_TERMS_VERSION, TERMS_CONTENT } = require("./legalDocumentCtrl");
 
 
 
@@ -10,7 +11,9 @@ const notificationService = require("../services/notificationService");
 const registerCtrl = async (req, res) => {
   try {
     const {
-      email, phone, storeName, ownerName, address, city, state, zipCode, businessDescription, password, agreeTerms, role = "member", isOrder = false, isProduct = false
+      email, phone, storeName, ownerName, address, city, state, zipCode, businessDescription, password, agreeTerms, role = "member", isOrder = false, isProduct = false,
+      // New business document fields
+      legalBusinessName, businessType, taxId, businessLicenseUrl, taxCertificateUrl
     } = req.body;
 
     if (!email || !password) {
@@ -31,10 +34,74 @@ const registerCtrl = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Prepare business info for store registrations
+    const businessInfoData = role === "store" ? {
+      legalBusinessName: legalBusinessName || storeName,
+      businessType,
+      taxId,
+    } : {};
+    
+    // Prepare legal documents array
+    const legalDocumentsArray = [];
+    
+    // Add terms acceptance document for store registrations
+    if (role === "store" && agreeTerms) {
+      legalDocumentsArray.push({
+        documentType: "terms_acceptance",
+        documentName: `Terms and Conditions v${CURRENT_TERMS_VERSION}`,
+        description: "Terms and Conditions acceptance at registration",
+        documentContent: TERMS_CONTENT,
+        documentVersion: CURRENT_TERMS_VERSION,
+        acceptedAt: new Date(),
+        acceptedByName: ownerName,
+        acceptedByEmail: email,
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+        status: "verified",
+      });
+    }
+    
+    // Add business license if provided
+    if (role === "store" && businessLicenseUrl) {
+      legalDocumentsArray.push({
+        documentType: "business_license",
+        documentName: "Business License",
+        description: "Business license uploaded during registration",
+        fileUrl: businessLicenseUrl,
+        status: "received",
+        uploadedByName: ownerName,
+      });
+    }
+    
+    // Add tax certificate if provided
+    if (role === "store" && taxCertificateUrl) {
+      legalDocumentsArray.push({
+        documentType: "tax_certificate",
+        documentName: "Tax Certificate / Resale Permit",
+        description: "Tax certificate uploaded during registration",
+        fileUrl: taxCertificateUrl,
+        status: "received",
+        uploadedByName: ownerName,
+      });
+    }
+    
+    // Prepare terms acceptance data for store registrations
+    const termsAcceptanceData = role === "store" && agreeTerms ? {
+      termsAcceptance: {
+        acceptedAt: new Date(),
+        acceptedVersion: CURRENT_TERMS_VERSION,
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers?.['user-agent'],
+      },
+    } : {};
+    
     // Create user - the pre-save hook will set approvalStatus to "pending" 
     // and generate registrationRef for store role
     const user = await authModel.create({
-      email, phone, storeName, ownerName, address, city, state, zipCode, businessDescription, password: hashedPassword, agreeTerms, role, isOrder, isProduct
+      email, phone, storeName, ownerName, address, city, state, zipCode, businessDescription, password: hashedPassword, agreeTerms, role, isOrder, isProduct,
+      businessInfo: businessInfoData,
+      legalDocuments: legalDocumentsArray,
+      ...termsAcceptanceData,
     });
 
     // For store registrations, send notifications
@@ -1759,7 +1826,17 @@ const getPendingStoresCtrl = async (req, res) => {
 const approveStoreCtrl = async (req, res) => {
   try {
     const { id } = req.params;
+    const { priceCategory } = req.body;
     const adminId = req.user?.id;
+
+    // Validate price category
+    const validCategories = ["aPrice", "bPrice", "cPrice", "restaurantPrice"];
+    if (!priceCategory || !validCategories.includes(priceCategory)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid price category is required (aPrice, bPrice, cPrice, or restaurantPrice)",
+      });
+    }
 
     const store = await authModel.findById(id);
     
@@ -1793,11 +1870,20 @@ const approveStoreCtrl = async (req, res) => {
       });
     }
 
-    // Update store status
+    // Update store status and price category
     store.approvalStatus = "approved";
+    store.priceCategory = priceCategory;
     store.approvedAt = new Date();
     store.approvedBy = adminId;
     await store.save();
+
+    // Get category display name for notification
+    const categoryNames = {
+      aPrice: "Category A",
+      bPrice: "Category B", 
+      cPrice: "Category C",
+      restaurantPrice: "Restaurant"
+    };
 
     // Send approval notification
     try {
@@ -1806,14 +1892,15 @@ const approveStoreCtrl = async (req, res) => {
         store.email,
         "store_approved",
         "Account Approved!",
-        `Congratulations! Your store ${store.storeName} has been approved. You now have full access to the platform.`,
+        `Congratulations! Your store ${store.storeName} has been approved. You have been assigned to ${categoryNames[priceCategory]} pricing. You now have full access to the platform.`,
         "STORE_APPROVED",
         {
           ownerName: store.ownerName,
           storeName: store.storeName,
+          priceCategory: categoryNames[priceCategory],
           loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth`,
         },
-        { storeId: store._id },
+        { storeId: store._id, priceCategory },
         "/dashboard"
       );
     } catch (notificationError) {
@@ -1830,6 +1917,7 @@ const approveStoreCtrl = async (req, res) => {
         ownerName: store.ownerName,
         email: store.email,
         approvalStatus: store.approvalStatus,
+        priceCategory: store.priceCategory,
         approvedAt: store.approvedAt,
       },
     });

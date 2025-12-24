@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Order, formatDate } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { 
@@ -11,10 +11,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Truck, Printer, Upload, ArrowDown, CheckCircle, User, 
-  Download, Copy, Share2, MapPin, Receipt, ReceiptText,
-  Clipboard, Building, QrCode, AlertCircle, X, FileText,
-  ClipboardList
+  Truck, Printer, ArrowDown, CheckCircle, User, 
+  Download, MapPin, Receipt, ReceiptText,
+  Building, QrCode, AlertCircle, X,
+  ClipboardList, RefreshCw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -48,6 +48,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import BillOfLadingForm from './BillOfLadingForm';
+import jsPDF from 'jspdf';
 
 interface TransportationReceiptProps {
   order: Order;
@@ -84,6 +85,8 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   const [receiptType, setReceiptType] = useState("standard");
   const [documentType, setDocumentType] = useState<"receipt" | "bol">("receipt");
   const [showBolDialog, setShowBolDialog] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
   
   const form = useForm<TransportationFormValues>({
     resolver: zodResolver(transportationSchema),
@@ -122,27 +125,154 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   };
 
   const handleDownload = () => {
-    toast({
-      title: "Download initiated",
-      description: "The receipt is being downloaded as a PDF."
-    });
-    // In a real app, this would generate and download a PDF
+    setDownloadLoading(true);
+    try {
+      const doc = new jsPDF();
+      const formValues = form.getValues();
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setFont("helvetica", "bold");
+      doc.text("TRANSPORTATION RECEIPT", 105, 20, { align: "center" });
+      
+      // Order info
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Order #${order.id}`, 20, 35);
+      doc.text(`Route #${formValues.routeNumber}`, 20, 42);
+      doc.text(`Date: ${formatDate(order.date)}`, 20, 49);
+      
+      // Company info (right side)
+      doc.setFont("helvetica", "bold");
+      doc.text(formValues.transportCompany || "Transport Company", 190, 35, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.text("123 Harvest Lane", 190, 42, { align: "right" });
+      doc.text("Farmington, CA 94123", 190, 49, { align: "right" });
+      
+      // Divider
+      doc.line(20, 55, 190, 55);
+      
+      // Transport Details
+      doc.setFont("helvetica", "bold");
+      doc.text("Transport Details", 20, 65);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Driver: ${formValues.driverName}`, 20, 75);
+      doc.text(`Vehicle ID: ${formValues.vehicleId}`, 20, 82);
+      doc.text(`Departure: ${formValues.departureDate}`, 20, 89);
+      doc.text(`Est. Arrival: ${formValues.estimatedArrival}`, 20, 96);
+      doc.text(`Temperature: ${formValues.temperatureRequirements}`, 20, 103);
+      
+      // Client Details
+      doc.setFont("helvetica", "bold");
+      doc.text("Client Details", 110, 65);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Name: ${order.clientName}`, 110, 75);
+      doc.text(`Order Date: ${formatDate(order.date)}`, 110, 82);
+      doc.text(`Status: ${order.status}`, 110, 89);
+      doc.text(`Delivery: ${formValues.deliveryLocation || "Client Address"}`, 110, 96);
+      
+      // Divider
+      doc.line(20, 110, 190, 110);
+      
+      // Cargo Details Header
+      doc.setFont("helvetica", "bold");
+      doc.text("Cargo Details", 20, 120);
+      
+      // Table header
+      doc.setFillColor(240, 240, 240);
+      doc.rect(20, 125, 170, 8, "F");
+      doc.text("Item", 22, 131);
+      doc.text("Quantity", 120, 131);
+      doc.text("Package Type", 150, 131);
+      
+      // Table rows
+      doc.setFont("helvetica", "normal");
+      let yPos = 140;
+      order.items.forEach((item) => {
+        doc.text(item.productName || item.name || "Item", 22, yPos);
+        doc.text(String(item.quantity), 120, yPos);
+        doc.text(formValues.packagingType || "Standard", 150, yPos);
+        yPos += 8;
+      });
+      
+      // Special Instructions
+      if (formValues.notes) {
+        yPos += 10;
+        doc.setFont("helvetica", "bold");
+        doc.text("Special Instructions:", 20, yPos);
+        doc.setFont("helvetica", "normal");
+        yPos += 8;
+        doc.text(formValues.notes, 20, yPos, { maxWidth: 170 });
+      }
+      
+      // Signature
+      yPos = Math.max(yPos + 20, 240);
+      doc.line(20, yPos, 190, yPos);
+      doc.setFont("helvetica", "bold");
+      doc.text("Confirmed By:", 20, yPos + 10);
+      doc.setFont("helvetica", "italic");
+      doc.text(formValues.signature, 20, yPos + 18);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text("Digital signature", 20, yPos + 24);
+      
+      // Receipt confirmed badge
+      doc.setFontSize(12);
+      doc.setTextColor(0, 128, 0);
+      doc.text("✓ RECEIPT CONFIRMED", 190, yPos + 15, { align: "right" });
+      
+      // Save
+      doc.save(`transport-receipt-${order.id}.pdf`);
+      
+      toast({
+        title: "Download complete",
+        description: "Transportation receipt has been downloaded.",
+      });
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      toast({
+        title: "Download failed",
+        description: "Failed to generate PDF. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadLoading(false);
+    }
   };
 
   const handleCopyReceipt = () => {
-    toast({
-      title: "Receipt copied",
-      description: "Receipt details have been copied to clipboard."
-    });
-    // In a real app, this would copy receipt details to clipboard
-  };
+    // Copy receipt details to clipboard
+    const formValues = form.getValues();
+    const receiptText = `
+TRANSPORTATION RECEIPT
+Order #${order.id} | Route #${formValues.routeNumber}
+Date: ${formatDate(order.date)}
 
-  const handleShareReceipt = () => {
-    toast({
-      title: "Share options opened",
-      description: "Choose how you want to share this receipt."
+TRANSPORT DETAILS:
+Driver: ${formValues.driverName}
+Vehicle ID: ${formValues.vehicleId}
+Departure: ${formValues.departureDate}
+Est. Arrival: ${formValues.estimatedArrival}
+
+CLIENT: ${order.clientName}
+ITEMS: ${order.items.map(i => `${i.productName || i.name} x${i.quantity}`).join(", ")}
+
+${formValues.notes ? `NOTES: ${formValues.notes}` : ""}
+Confirmed by: ${formValues.signature}
+    `.trim();
+    
+    navigator.clipboard.writeText(receiptText).then(() => {
+      toast({
+        title: "Copied to clipboard",
+        description: "Receipt details have been copied.",
+      });
+    }).catch(() => {
+      toast({
+        title: "Copy failed",
+        description: "Failed to copy to clipboard.",
+        variant: "destructive",
+      });
     });
-    // In a real app, this would open sharing options
   };
   
   const handleNewReceipt = () => {
@@ -612,20 +742,22 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
                     <Printer className="mr-2 h-4 w-4" />
                     Print
                   </Button>
-                  <Button variant="outline" onClick={handleDownload} className="flex-1">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download
+                  <Button 
+                    variant="outline" 
+                    onClick={handleDownload} 
+                    disabled={downloadLoading}
+                    className="flex-1"
+                  >
+                    {downloadLoading ? (
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    {downloadLoading ? "Downloading..." : "Download"}
                   </Button>
-                </div>
-                
-                <div className="flex gap-2 flex-1">
                   <Button variant="outline" onClick={handleCopyReceipt} className="flex-1">
-                    <Clipboard className="mr-2 h-4 w-4" />
+                    <ClipboardList className="mr-2 h-4 w-4" />
                     Copy
-                  </Button>
-                  <Button variant="outline" onClick={handleShareReceipt} className="flex-1">
-                    <Share2 className="mr-2 h-4 w-4" />
-                    Share
                   </Button>
                   <TooltipProvider>
                     <Tooltip>

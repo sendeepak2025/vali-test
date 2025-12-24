@@ -1,6 +1,6 @@
 import React from "react";
 import { StepType } from "./types";
-import { Store, Building2, KeyRound, Check } from "lucide-react";
+import { Store, Building2, KeyRound, Check, FileText } from "lucide-react";
 
 interface RegistrationProgressProps {
   currentStep: StepType;
@@ -17,6 +17,8 @@ const RegistrationProgress: React.FC<RegistrationProgressProps> = ({
         return <Store className="h-5 w-5" />;
       case "address":
         return <Building2 className="h-5 w-5" />;
+      case "documents":
+        return <FileText className="h-5 w-5" />;
       case "account":
         return <KeyRound className="h-5 w-5" />;
       default:
@@ -30,6 +32,8 @@ const RegistrationProgress: React.FC<RegistrationProgressProps> = ({
         return "Business Info";
       case "address":
         return "Address";
+      case "documents":
+        return "Documents";
       case "account":
         return "Account";
       default:

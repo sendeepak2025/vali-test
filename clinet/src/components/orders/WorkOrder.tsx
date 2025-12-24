@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { X, Download, Wrench, Eye, Package, User } from 'lucide-react';
+import { X, Download, Wrench, Eye, Package, User, Mail, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PalletTrackingForm, { PalletData } from './PalletTrackingForm';
 import {updateOrderPlateAPI} from "@/services2/operations/order"
@@ -29,6 +29,7 @@ interface ItemInstruction {
 const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
   const [itemInstructions, setItemInstructions] = useState<ItemInstruction[]>(
@@ -178,6 +179,63 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
       });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleEmailWorkOrder = async () => {
+    try {
+      setIsEmailing(true);
+      
+      if (!workOrderOptions.assignedTo) {
+        toast({
+          title: "Missing Information",
+          description: "Please assign the work order to someone before emailing.",
+          variant: "destructive"
+        });
+        setIsEmailing(false);
+        return;
+      }
+      
+      // Generate PDF as base64
+      const pdfDoc = exportWorkOrderToPDF(order, workOrderOptions, true); // true for preview mode (returns doc)
+      const pdfBase64 = pdfDoc.output('datauristring');
+      
+      // Send email with work order PDF
+      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/email/send-work-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: order._id || order.id,
+          workOrderNumber: workOrderOptions.workOrderNumber,
+          assignedTo: workOrderOptions.assignedTo,
+          department: workOrderOptions.department,
+          priority: workOrderOptions.priority,
+          customerEmail: order.customer?.email,
+          customerName: order.customer?.name,
+          pdfBase64,
+        }),
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Email Sent",
+          description: `Work order ${workOrderOptions.workOrderNumber} has been emailed successfully.`,
+        });
+      } else {
+        throw new Error('Failed to send email');
+      }
+    } catch (error) {
+      console.error('Error emailing work order:', error);
+      toast({
+        title: "Email Failed",
+        description: "Failed to email the work order. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsEmailing(false);
     }
   };
 
@@ -387,6 +445,19 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
         >
           <Eye className="mr-2 h-4 w-4" />
           Preview
+        </Button>
+        <Button 
+          variant="outline" 
+          onClick={handleEmailWorkOrder} 
+          disabled={isEmailing} 
+          className="flex items-center"
+        >
+          {isEmailing ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Mail className="mr-2 h-4 w-4" />
+          )}
+          {isEmailing ? 'Sending...' : 'Email'}
         </Button>
         <Button onClick={handleGenerateWorkOrder} disabled={isGenerating} className="flex items-center">
           <Download className="mr-2 h-4 w-4" />
