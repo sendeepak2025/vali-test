@@ -23,7 +23,8 @@ import {
   History, BarChart3, RefreshCw,
   Package, Receipt, Wallet, ArrowUpRight, ArrowDownRight,
   Loader2, FileText, UserCheck, Star, ThumbsUp,
-  TrendingDown, Award, Target, Zap, Activity, PieChart, User, Send
+  TrendingDown, Award, Target, Zap, Activity, PieChart, User, Send,
+  FileDown
 } from "lucide-react"
 import { deleteStoreAPI, getAllStoresAnalyticsAPI, addCommunicationLogAPI, getCommunicationLogsAPI, addPaymentRecordAPI, sendPaymentReminderAPI, sendStatementEmailAPI, userWithOrderDetails } from "@/services2/operations/auth"
 import { getAllOrderAPI } from "@/services2/operations/order"
@@ -323,6 +324,8 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
         notes: paymentNotes,
         orderId: selectedOrderForPayment
       })
+         fetchData();
+         viewStoreDetails(selectedStore)
       
       if (result) {
         // Refresh store data
@@ -1302,6 +1305,7 @@ ${storeOrders.slice(0, 10).map(o =>
                       )}
                     </CardContent>
                   </Card>
+                  
                 </TabsContent>
 
                 {/* Follow-ups Tab */}
@@ -1314,15 +1318,37 @@ ${storeOrders.slice(0, 10).map(o =>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={handleSendReminder} disabled={loadingAction}>
-                      {loadingAction ? <Loader2 className="h-6 w-6 animate-spin text-blue-600" /> : <Mail className="h-6 w-6 text-blue-600" />}
-                      <span className="text-sm">Send Payment Reminder</span>
-                    </Button>
-                    <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" onClick={handleSendStatement} disabled={loadingAction}>
-                      {loadingAction ? <Loader2 className="h-6 w-6 animate-spin text-green-600" /> : <FileText className="h-6 w-6 text-green-600" />}
-                      <span className="text-sm">Send Statement</span>
-                    </Button>
-                  </div>
+  {/* Send Payment Reminder */}
+  <Button 
+    variant="outline" 
+    className="h-auto py-4 flex flex-col gap-2" 
+    onClick={handleSendReminder} 
+    disabled={loadingAction}
+  >
+    {loadingAction ? (
+      <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+    ) : (
+      <Mail className="h-6 w-6 text-blue-600" />
+    )}
+    <span className="text-sm">Send Payment Reminder</span>
+  </Button>
+
+  {/* Download Statement */}
+  <Button
+    variant="outline"
+    className="h-auto py-4 flex flex-col gap-2"
+    onClick={() => setIsStatementFilterOpen(true)}
+    disabled={isGeneratingPDF}
+  >
+    {isGeneratingPDF ? (
+      <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+    ) : (
+      <FileDown className="h-6 w-6 text-blue-600" />
+    )}
+    <span className="text-sm">Download Statement</span>
+  </Button>
+</div>
+
 
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Communication History</CardTitle></CardHeader>
@@ -1423,13 +1449,6 @@ ${storeOrders.slice(0, 10).map(o =>
                     </CardContent>
                   </Card>
 
-                    <StatementFilterPopup
-        isOpen={isStatementFilterOpen}
-        onClose={() => setIsStatementFilterOpen(false)}
-        userId={selectedStore._id}
-        token={token}
-        vendor={true}
-      />
                 </TabsContent>
               </div>
 
@@ -1581,6 +1600,17 @@ ${storeOrders.slice(0, 10).map(o =>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Statement Filter Popup */}
+      {selectedStore && (
+        <StatementFilterPopup
+          isOpen={isStatementFilterOpen}
+          onClose={() => setIsStatementFilterOpen(false)}
+          userId={selectedStore._id}
+          token={token}
+          vendor={true}
+        />
+      )}
     </div>
   )
 }

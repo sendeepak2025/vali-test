@@ -39,7 +39,7 @@ const BulkDiscountModal: React.FC<BulkDiscountModalProps> = ({
   const { toast } = useToast();
   
   // Get unique categories
-  const categories = ['all', ...Array.from(new Set(products.map(product => product.category)))];
+  const categories = ['all', ...Array.from(new Set(products.map(product => product.category._id)))];
   
   // Filter products by selection or category
   const filteredProducts = products.filter(product => {

@@ -94,12 +94,13 @@ const Navbar: React.FC<NavbarProps> = ({
 </div>
 
           ) : !isStoreFront ? (
-            <Link to="/store">
-              <Button variant="outline" size="sm" className="hidden md:flex">
-                <ShoppingCart className="h-4 w-4 mr-2" />
-                View Store
-              </Button>
-            </Link>
+            // <Link to="/store">
+            //   <Button variant="outline" size="sm" className="hidden md:flex">
+            //     <ShoppingCart className="h-4 w-4 mr-2" />
+            //     View Store
+            //   </Button>
+            // </Link>
+            <div></div>
           ) : (
             <Link to="/inventory">
               <Button variant="outline" size="sm" className="hidden md:flex">
