@@ -35,362 +35,199 @@ export const exportBillOfLadingToPDF = (
   },
   printMode: boolean = false
 ) => {
-  const doc = new jsPDF();
-  const PAGE_WIDTH = doc.internal.pageSize.width;
-  const PAGE_HEIGHT = doc.internal.pageSize.height;
-  const MARGIN = 14;
-  const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
-  let yPos = 10;
+  // Fix 1: Explicitly set A4 format and mm units for consistent printing
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
 
-  const addPageIfNeeded = (extraHeight = 30) => {
-    if (yPos + extraHeight >= PAGE_HEIGHT - 25) {
-      doc.addPage();
-      yPos = 15;
-    }
-  };
+  const PAGE_WIDTH = doc.internal.pageSize.getWidth();
+  const PAGE_HEIGHT = doc.internal.pageSize.getHeight();
+  const MARGIN = 15;
+  const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
+  let yPos = 0;
 
-  // ===== HEADER SECTION =====
-  // Emerald header background
-  doc.setFillColor(5, 150, 105); // emerald-600
-  doc.rect(0, 0, PAGE_WIDTH, 28, "F");
+  // ===== HEADER SECTION (Full Width) =====
+  doc.setFillColor(5, 150, 105); 
+  doc.rect(0, 0, PAGE_WIDTH, 35, "F");
 
-  // Logo placeholder (white box)
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(MARGIN, 4, 20, 20, 2, 2, "F");
-  
-  // Add logo
+  // Logo Fix: No Stretch
   try {
     const logoUrl = "/logg.png";
-    doc.addImage(logoUrl, "PNG", MARGIN + 1, 5, 18, 18);
+    doc.addImage(logoUrl, "PNG", MARGIN, 9, 22, 22, undefined, 'FAST');
   } catch (e) {
-    doc.setFontSize(7);
-    doc.setTextColor(5, 150, 105);
-    doc.text("VALI", MARGIN + 10, 13, { align: "center" });
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text("VALI PRODUCE", MARGIN, 18);
   }
 
-  // Title
-  doc.setFontSize(16);
-  doc.setFont("helvetica", "bold");
+  // Header Text
   doc.setTextColor(255, 255, 255);
-  doc.text("BILL OF LADING", PAGE_WIDTH / 2, 12, { align: "center" });
-
-  // Subtitle
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(220, 220, 220);
-  doc.text(`B/L #: ${data.bolNumber} • Date: ${new Date(order.date).toLocaleDateString()}`, PAGE_WIDTH / 2, 19, { align: "center" });
-
-  // "ORIGINAL - NOT NEGOTIABLE" badge
-  doc.setFontSize(6);
-  doc.setTextColor(200, 200, 200);
-  doc.text("ORIGINAL - NOT NEGOTIABLE", PAGE_WIDTH / 2, 25, { align: "center" });
-
-  yPos = 34;
-
-  // ===== SHIPPER & CONSIGNEE SECTION =====
-  const columnWidth = (CONTENT_WIDTH - 8) / 2;
-
-  // Shipper box
-  doc.setFillColor(249, 250, 251); // gray-50
-  doc.setDrawColor(229, 231, 235); // gray-200
-  doc.setLineWidth(0.5);
-  doc.roundedRect(MARGIN, yPos, columnWidth, 36, 2, 2, "FD");
-
-  doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(5, 150, 105); // emerald
-  doc.text("SHIPPER", MARGIN + 4, yPos + 7);
+  doc.setFontSize(20);
+  doc.text("BILL OF LADING", PAGE_WIDTH / 2 + 10, 18, { align: "center" });
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text(data.shipperName, MARGIN + 4, yPos + 15);
-  
-  doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.setTextColor(80, 80, 80);
-  doc.text(data.shipperAddress, MARGIN + 4, yPos + 22);
-  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`, MARGIN + 4, yPos + 29);
-
-  // Consignee box
-  const consigneeX = MARGIN + columnWidth + 8;
-  doc.setFillColor(249, 250, 251);
-  doc.roundedRect(consigneeX, yPos, columnWidth, 36, 2, 2, "FD");
-
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(5, 150, 105);
-  doc.text("CONSIGNEE", consigneeX + 4, yPos + 7);
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text(data.consigneeName, consigneeX + 4, yPos + 15);
-  
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(80, 80, 80);
-  doc.text(data.consigneeAddress, consigneeX + 4, yPos + 22);
-  doc.text(`${data.consigneeCity}, ${data.consigneeState} ${data.consigneeZip}`, consigneeX + 4, yPos + 29);
-  if (data.consigneePhone) {
-    doc.setFontSize(8);
-    doc.text(data.consigneePhone, consigneeX + 4, yPos + 34);
-  }
-
-  yPos += 42;
-  addPageIfNeeded(30);
-
-  // ===== CARRIER INFORMATION SECTION =====
-  doc.setFillColor(243, 244, 246); // gray-100
-  doc.roundedRect(MARGIN, yPos, CONTENT_WIDTH, 18, 2, 2, "F");
-
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(5, 150, 105);
-  doc.text("CARRIER INFORMATION", MARGIN + 4, yPos + 6);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(60, 60, 60);
+  doc.text(`B/L NUMBER: ${data.bolNumber}`, PAGE_WIDTH / 2 + 10, 26, { align: "center" });
   
-  const carrierCol1 = MARGIN + 4;
-  const carrierCol2 = MARGIN + CONTENT_WIDTH / 3;
-  const carrierCol3 = MARGIN + (CONTENT_WIDTH / 3) * 2;
-  
-  doc.text(`Carrier: ${data.carrierName}`, carrierCol1, yPos + 13);
-  doc.text(`Service: ${data.serviceLevel}`, carrierCol2, yPos + 13);
-  doc.text(`Freight Terms: ${data.freightTerms}`, carrierCol3, yPos + 13);
+  doc.setFontSize(7);
+  doc.text("ORIGINAL - NON NEGOTIABLE", PAGE_WIDTH / 2 + 10, 31, { align: "center" });
 
-  yPos += 22;
+  yPos = 45;
 
-  // ===== PALLET INFORMATION (if available) =====
-  if (data.palletData) {
-    addPageIfNeeded(22);
-    
-    doc.setFillColor(236, 253, 245); // emerald-50
-    doc.roundedRect(MARGIN, yPos, CONTENT_WIDTH, 18, 2, 2, "F");
+  // ===== SHIPPER & CONSIGNEE BOXES (Aligned to Edges) =====
+  const boxSpacing = 6;
+  const boxWidth = (CONTENT_WIDTH - boxSpacing) / 2;
+  const boxHeight = 38;
 
-    doc.setFontSize(8);
+  const drawAddressBox = (x: number, title: string, name: string, addr: string, cityState: string, phone?: string) => {
+    doc.setDrawColor(220, 220, 220);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(x, yPos, boxWidth, boxHeight, 1, 1, "FD");
+
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.setTextColor(5, 150, 105);
-    doc.text("PALLET INFORMATION", MARGIN + 4, yPos + 6);
+    doc.text(title, x + 5, yPos + 7);
+
+    doc.setFontSize(10);
+    doc.setTextColor(20, 20, 20);
+    doc.text(name.substring(0, 35), x + 5, yPos + 16);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Pallets: ${data.palletData.palletCount}`, carrierCol1, yPos + 13);
-    doc.text(`Total Boxes: ${data.palletData.totalBoxes}`, carrierCol2, yPos + 13);
+    doc.setTextColor(80, 80, 80);
+    doc.text(addr.substring(0, 40), x + 5, yPos + 23);
+    doc.text(cityState, x + 5, yPos + 30);
+    if (phone) doc.text(`TEL: ${phone}`, x + 5, yPos + 35);
+  };
 
-    if (data.palletCharges) {
-      doc.text(`Charge/Pallet: $${data.palletCharges.chargePerPallet.toFixed(2)}`, carrierCol3, yPos + 13);
-    }
+  // Left Box (Shipper)
+  drawAddressBox(MARGIN, "FROM: SHIPPER", data.shipperName, data.shipperAddress, `${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`);
+  // Right Box (Consignee) - Aligned exactly to Right Margin
+  drawAddressBox(MARGIN + boxWidth + boxSpacing, "TO: CONSIGNEE", data.consigneeName, data.consigneeAddress, `${data.consigneeCity}, ${data.consigneeState} ${data.consigneeZip}`, data.consigneePhone);
 
-    yPos += 22;
-  }
+  yPos += boxHeight + 8;
 
-  addPageIfNeeded(50);
-
-  // ===== FREIGHT DESCRIPTION TABLE =====
+  // ===== CARRIER INFO (Full Width Fix) =====
+  doc.setFillColor(248, 250, 252);
+  doc.rect(MARGIN, yPos, CONTENT_WIDTH, 12, "F");
+  
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(5, 150, 105);
-  doc.text("FREIGHT DESCRIPTION", MARGIN, yPos + 4);
-  yPos += 7;
+  doc.setTextColor(100, 100, 100);
+  doc.text("CARRIER:", MARGIN + 5, yPos + 7.5);
+  doc.text("SERVICE LEVEL:", MARGIN + (CONTENT_WIDTH / 2), yPos + 7.5);
 
-  const tableHeaders = ["Pieces", "Description", "Weight (lbs)", "NMFC", "Class", "HM"];
+  doc.setTextColor(20, 20, 20);
+  doc.text(data.carrierName.toUpperCase(), MARGIN + 25, yPos + 7.5);
+  doc.text(data.serviceLevel.toUpperCase(), MARGIN + (CONTENT_WIDTH / 2) + 28, yPos + 7.5);
 
-  const tableRows = order.items.map((item) => {
-    const boxCount = data.palletData?.boxesPerPallet[item.productId] || item.quantity.toString();
-    return [
-      boxCount.toString(),
-      item.productName || item.name || "Item",
-      `${Math.round(item.quantity * 2)}`,
-      "157250",
-      "50",
-      data.hazardousMaterials ? "X" : "-"
-    ];
-  });
+  yPos += 18;
 
-  // Calculate totals
-  const totalPieces = data.totalQuantity || order.items.reduce((acc, item) => acc + item.quantity, 0).toString();
-  const totalWeight = order.items.reduce((acc, item) => acc + item.quantity * 2, 0);
+  // ===== TABLE SECTION (Fixed Right Edge) =====
+  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "WEIGHT", "CLASS", "REC"]];
+  const tableRows = order.items.map(item => [
+    item.quantity.toString(),
+    item.productName || item.name || "Produce Item",
+    `${item.quantity * 2} lbs`, 
+    "50",
+    data.hazardousMaterials ? "X" : ""
+  ]);
 
   autoTable(doc, {
     startY: yPos,
-    head: [tableHeaders],
+    head: tableHeaders,
     body: tableRows,
-    foot: [[totalPieces, "TOTAL", totalWeight.toString(), "", "", ""]],
-    margin: { left: MARGIN, right: MARGIN },
-    styles: {
-      lineColor: [200, 200, 200],
-      lineWidth: 0.2,
-      fontSize: 8,
-    },
-    headStyles: {
-      fillColor: [5, 150, 105], // emerald
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      cellPadding: 2,
-      halign: "center",
-    },
-    bodyStyles: {
-      textColor: [50, 50, 50],
-      cellPadding: 2,
-      halign: "center",
-    },
-    footStyles: {
-      fillColor: [243, 244, 246],
-      textColor: [30, 30, 30],
-      fontStyle: "bold",
-      cellPadding: 2,
-      halign: "center",
-    },
-    alternateRowStyles: {
-      fillColor: [249, 250, 251],
-    },
+    theme: 'striped',
+    margin: { left: MARGIN, right: MARGIN }, // Force alignment
+    tableWidth: CONTENT_WIDTH, // Force full width
+    styles: { fontSize: 9, cellPadding: 4, halign: 'center', overflow: 'linebreak' },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
-      0: { cellWidth: 20 },
-      1: { cellWidth: "auto", halign: "left" },
-      2: { cellWidth: 26 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 18 },
-      5: { cellWidth: 16 },
+      1: { halign: 'left', cellWidth: 'auto' },
     },
+    foot: [[
+        data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString(),
+        "TOTALS",
+        `${order.items.reduce((a, b) => a + (b.quantity * 2), 0)} lbs`,
+        "", ""
+    ]],
+    footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' }
   });
 
-  yPos = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 8 : yPos + 50;
-  addPageIfNeeded(30);
+  yPos = (doc as any).lastAutoTable.finalY + 20;
 
-  // ===== SPECIAL INSTRUCTIONS =====
-  if (data.specialInstructions) {
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(5, 150, 105);
-    doc.text("SPECIAL INSTRUCTIONS", MARGIN, yPos);
-
-    yPos += 4;
-    doc.setFillColor(254, 249, 195); // amber-100
-    doc.roundedRect(MARGIN, yPos, CONTENT_WIDTH, 12, 2, 2, "F");
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(60, 60, 60);
-    doc.text(data.specialInstructions, MARGIN + 4, yPos + 8, { maxWidth: CONTENT_WIDTH - 8 });
-    
-    yPos += 16;
+  // ===== SIGNATURES (Balanced) =====
+  if (yPos + 30 > PAGE_HEIGHT - 25) {
+    doc.addPage();
+    yPos = 25;
   }
 
-  addPageIfNeeded(50);
-
-  // ===== CERTIFICATION SECTION =====
-  doc.setDrawColor(229, 231, 235);
-  doc.setLineWidth(0.3);
-  doc.line(MARGIN, yPos, PAGE_WIDTH - MARGIN, yPos);
-  yPos += 6;
-
-  // Shipper Certification (left)
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(80, 80, 80);
-  doc.text("SHIPPER CERTIFICATION", MARGIN, yPos);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
-  doc.setTextColor(100, 100, 100);
-  const certText = "This is to certify that the above named materials are properly classified, described, packaged, marked and labeled, and are in proper condition for transportation.";
-  doc.text(certText, MARGIN, yPos + 4, { maxWidth: CONTENT_WIDTH / 2 - 8 });
-
-  // Signature
-  yPos += 16;
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text(data.signatureShipper, MARGIN, yPos);
+  const sigLineLength = 75;
+  doc.setDrawColor(200, 200, 200);
   
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
-  doc.setTextColor(120, 120, 120);
-  doc.text("Digital Signature", MARGIN, yPos + 4);
-  doc.text(`Date: ${new Date().toLocaleDateString()}`, MARGIN, yPos + 8);
-
-  // Carrier Certification (right)
-  const rightColX = PAGE_WIDTH / 2 + 5;
-  yPos -= 16;
-  
+  // Shipper Aligned Left
+  doc.line(MARGIN, yPos + 10, MARGIN + sigLineLength, yPos + 10);
   doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(80, 80, 80);
-  doc.text("CARRIER CERTIFICATION", rightColX, yPos - 6);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(6);
   doc.setTextColor(100, 100, 100);
-  const carrierCertText = "Carrier acknowledges receipt of packages and required placards. Carrier certifies emergency response information was made available.";
-  doc.text(carrierCertText, rightColX, yPos - 2, { maxWidth: CONTENT_WIDTH / 2 - 8 });
-
-  yPos += 10;
+  doc.text("SHIPPER SIGNATURE", MARGIN, yPos + 14);
   doc.setFont("helvetica", "italic");
-  doc.setFontSize(8);
+  doc.setTextColor(20, 20, 20);
+  doc.text(data.signatureShipper || "test", MARGIN, yPos + 8);
+
+  // Carrier Aligned Right
+  doc.line(PAGE_WIDTH - MARGIN - sigLineLength, yPos + 10, PAGE_WIDTH - MARGIN, yPos + 10);
+  doc.setFont("helvetica", "normal");
+  doc.text("CARRIER SIGNATURE", PAGE_WIDTH - MARGIN - sigLineLength, yPos + 14);
+  
+  // Footer
+  doc.setFontSize(7);
   doc.setTextColor(150, 150, 150);
-  doc.text("Awaiting carrier signature", rightColX, yPos);
+  doc.text("Vali Produce | 4300 Pleasantdale Rd, Atlanta, GA 30340 | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
 
-  yPos += 14;
-
-  // ===== DOCUMENT GENERATED BADGE =====
-  doc.setFillColor(34, 197, 94); // green-500
-  doc.roundedRect(MARGIN, yPos, 50, 10, 2, 2, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
-  doc.setTextColor(255, 255, 255);
-  doc.text("✓ DOCUMENT GENERATED", MARGIN + 25, yPos + 7, { align: "center" });
-
-  // Document info (right side)
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 100, 100);
-  doc.text(`Generated: ${new Date().toLocaleDateString()}`, PAGE_WIDTH - MARGIN, yPos + 3, { align: "right" });
-  doc.text(`Document ID: ${data.bolNumber}`, PAGE_WIDTH - MARGIN, yPos + 8, { align: "right" });
-
-  // ===== FOOTER =====
-  const footerY = PAGE_HEIGHT - 10;
-  doc.setFillColor(5, 150, 105);
-  doc.rect(0, footerY - 2, PAGE_WIDTH, 12, "F");
-
-  doc.setFontSize(6);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(255, 255, 255);
-  doc.text("Vali Produce • 4300 Pleasantdale Rd, Atlanta, GA 30340, USA • order@valiproduce.shop", PAGE_WIDTH / 2, footerY + 3, { align: "center" });
-  
-  doc.setFontSize(5);
-  doc.setTextColor(200, 200, 200);
-  doc.text("BOL is subject to terms and conditions of the carrier. This is a computer-generated document.", PAGE_WIDTH / 2, footerY + 7, { align: "center" });
-
-  // ===== PAGE NUMBERS =====
-  const totalPagesCount = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPagesCount; i++) {
+  // ===== PAGE NUMBERS (Correct Loop) =====
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text(`Page ${i} of ${totalPagesCount}`, PAGE_WIDTH - MARGIN, 8, { align: "right" });
+    doc.setTextColor(255, 255, 255);
+    doc.text(`Page ${i} of ${totalPages}`, PAGE_WIDTH - MARGIN, 8, { align: "right" });
   }
 
-  // Handle print mode or download mode
+  // Final Action
   if (printMode) {
+    // Create hidden iframe for direct print dialog
     const pdfBlob = doc.output('blob');
     const pdfUrl = URL.createObjectURL(pdfBlob);
-    const printWindow = window.open(pdfUrl, '_blank');
     
-    if (printWindow) {
-      printWindow.onload = () => {
-        printWindow.print();
+    // Create iframe for printing
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.src = pdfUrl;
+    
+    document.body.appendChild(iframe);
+    
+    iframe.onload = () => {
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        
+        // Cleanup after print dialog closes
         setTimeout(() => {
+          document.body.removeChild(iframe);
           URL.revokeObjectURL(pdfUrl);
         }, 1000);
-      };
-    }
+      }, 500);
+    };
   } else {
-    doc.save(`bill-of-lading-${order.id}-${data.consigneeName}.pdf`);
+    doc.save(`BOL_${data.bolNumber}.pdf`);
   }
-
-  return doc;
 };
