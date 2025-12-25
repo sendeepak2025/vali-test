@@ -332,11 +332,13 @@ export const exportInvoiceToPDF = (
     yPos += 30;
   }
 
-  // 🧾 FOOTER - Thank you message and payment terms
+  // 🧾 FOOTER - Thank you message and payment terms (at page bottom with safe margin)
   if (includePaymentTerms) {
     // Calculate footer height based on template
     const footerHeight = invoiceTemplate === "detailed" ? 35 : 25;
-    const footerStartY = PAGE_HEIGHT - footerHeight;
+    // Safe margin from bottom to prevent cutoff in Microsoft Print to PDF
+    const SAFE_BOTTOM_MARGIN = 18;
+    const footerStartY = PAGE_HEIGHT - footerHeight - SAFE_BOTTOM_MARGIN;
     
     // Footer background
     if (invoiceTemplate === "professional") {
@@ -398,19 +400,8 @@ export const exportInvoiceToPDF = (
     }
   }
 
-  // Page number (bottom right) - adjust position based on footer
-  const totalPages = doc.internal.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    if (invoiceTemplate === "professional" || invoiceTemplate === "detailed") {
-      doc.setTextColor(180, 180, 180);
-    } else {
-      doc.setTextColor(150, 150, 150);
-    }
-    doc.text(`Page ${i} of ${totalPages}`, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 5, { align: "right" });
-  }
+  // Page number - removed from bottom to avoid print cutoff issues
+  // Page numbers are now not shown to prevent Microsoft Print to PDF issues
 
   doc.save(`Invoice-${order.id}-${order?.billingAddress?.name || 'Customer'}.pdf`);
   return doc;

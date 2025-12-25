@@ -102,31 +102,36 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         padding: 0;
       }
 
-      body {
+      html, body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        line-height: 1.5;
+        line-height: 1.4;
         color: #333;
         background: #fff;
         padding: 0;
         margin: 0;
+        width: 100%;
+        min-height: 100%;
       }
 
       @page {
-        size: A4;
-        margin: 8mm;
+        size: Letter;
+        margin: 0.4in 0.3in 0.6in 0.3in;
       }
 
       .invoice-container {
         width: 100%;
+        max-width: 100%;
         background: white;
-        overflow: hidden;
+        overflow: visible;
+        font-size: 0.9em;
+        margin-bottom: 60px;
       }
 
       /* Grid and Flex */
       .grid { display: grid; }
       .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
-      .gap-4 { gap: 1rem; }
-      .gap-8 { gap: 2rem; }
+      .gap-4 { gap: 0.8rem; }
+      .gap-8 { gap: 1.5rem; }
       .flex { display: flex; }
       .flex-1 { flex: 1; }
       .justify-between { justify-content: space-between; }
@@ -134,42 +139,42 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       .items-start { align-items: flex-start; }
       .items-center { align-items: center; }
 
-      /* Spacing */
-      .p-4 { padding: 1rem; }
-      .p-5 { padding: 1.25rem; }
-      .p-6 { padding: 1.5rem; }
-      .p-8 { padding: 2rem; }
-      .px-4 { padding-left: 1rem; padding-right: 1rem; }
-      .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
-      .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
-      .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
-      .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
-      .py-5 { padding-top: 1.25rem; padding-bottom: 1.25rem; }
-      .py-6 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
-      .pb-2 { padding-bottom: 0.5rem; }
-      .pb-6 { padding-bottom: 1.5rem; }
-      .pb-10 { padding-bottom: 2.5rem; }
-      .pt-4 { padding-top: 1rem; }
-      .pt-6 { padding-top: 1.5rem; }
-      .mt-1 { margin-top: 0.25rem; }
-      .mt-2 { margin-top: 0.5rem; }
-      .mt-3 { margin-top: 0.75rem; }
-      .mt-4 { margin-top: 1rem; }
-      .mb-2 { margin-bottom: 0.5rem; }
-      .mb-3 { margin-bottom: 0.75rem; }
-      .mr-2 { margin-right: 0.5rem; }
-      .space-y-1 > * + * { margin-top: 0.25rem; }
-      .space-y-0\\.5 > * + * { margin-top: 0.125rem; }
+      /* Spacing - reduced for print */
+      .p-4 { padding: 0.8rem; }
+      .p-5 { padding: 1rem; }
+      .p-6 { padding: 1.2rem; }
+      .p-8 { padding: 1.5rem; }
+      .px-4 { padding-left: 0.8rem; padding-right: 0.8rem; }
+      .px-6 { padding-left: 1.2rem; padding-right: 1.2rem; }
+      .py-2 { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+      .py-3 { padding-top: 0.6rem; padding-bottom: 0.6rem; }
+      .py-4 { padding-top: 0.8rem; padding-bottom: 0.8rem; }
+      .py-5 { padding-top: 1rem; padding-bottom: 1rem; }
+      .py-6 { padding-top: 1.2rem; padding-bottom: 1.2rem; }
+      .pb-2 { padding-bottom: 0.4rem; }
+      .pb-6 { padding-bottom: 1.2rem; }
+      .pb-10 { padding-bottom: 2rem; }
+      .pt-4 { padding-top: 0.8rem; }
+      .pt-6 { padding-top: 1.2rem; }
+      .mt-1 { margin-top: 0.2rem; }
+      .mt-2 { margin-top: 0.4rem; }
+      .mt-3 { margin-top: 0.6rem; }
+      .mt-4 { margin-top: 0.8rem; }
+      .mb-2 { margin-bottom: 0.4rem; }
+      .mb-3 { margin-bottom: 0.6rem; }
+      .mr-2 { margin-right: 0.4rem; }
+      .space-y-1 > * + * { margin-top: 0.2rem; }
+      .space-y-0\\.5 > * + * { margin-top: 0.1rem; }
 
       /* Typography */
-      .text-xs { font-size: 0.75rem; }
-      .text-sm { font-size: 0.875rem; }
-      .text-base { font-size: 1rem; }
-      .text-lg { font-size: 1.125rem; }
-      .text-xl { font-size: 1.25rem; }
-      .text-2xl { font-size: 1.5rem; }
-      .text-3xl { font-size: 1.875rem; }
-      .text-4xl { font-size: 2.25rem; }
+      .text-xs { font-size: 0.7rem; }
+      .text-sm { font-size: 0.8rem; }
+      .text-base { font-size: 0.9rem; }
+      .text-lg { font-size: 1rem; }
+      .text-xl { font-size: 1.1rem; }
+      .text-2xl { font-size: 1.3rem; }
+      .text-3xl { font-size: 1.6rem; }
+      .text-4xl { font-size: 2rem; }
       .font-medium { font-weight: 500; }
       .font-semibold { font-weight: 600; }
       .font-bold { font-weight: 700; }
@@ -261,8 +266,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
 
       /* Width */
-      .w-72 { width: 18rem; }
-      .w-80 { width: 20rem; }
+      .w-72 { width: 16rem; }
+      .w-80 { width: 18rem; }
       .w-full { width: 100%; }
 
       /* Tables */
@@ -277,11 +282,11 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
       th {
         font-weight: 600;
-        padding: 0.75rem 1rem;
+        padding: 0.6rem 0.8rem;
       }
 
       td {
-        padding: 0.75rem 1rem;
+        padding: 0.6rem 0.8rem;
       }
 
       .text-left { text-align: left; }
@@ -290,13 +295,13 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
       /* Images */
       img {
-        max-height: 60px;
+        max-height: 50px;
         object-fit: contain;
       }
 
-      .h-12 { height: 3rem; }
-      .h-16 { height: 4rem; }
-      .h-20 { height: 5rem; }
+      .h-12 { height: 2.5rem; }
+      .h-16 { height: 3.5rem; }
+      .h-20 { height: 4rem; }
       .object-contain { object-fit: contain; }
       .opacity-70 { opacity: 0.7; }
 
@@ -308,8 +313,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       svg {
         display: inline-block;
         vertical-align: middle;
-        width: 1.25rem;
-        height: 1.25rem;
+        width: 1rem;
+        height: 1rem;
       }
 
       /* Print specific */
@@ -318,6 +323,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
           color-adjust: exact !important;
+          margin: 0 !important;
+          padding: 0 !important;
         }
         
         * {
@@ -326,7 +333,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         }
 
         .invoice-container {
-          page-break-inside: avoid;
+          overflow: visible !important;
+          margin: 0;
+          margin-bottom: 80px !important;
         }
 
         table {
@@ -351,14 +360,15 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   <div class="invoice-container">
     ${invoiceHTML}
   </div>
+  <div style="height: 80px;"></div>
 </body>
 </html>`);
   printWindow.document.close();
 
   setTimeout(() => {
+    printWindow.focus();
     printWindow.print();
-    printWindow.close();
-  }, 500);
+  }, 600);
 };
 
 
