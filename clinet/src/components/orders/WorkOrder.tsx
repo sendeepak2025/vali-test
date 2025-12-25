@@ -403,7 +403,7 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
         <CollapsibleContent className="mt-3">
           <div className="border rounded-lg p-4 space-y-4">
             {/* Pallet Count */}
-            <div className="flex items-center justify-between">
+            {/* <div className="flex items-center justify-between">
               <Label>Number of Pallets</Label>
               <div className="flex items-center gap-2">
                 <Button 
@@ -424,7 +424,7 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
                   <Plus className="h-3 w-3" />
                 </Button>
               </div>
-            </div>
+            </div> */}
 
             {/* Box Count per Product */}
             <div>
@@ -436,6 +436,7 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
                     <Input
                       type="number"
                       min="0"
+                      disabled
                       className="w-20 h-8 text-center"
                       value={boxesPerProduct[item.productId] || 0}
                       onChange={(e) => setBoxesPerProduct(prev => ({

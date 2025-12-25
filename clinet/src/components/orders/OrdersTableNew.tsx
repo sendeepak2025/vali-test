@@ -197,6 +197,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
           ...order,
           id: order.orderNumber || `#${order._id?.slice(-5) || 'N/A'}`,
           clientName: order.store?.storeName || "Unknown",
+          clientId: order.store?._id || "Unknown",
           storeState: order.store?.state || "",
           storeCity: order.store?.city || "",
           date: new Date(order.createdAt).toLocaleDateString('en-US', {

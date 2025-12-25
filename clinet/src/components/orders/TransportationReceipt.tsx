@@ -87,6 +87,7 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   const [showBolDialog, setShowBolDialog] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
+  console.log(order, "order")
   
   // Helper to format shipping address
   const getDeliveryAddress = () => {
@@ -249,7 +250,7 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
     });
   };
 
-  const handleDownload = () => {
+  const handleDownloadOrPrint = (printMode: boolean = false) => {
     setDownloadLoading(true);
     try {
       const doc = new jsPDF();
@@ -266,17 +267,36 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
       doc.setFillColor(5, 150, 105); // emerald-600
       doc.rect(0, 0, PAGE_WIDTH, 35, "F");
       
-      // Header text
+      // Logo (left side)
+      try {
+        const logoUrl = "/logg.png";
+
+         const centerX = PAGE_WIDTH / 2;
+  const logoHeight = 19;
+  const logoWidth = 0;
+doc.addImage(
+  logoUrl,
+  "PNG",
+  5,          // x = start/left
+  13,          // y = top
+  logoWidth,
+  logoHeight
+);        // doc.addImage(logoUrl, "PNG", MARGIN, 12, 22, 16, undefined, 'FAST');
+      } catch (e) {
+        console.log("Logo not loaded");
+      }
+      
+      // Header text (after logo)
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("TRANSPORTATION RECEIPT", MARGIN, 18);
+      doc.text("TRANSPORTATION RECEIPT", MARGIN + 28, 18);
       
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(220, 220, 220);
-      doc.text(`Order #${order.id} • Route #${formValues.routeNumber}`, MARGIN, 26);
-      doc.text(`Date: ${formatDate(order.date)}`, MARGIN, 32);
+      doc.text(`Order #${order.id} • Route #${formValues.routeNumber}`, MARGIN + 28, 26);
+      doc.text(`Date: ${formatDate(order.date)}`, MARGIN + 28, 32);
       
       // Company info (right side in header)
       doc.setFont("helvetica", "bold");
@@ -430,14 +450,6 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
       doc.setTextColor(120, 120, 120);
       doc.text("Digital signature", MARGIN, yPos + 16);
       
-      // Receipt confirmed badge
-      doc.setFillColor(34, 197, 94); // green-500
-      doc.roundedRect(PAGE_WIDTH - MARGIN - 55, yPos - 2, 55, 12, 3, 3, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(255, 255, 255);
-      doc.text("✓ RECEIPT CONFIRMED", PAGE_WIDTH - MARGIN - 27.5, yPos + 6, { align: "center" });
-      
       // Footer
       const footerY = doc.internal.pageSize.height - 15;
       doc.setFillColor(5, 150, 105);
@@ -452,13 +464,48 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
       doc.setTextColor(200, 200, 200);
       doc.text(`Generated on ${new Date().toLocaleDateString()}`, PAGE_WIDTH / 2, footerY + 9, { align: "center" });
       
-      // Save
-      doc.save(`transport-receipt-${order.id}.pdf`);
-      
-      toast({
-        title: "Download complete",
-        description: "Transportation receipt has been downloaded.",
-      });
+      // Save or Print
+      if (printMode) {
+        // Create hidden iframe for direct print dialog
+        const pdfBlob = doc.output('blob');
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+        
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = 'none';
+        iframe.src = pdfUrl;
+        
+        document.body.appendChild(iframe);
+        
+        iframe.onload = () => {
+          setTimeout(() => {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+            
+            // Cleanup after print dialog closes
+            setTimeout(() => {
+              document.body.removeChild(iframe);
+              URL.revokeObjectURL(pdfUrl);
+            }, 1000);
+          }, 500);
+        };
+        
+        toast({
+          title: "Print requested",
+          description: "Transportation receipt has been sent to printer.",
+        });
+      } else {
+        doc.save(`transport-receipt-${order.id}.pdf`);
+        
+        toast({
+          title: "Download complete",
+          description: "Transportation receipt has been downloaded.",
+        });
+      }
     } catch (error) {
       console.error("PDF generation error:", error);
       toast({
@@ -884,7 +931,11 @@ Confirmed by: ${formValues.signature}
                   <h4 className="font-medium mb-2">Client Details</h4>
                   <div className="space-y-1 text-sm">
                     <p><span className="text-muted-foreground">Name:</span> {order.clientName}</p>
-                    <p><span className="text-muted-foreground">ID:</span> {order.clientId}</p>
+                   <p>
+  <span className="text-muted-foreground">ID:</span>{" "}
+  {order.clientId?.slice(-4).toUpperCase()}
+</p>
+
                     <p><span className="text-muted-foreground">Order Date:</span> {formatDate(order.date)}</p>
                     <p><span className="text-muted-foreground">Status:</span> <span className="capitalize">{order.status}</span></p>
                     <p><span className="text-muted-foreground">Delivery Location:</span> {form.getValues().deliveryLocation || getDeliveryAddress() || "Client Address"}</p>
@@ -969,13 +1020,13 @@ Confirmed by: ${formValues.signature}
               
               <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
                 <div className="flex gap-2 flex-1">
-                  <Button variant="outline" onClick={handlePrint} className="flex-1">
+                  <Button variant="outline" onClick={() => handleDownloadOrPrint(true)} className="flex-1">
                     <Printer className="mr-2 h-4 w-4" />
                     Print
                   </Button>
                   <Button 
                     variant="outline" 
-                    onClick={handleDownload} 
+                    onClick={() => handleDownloadOrPrint(false)} 
                     disabled={downloadLoading}
                     className="flex-1"
                   >
