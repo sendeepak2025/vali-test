@@ -908,7 +908,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
                     </TableCell>
                     <TableCell>
                       <button 
-                        onClick={() => handleUserDetails(order.store?._id)}
+                        onClick={() => handleUserDetails(order.store?._id || order.store)}
                         className="text-sm hover:text-primary hover:underline"
                       >
                         {order.clientName}

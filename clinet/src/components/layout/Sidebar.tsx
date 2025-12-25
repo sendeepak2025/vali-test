@@ -20,6 +20,7 @@ import {
   LocateIcon,
   CreditCard,
   UserCheck,
+  AlertTriangle,
 } from "lucide-react";
 import type { RootState } from "@/redux/store";
 import { useSelector } from "react-redux";
@@ -100,6 +101,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       name: "Map",
       path: "/map",
       icon: <LocateIcon size={18} />,
+    },
+    {
+      name: "Quality Issues",
+      path: "/admin/quality-issues",
+      icon: <AlertTriangle size={18} />,
     },
   ];
 

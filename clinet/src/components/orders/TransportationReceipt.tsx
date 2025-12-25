@@ -88,6 +88,15 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   const [downloadLoading, setDownloadLoading] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
   
+  // Helper to format shipping address
+  const getDeliveryAddress = () => {
+    if (order.shippingAddress) {
+      const addr = order.shippingAddress;
+      return `${addr.street || addr.address || ''}, ${addr.city}, ${addr.state} ${addr.postalCode}`.trim();
+    }
+    return "";
+  };
+
   const form = useForm<TransportationFormValues>({
     resolver: zodResolver(transportationSchema),
     defaultValues: {
@@ -97,8 +106,8 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
       estimatedArrival: "",
       notes: "",
       signature: "",
-      transportCompany: "Fresh Produce Logistics",
-      deliveryLocation: "",
+      transportCompany: "",
+      deliveryLocation: getDeliveryAddress(),
       routeNumber: `R-${Math.floor(1000 + Math.random() * 9000)}`,
       packagingType: "Standard",
       temperatureRequirements: "33-40°F (Refrigerated)"
@@ -106,7 +115,123 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   });
   
   const handlePrint = () => {
-    window.print();
+    if (!receiptRef.current) {
+      window.print();
+      return;
+    }
+
+    const printWindow = window.open("", "", "height=800,width=900");
+    if (!printWindow) return;
+
+    const receiptHTML = receiptRef.current.innerHTML;
+
+    const printCSS = `
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+          line-height: 1.5;
+          color: #333;
+          background: #fff;
+          padding: 20px;
+        }
+        @page { size: A4; margin: 10mm; }
+        
+        .flex { display: flex; }
+        .justify-between { justify-content: space-between; }
+        .items-center { align-items: center; }
+        .gap-1 { gap: 0.25rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-4 { gap: 1rem; }
+        .grid { display: grid; }
+        .sm\\:grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+        
+        .p-2 { padding: 0.5rem; }
+        .p-4 { padding: 1rem; }
+        .p-6 { padding: 1.5rem; }
+        .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+        .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+        .pt-4 { padding-top: 1rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-4 { margin-top: 1rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mr-1 { margin-right: 0.25rem; }
+        .mr-2 { margin-right: 0.5rem; }
+        
+        .text-xs { font-size: 0.75rem; }
+        .text-sm { font-size: 0.875rem; }
+        .text-lg { font-size: 1.125rem; }
+        .text-xl { font-size: 1.25rem; }
+        .font-medium { font-weight: 500; }
+        .font-bold { font-weight: 700; }
+        .italic { font-style: italic; }
+        .text-left { text-align: left; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .capitalize { text-transform: capitalize; }
+        
+        .text-gray-500 { color: #6b7280; }
+        .text-gray-600 { color: #4b5563; }
+        .text-gray-800 { color: #1f2937; }
+        .text-green-600 { color: #16a34a; }
+        .text-primary { color: #059669; }
+        .text-amber-500 { color: #f59e0b; }
+        .text-muted-foreground { color: #6b7280; }
+        
+        .bg-white { background-color: white; }
+        .bg-gray-50 { background-color: #f9fafb; }
+        .bg-gray-100 { background-color: #f3f4f6; }
+        
+        .border { border: 1px solid #e5e7eb; }
+        .border-t { border-top: 1px solid #e5e7eb; }
+        .border-b { border-bottom: 1px solid #e5e7eb; }
+        .border-gray-100 { border-color: #f3f4f6; }
+        .rounded { border-radius: 0.25rem; }
+        .rounded-md { border-radius: 0.375rem; }
+        
+        .space-y-1 > * + * { margin-top: 0.25rem; }
+        .space-y-6 > * + * { margin-top: 1.5rem; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.5rem; text-align: left; }
+        th { font-weight: 600; border-bottom: 1px solid #e5e7eb; }
+        
+        svg { display: inline-block; width: 1rem; height: 1rem; vertical-align: middle; }
+        
+        .h-3 { height: 0.75rem; }
+        .h-4 { height: 1rem; }
+        .h-5 { height: 1.25rem; }
+        .w-3 { width: 0.75rem; }
+        .w-4 { width: 1rem; }
+        .w-5 { width: 1.25rem; }
+        .w-24 { width: 6rem; }
+        .h-24 { height: 6rem; }
+        .inline-block { display: inline-block; }
+        
+        @media print {
+          body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      </style>
+    `;
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Transportation Receipt - Order #${order.id}</title>
+  ${printCSS}
+</head>
+<body>
+  ${receiptHTML}
+</body>
+</html>`);
+    printWindow.document.close();
+
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
+
     toast({
       title: "Print requested",
       description: "The transportation receipt has been sent to your printer."
@@ -129,97 +254,203 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
     try {
       const doc = new jsPDF();
       const formValues = form.getValues();
+      const PAGE_WIDTH = doc.internal.pageSize.width;
+      const MARGIN = 14;
       
-      // Header
-      doc.setFontSize(20);
+      // Company info constants
+      const COMPANY_NAME = "Vali Produce";
+      const COMPANY_ADDRESS_1 = "4300 Pleasantdale Rd";
+      const COMPANY_ADDRESS_2 = "Atlanta, GA 30340, USA";
+      
+      // Header background
+      doc.setFillColor(5, 150, 105); // emerald-600
+      doc.rect(0, 0, PAGE_WIDTH, 35, "F");
+      
+      // Header text
+      doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.text("TRANSPORTATION RECEIPT", 105, 20, { align: "center" });
+      doc.setTextColor(255, 255, 255);
+      doc.text("TRANSPORTATION RECEIPT", MARGIN, 18);
       
-      // Order info
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(220, 220, 220);
+      doc.text(`Order #${order.id} • Route #${formValues.routeNumber}`, MARGIN, 26);
+      doc.text(`Date: ${formatDate(order.date)}`, MARGIN, 32);
+      
+      // Company info (right side in header)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text(formValues.transportCompany || COMPANY_NAME, PAGE_WIDTH - MARGIN, 18, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(200, 200, 200);
+      doc.text(COMPANY_ADDRESS_1, PAGE_WIDTH - MARGIN, 25, { align: "right" });
+      doc.text(COMPANY_ADDRESS_2, PAGE_WIDTH - MARGIN, 31, { align: "right" });
+      
+      // Transport & Client Details Section
+      let yPos = 45;
+      const boxHeight = 50;
+      
+      doc.setFillColor(243, 244, 246); // gray-100
+      doc.roundedRect(MARGIN, yPos, PAGE_WIDTH - 2 * MARGIN, boxHeight, 3, 3, "F");
+      
+      // Transport Details (left)
+      const leftX = MARGIN + 6;
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Order #${order.id}`, 20, 35);
-      doc.text(`Route #${formValues.routeNumber}`, 20, 42);
-      doc.text(`Date: ${formatDate(order.date)}`, 20, 49);
+      doc.setTextColor(5, 150, 105);
+      doc.text("TRANSPORT DETAILS", leftX, yPos + 10);
       
-      // Company info (right side)
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`Driver: ${formValues.driverName}`, leftX, yPos + 20);
+      doc.text(`Vehicle ID: ${formValues.vehicleId}`, leftX, yPos + 27);
+      doc.text(`Departure: ${formValues.departureDate}`, leftX, yPos + 34);
+      doc.text(`Est. Arrival: ${formValues.estimatedArrival}`, leftX, yPos + 41);
+      
+      // Client Details (right)
+      const rightX = PAGE_WIDTH / 2 + 6;
       doc.setFont("helvetica", "bold");
-      doc.text(formValues.transportCompany || "Transport Company", 190, 35, { align: "right" });
+      doc.setFontSize(10);
+      doc.setTextColor(5, 150, 105);
+      doc.text("CLIENT DETAILS", rightX, yPos + 10);
+      
+      // Get delivery address from order or form
+      const deliveryAddr = formValues.deliveryLocation || getDeliveryAddress() || "Client Address";
+      
       doc.setFont("helvetica", "normal");
-      doc.text("123 Harvest Lane", 190, 42, { align: "right" });
-      doc.text("Farmington, CA 94123", 190, 49, { align: "right" });
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`Name: ${order.clientName}`, rightX, yPos + 20);
+      doc.text(`Order Date: ${formatDate(order.date)}`, rightX, yPos + 27);
+      doc.text(`Status: ${order.status}`, rightX, yPos + 34);
+      doc.text(`Delivery: ${deliveryAddr}`, rightX, yPos + 41, { maxWidth: PAGE_WIDTH / 2 - MARGIN - 10 });
       
-      // Divider
-      doc.line(20, 55, 190, 55);
+      yPos += boxHeight + 10;
       
-      // Transport Details
-      doc.setFont("helvetica", "bold");
-      doc.text("Transport Details", 20, 65);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Driver: ${formValues.driverName}`, 20, 75);
-      doc.text(`Vehicle ID: ${formValues.vehicleId}`, 20, 82);
-      doc.text(`Departure: ${formValues.departureDate}`, 20, 89);
-      doc.text(`Est. Arrival: ${formValues.estimatedArrival}`, 20, 96);
-      doc.text(`Temperature: ${formValues.temperatureRequirements}`, 20, 103);
-      
-      // Client Details
-      doc.setFont("helvetica", "bold");
-      doc.text("Client Details", 110, 65);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Name: ${order.clientName}`, 110, 75);
-      doc.text(`Order Date: ${formatDate(order.date)}`, 110, 82);
-      doc.text(`Status: ${order.status}`, 110, 89);
-      doc.text(`Delivery: ${formValues.deliveryLocation || "Client Address"}`, 110, 96);
-      
-      // Divider
-      doc.line(20, 110, 190, 110);
+      // Temperature & Packaging (for detailed receipt)
+      if (receiptType === "detailed") {
+        doc.setFillColor(254, 243, 199); // amber-100
+        doc.roundedRect(MARGIN, yPos, PAGE_WIDTH - 2 * MARGIN, 16, 3, 3, "F");
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(180, 83, 9); // amber-700
+        doc.text("SPECIAL REQUIREMENTS", leftX, yPos + 6);
+        
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(60, 60, 60);
+        doc.text(`Temperature: ${formValues.temperatureRequirements}`, leftX, yPos + 12);
+        doc.text(`Packaging: ${formValues.packagingType}`, rightX, yPos + 12);
+        
+        yPos += 22;
+      }
       
       // Cargo Details Header
       doc.setFont("helvetica", "bold");
-      doc.text("Cargo Details", 20, 120);
+      doc.setFontSize(10);
+      doc.setTextColor(5, 150, 105);
+      doc.text("CARGO DETAILS", MARGIN, yPos + 6);
+      
+      yPos += 10;
       
       // Table header
-      doc.setFillColor(240, 240, 240);
-      doc.rect(20, 125, 170, 8, "F");
-      doc.text("Item", 22, 131);
-      doc.text("Quantity", 120, 131);
-      doc.text("Package Type", 150, 131);
+      doc.setFillColor(5, 150, 105);
+      doc.rect(MARGIN, yPos, PAGE_WIDTH - 2 * MARGIN, 8, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Item", MARGIN + 4, yPos + 6);
+      doc.text("Quantity", PAGE_WIDTH / 2, yPos + 6, { align: "center" });
+      if (receiptType === "detailed") {
+        doc.text("Weight", PAGE_WIDTH - MARGIN - 40, yPos + 6, { align: "right" });
+        doc.text("Package", PAGE_WIDTH - MARGIN - 4, yPos + 6, { align: "right" });
+      }
+      
+      yPos += 10;
       
       // Table rows
       doc.setFont("helvetica", "normal");
-      let yPos = 140;
-      order.items.forEach((item) => {
-        doc.text(item.productName || item.name || "Item", 22, yPos);
-        doc.text(String(item.quantity), 120, yPos);
-        doc.text(formValues.packagingType || "Standard", 150, yPos);
+      doc.setTextColor(50, 50, 50);
+      order.items.forEach((item, index) => {
+        if (index % 2 === 0) {
+          doc.setFillColor(249, 250, 251);
+          doc.rect(MARGIN, yPos - 2, PAGE_WIDTH - 2 * MARGIN, 8, "F");
+        }
+        doc.text(item.productName || item.name || "Item", MARGIN + 4, yPos + 4);
+        doc.text(String(item.quantity), PAGE_WIDTH / 2, yPos + 4, { align: "center" });
+        if (receiptType === "detailed") {
+          doc.text(`~${item.quantity * 2} lbs`, PAGE_WIDTH - MARGIN - 40, yPos + 4, { align: "right" });
+          doc.text(formValues.packagingType || "Standard", PAGE_WIDTH - MARGIN - 4, yPos + 4, { align: "right" });
+        }
         yPos += 8;
       });
       
+      yPos += 8;
+      
       // Special Instructions
       if (formValues.notes) {
-        yPos += 10;
         doc.setFont("helvetica", "bold");
-        doc.text("Special Instructions:", 20, yPos);
+        doc.setFontSize(9);
+        doc.setTextColor(5, 150, 105);
+        doc.text("SPECIAL INSTRUCTIONS", MARGIN, yPos);
+        
+        yPos += 6;
+        doc.setFillColor(249, 250, 251);
+        doc.roundedRect(MARGIN, yPos, PAGE_WIDTH - 2 * MARGIN, 14, 2, 2, "F");
+        
         doc.setFont("helvetica", "normal");
-        yPos += 8;
-        doc.text(formValues.notes, 20, yPos, { maxWidth: 170 });
+        doc.setTextColor(60, 60, 60);
+        doc.text(formValues.notes, MARGIN + 4, yPos + 8, { maxWidth: PAGE_WIDTH - 2 * MARGIN - 8 });
+        
+        yPos += 20;
       }
       
-      // Signature
-      yPos = Math.max(yPos + 20, 240);
-      doc.line(20, yPos, 190, yPos);
+      // Signature Section
+      yPos += 10;
+      doc.setDrawColor(200, 200, 200);
+      doc.line(MARGIN, yPos, PAGE_WIDTH - MARGIN, yPos);
+      
+      yPos += 10;
       doc.setFont("helvetica", "bold");
-      doc.text("Confirmed By:", 20, yPos + 10);
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.text("Confirmed By:", MARGIN, yPos);
+      
       doc.setFont("helvetica", "italic");
-      doc.text(formValues.signature, 20, yPos + 18);
+      doc.setFontSize(12);
+      doc.text(formValues.signature, MARGIN, yPos + 10);
+      
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.text("Digital signature", 20, yPos + 24);
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.text("Digital signature", MARGIN, yPos + 16);
       
       // Receipt confirmed badge
-      doc.setFontSize(12);
-      doc.setTextColor(0, 128, 0);
-      doc.text("✓ RECEIPT CONFIRMED", 190, yPos + 15, { align: "right" });
+      doc.setFillColor(34, 197, 94); // green-500
+      doc.roundedRect(PAGE_WIDTH - MARGIN - 55, yPos - 2, 55, 12, 3, 3, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text("✓ RECEIPT CONFIRMED", PAGE_WIDTH - MARGIN - 27.5, yPos + 6, { align: "center" });
+      
+      // Footer
+      const footerY = doc.internal.pageSize.height - 15;
+      doc.setFillColor(5, 150, 105);
+      doc.rect(0, footerY - 5, PAGE_WIDTH, 20, "F");
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      const footerCompany = formValues.transportCompany || COMPANY_NAME;
+      doc.text(`${footerCompany} • Reliable Delivery`, PAGE_WIDTH / 2, footerY + 3, { align: "center" });
+      doc.setFontSize(7);
+      doc.setTextColor(200, 200, 200);
+      doc.text(`Generated on ${new Date().toLocaleDateString()}`, PAGE_WIDTH / 2, footerY + 9, { align: "center" });
       
       // Save
       doc.save(`transport-receipt-${order.id}.pdf`);
@@ -596,7 +827,7 @@ Confirmed by: ${formValues.signature}
               )}
             </div>
           ) : (
-            <div className="p-6 border rounded-md bg-white space-y-6">
+            <div ref={receiptRef} className="p-6 border rounded-md bg-white space-y-6">
               <div className="flex justify-between">
                 <div>
                   <h2 className="text-xl font-bold text-gray-800">TRANSPORTATION RECEIPT</h2>
@@ -608,9 +839,9 @@ Confirmed by: ${formValues.signature}
                   <p className="text-sm text-gray-600">Date: {formatDate(order.date)}</p>
                 </div>
                 <div className="text-right">
-                  <h3 className="text-lg font-bold text-primary">{form.getValues().transportCompany}</h3>
-                  <p className="text-sm text-gray-600">123 Harvest Lane</p>
-                  <p className="text-sm text-gray-600">Farmington, CA 94123</p>
+                  <h3 className="text-lg font-bold text-primary">{form.getValues().transportCompany || "Vali Produce"}</h3>
+                  <p className="text-sm text-gray-600">4300 Pleasantdale Rd</p>
+                  <p className="text-sm text-gray-600">Atlanta, GA 30340, USA</p>
                 </div>
               </div>
               
@@ -656,7 +887,7 @@ Confirmed by: ${formValues.signature}
                     <p><span className="text-muted-foreground">ID:</span> {order.clientId}</p>
                     <p><span className="text-muted-foreground">Order Date:</span> {formatDate(order.date)}</p>
                     <p><span className="text-muted-foreground">Status:</span> <span className="capitalize">{order.status}</span></p>
-                    <p><span className="text-muted-foreground">Delivery Location:</span> {form.getValues().deliveryLocation || "Client Address"}</p>
+                    <p><span className="text-muted-foreground">Delivery Location:</span> {form.getValues().deliveryLocation || getDeliveryAddress() || "Client Address"}</p>
                   </div>
                   
                   {onViewClientProfile && (

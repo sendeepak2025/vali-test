@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Order } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { exportWorkOrderToPDF, WorkOrderOptions } from '@/utils/pdf/work-order-export';
@@ -8,11 +8,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { X, Download, Wrench, Eye, Package, User, Mail, Loader2 } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
-import PalletTrackingForm, { PalletData } from './PalletTrackingForm';
-import {updateOrderPlateAPI} from "@/services2/operations/order"
+import { Badge } from '@/components/ui/badge';
+import { 
+  X, Download, Wrench, Eye, Package, User, Mail, Loader2, 
+  Calendar, AlertCircle, ChevronDown, ChevronUp, Plus, Minus, Printer
+} from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { updateOrderPlateAPI } from "@/services2/operations/order";
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 
@@ -21,160 +23,136 @@ interface WorkOrderFormProps {
   onClose: () => void;
 }
 
-interface ItemInstruction {
-  productId: string;
-  instruction: string;
-}
-
 const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
   const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEmailing, setIsEmailing] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [activeTab, setActiveTab] = useState('details');
-  const [itemInstructions, setItemInstructions] = useState<ItemInstruction[]>(
-    order.items.map(item => ({ productId: item.productId, instruction: '' }))
-  );
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPalletSection, setShowPalletSection] = useState(!!order.palletData);
   
-  console.log(order)
-  const [palletData, setPalletData] = useState<PalletData | null>(order.palletData || null);
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
   
-  const [workOrderOptions, setWorkOrderOptions] = useState<WorkOrderOptions>({
-    workOrderNumber: `WO-${order.orderNumber}`,
-    assignedTo: '',
-    department: 'Processing',
-    priority: 'medium',
-    startDate: new Date().toISOString().split('T')[0],
-    dueDate: '',
-    equipmentNeeded: [],
-    specialInstructions: '',
-    includeCompanyLogo: true,
+  // Auto-capture creation date
+  const createdDate = useMemo(() => new Date().toISOString().split('T')[0], []);
+  
+  // Simplified state - essential fields only
+  const [assignedTo, setAssignedTo] = useState(order.palletData?.worker || '');
+  const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
+  const [dueDate, setDueDate] = useState('');
+  const [specialInstructions, setSpecialInstructions] = useState('');
+  
+  // Pallet tracking (simplified)
+  const [palletCount, setPalletCount] = useState(order.palletData?.palletCount || 1);
+  const [boxesPerProduct, setBoxesPerProduct] = useState<Record<string, number>>(
+    order.palletData?.boxesPerPallet || 
+    Object.fromEntries(order.items.map(item => [item.productId, item.quantity]))
+  );
+  
+  // Advanced options (collapsed by default)
+  const [department, setDepartment] = useState('Processing');
+  const [equipmentNeeded, setEquipmentNeeded] = useState('');
+  const [includeCompanyLogo, setIncludeCompanyLogo] = useState(true);
+
+  // Calculate totals
+  const totalBoxes = useMemo(() => 
+    Object.values(boxesPerProduct).reduce((sum, count) => sum + (count || 0), 0), 
+    [boxesPerProduct]
+  );
+
+  const workOrderNumber = `WO-${order.orderNumber || order.id}`;
+
+  const getPriorityColor = (p: string) => {
+    switch(p) {
+      case 'urgent': return 'bg-red-100 text-red-700 border-red-200';
+      case 'high': return 'bg-orange-100 text-orange-700 border-orange-200';
+      case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      default: return 'bg-green-100 text-green-700 border-green-200';
+    }
+  };
+
+  const buildWorkOrderOptions = (): WorkOrderOptions => ({
+    workOrderNumber,
+    assignedTo,
+    department,
+    priority,
+    startDate: createdDate, // Auto-captured creation date
+    dueDate,
+    equipmentNeeded: equipmentNeeded.split(',').map(s => s.trim()).filter(Boolean),
+    specialInstructions,
+    includeCompanyLogo,
     itemInstructions: {},
-    palletData: null
+    palletData: showPalletSection ? {
+      worker: assignedTo,
+      palletCount,
+      boxesPerPallet: boxesPerProduct,
+      totalBoxes,
+      chargePerPallet: 15,
+      totalPalletCharge: palletCount * 15,
+      selectedItems: order.items.map(i => i.productId)
+    } : null
   });
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleSelectChange = (name: string, value: string) => {
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleCheckboxChange = (name: string, checked: boolean) => {
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      [name]: checked
-    }));
-  };
-
-  const handleEquipmentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const equipmentList = e.target.value.split(',').map(item => item.trim()).filter(Boolean);
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      equipmentNeeded: equipmentList
-    }));
-  };
-
-  const handleItemInstructionChange = (productId: string, instruction: string) => {
-    setItemInstructions(prev => 
-      prev.map(item => 
-        item.productId === productId ? { ...item, instruction } : item
-      )
-    );
+  const handlePreview = () => {
+    if (!assignedTo.trim()) {
+      toast({
+        title: "Worker Required",
+        description: "Please enter the assigned worker name.",
+        variant: "destructive"
+      });
+      return;
+    }
     
-    // Update the workOrderOptions with the new instructions
-    const instructionsMap = { ...workOrderOptions.itemInstructions };
-    instructionsMap[productId] = instruction;
-    
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      itemInstructions: instructionsMap
-    }));
-  };
-
-  const handleSavePalletData = async(data: PalletData) => {
-    setPalletData(data);
-   
-    await updateOrderPlateAPI(data,token,order._id)
-    setWorkOrderOptions(prev => ({
-      ...prev,
-      palletData: data,
-      assignedTo: data.worker // Auto-assign the worker
-    }));
-    
-      
-    setActiveTab('details'); // Switch back to details tab
-    
-    toast({
-      title: "Pallet Information Added",
-      description: `Added ${data.palletCount} pallets with ${data.totalBoxes} boxes to the work order.`,
-    });
-  };
-
-  const handlePreviewWorkOrder = () => {
     try {
-      if (!workOrderOptions.assignedTo) {
-        toast({
-          title: "Missing Information",
-          description: "Please assign the work order to someone before previewing.",
-          variant: "destructive"
-        });
-        return;
-      }
-      
-      const pdfDoc = exportWorkOrderToPDF(order, workOrderOptions, true); // true for preview mode
-      
-      // Open the PDF in a new tab for preview
+      const pdfDoc = exportWorkOrderToPDF(order, buildWorkOrderOptions(), true);
       const pdfUrl = pdfDoc.output('bloburl');
       window.open(pdfUrl, '_blank');
-      
     } catch (error) {
-      console.error('Error previewing work order:', error);
       toast({
         title: "Preview Failed",
-        description: "Failed to generate the work order preview. Please try again.",
+        description: "Failed to generate preview.",
         variant: "destructive"
       });
     }
   };
 
-  const handleGenerateWorkOrder = () => {
+  const handleGenerate = async () => {
+    if (!assignedTo.trim()) {
+      toast({
+        title: "Worker Required",
+        description: "Please enter the assigned worker name.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsGenerating(true);
     try {
-      setIsGenerating(true);
-      
-      if (!workOrderOptions.assignedTo) {
-        toast({
-          title: "Missing Information",
-          description: "Please assign the work order to someone.",
-          variant: "destructive"
-        });
-        setIsGenerating(false);
-        return;
+      // Save pallet data if enabled
+      if (showPalletSection && token && order._id) {
+        const palletData = {
+          worker: assignedTo,
+          palletCount,
+          boxesPerPallet: boxesPerProduct,
+          totalBoxes,
+          chargePerPallet: 15,
+          totalPalletCharge: palletCount * 15,
+          selectedItems: order.items.map(i => i.productId)
+        };
+        await updateOrderPlateAPI(palletData, token, order._id);
       }
-      
-      exportWorkOrderToPDF(order, workOrderOptions);
+
+      exportWorkOrderToPDF(order, buildWorkOrderOptions());
       
       toast({
         title: "Work Order Generated",
-        description: `Work order ${workOrderOptions.workOrderNumber} has been generated and downloaded.`,
+        description: `${workOrderNumber} has been downloaded.`,
       });
-      
-      // Close the dialog after successful generation
       onClose();
     } catch (error) {
-      console.error('Error generating work order:', error);
       toast({
         title: "Generation Failed",
-        description: "Failed to generate the work order. Please try again.",
+        description: "Failed to generate work order.",
         variant: "destructive"
       });
     } finally {
@@ -182,25 +160,21 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
     }
   };
 
-  const handleEmailWorkOrder = async () => {
+  const handleEmail = async () => {
+    if (!assignedTo.trim()) {
+      toast({
+        title: "Worker Required",
+        description: "Please enter the assigned worker name.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsEmailing(true);
     try {
-      setIsEmailing(true);
-      
-      if (!workOrderOptions.assignedTo) {
-        toast({
-          title: "Missing Information",
-          description: "Please assign the work order to someone before emailing.",
-          variant: "destructive"
-        });
-        setIsEmailing(false);
-        return;
-      }
-      
-      // Generate PDF as base64
-      const pdfDoc = exportWorkOrderToPDF(order, workOrderOptions, true); // true for preview mode (returns doc)
+      const pdfDoc = exportWorkOrderToPDF(order, buildWorkOrderOptions(), true);
       const pdfBase64 = pdfDoc.output('datauristring');
       
-      // Send email with work order PDF
       const response = await fetch(`${import.meta.env.VITE_BASE_URL}/email/send-work-order`, {
         method: 'POST',
         headers: {
@@ -209,10 +183,10 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
         },
         body: JSON.stringify({
           orderId: order._id || order.id,
-          workOrderNumber: workOrderOptions.workOrderNumber,
-          assignedTo: workOrderOptions.assignedTo,
-          department: workOrderOptions.department,
-          priority: workOrderOptions.priority,
+          workOrderNumber,
+          assignedTo,
+          department,
+          priority,
           customerEmail: order.customer?.email,
           customerName: order.customer?.name,
           pdfBase64,
@@ -222,16 +196,15 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
       if (response.ok) {
         toast({
           title: "Email Sent",
-          description: `Work order ${workOrderOptions.workOrderNumber} has been emailed successfully.`,
+          description: `Work order emailed successfully.`,
         });
       } else {
         throw new Error('Failed to send email');
       }
     } catch (error) {
-      console.error('Error emailing work order:', error);
       toast({
         title: "Email Failed",
-        description: "Failed to email the work order. Please try again.",
+        description: "Failed to send email.",
         variant: "destructive"
       });
     } finally {
@@ -239,229 +212,317 @@ const WorkOrderForm: React.FC<WorkOrderFormProps> = ({ order, onClose }) => {
     }
   };
 
-  return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <Wrench className="h-5 w-5 text-primary mr-2" />
-          <h2 className="text-xl font-semibold">Create Work Order</h2>
-        </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+  const handlePrint = async () => {
+    if (!assignedTo.trim()) {
+      toast({
+        title: "Worker Required",
+        description: "Please enter the assigned worker name.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsPrinting(true);
+    try {
+      // Save pallet data if enabled
+      if (showPalletSection && token && order._id) {
+        const palletData = {
+          worker: assignedTo,
+          palletCount,
+          boxesPerPallet: boxesPerProduct,
+          totalBoxes,
+          chargePerPallet: 15,
+          totalPalletCharge: palletCount * 15,
+          selectedItems: order.items.map(i => i.productId)
+        };
+        await updateOrderPlateAPI(palletData, token, order._id);
+      }
+
+      const pdfDoc = exportWorkOrderToPDF(order, buildWorkOrderOptions(), true);
       
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-2 mb-6">
-          <TabsTrigger value="details" className="flex items-center gap-2">
-            <User className="h-4 w-4" />
-            Work Order Details
-          </TabsTrigger>
-          <TabsTrigger value="pallets" className="flex items-center gap-2">
-            <Package className="h-4 w-4" />
-            Pallet Tracking
-          </TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="details">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <div className="mb-4">
-                <Label htmlFor="workOrderNumber">Work Order Number</Label>
-                <Input
-                  id="workOrderNumber"
-                  name="workOrderNumber"
-                  value={workOrderOptions.workOrderNumber}
-                  onChange={handleInputChange}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="mb-4">
-                <Label htmlFor="assignedTo">Assigned Worker</Label>
-                <Input
-                  id="assignedTo"
-                  name="assignedTo"
-                  value={workOrderOptions.assignedTo}
-                  onChange={handleInputChange}
-                  className="mt-1"
-                  placeholder="Name of person or team"
-                  disabled={palletData !== null} // Disable if pallet data exists
-                />
-                {palletData && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Worker assigned from pallet tracking.
-                  </p>
-                )}
-              </div>
-              
-              <div className="mb-4">
-                <Label htmlFor="department">Department</Label>
-                <Select 
-                  value={workOrderOptions.department} 
-                  onValueChange={(value) => handleSelectChange('department', value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Processing">Processing</SelectItem>
-                    <SelectItem value="Packaging">Packaging</SelectItem>
-                    <SelectItem value="Shipping">Shipping</SelectItem>
-                    <SelectItem value="Production">Production</SelectItem>
-                    <SelectItem value="Quality Control">Quality Control</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="mb-4">
-                <Label htmlFor="priority">Priority</Label>
-                <Select 
-                  value={workOrderOptions.priority} 
-                  onValueChange={(value) => handleSelectChange('priority', value as 'low' | 'medium' | 'high' | 'urgent')}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div>
-              <div className="mb-4">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input
-                  id="startDate"
-                  name="startDate"
-                  type="date"
-                  value={workOrderOptions.startDate}
-                  onChange={handleInputChange}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="mb-4">
-                <Label htmlFor="dueDate">Due Date</Label>
-                <Input
-                  id="dueDate"
-                  name="dueDate"
-                  type="date"
-                  value={workOrderOptions.dueDate}
-                  onChange={handleInputChange}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="mb-4">
-                <Label htmlFor="equipmentNeeded">Equipment Needed</Label>
-                <Textarea
-                  id="equipmentNeeded"
-                  placeholder="Enter equipment needed, separated by commas"
-                  value={workOrderOptions.equipmentNeeded?.join(', ') || ''}
-                  onChange={handleEquipmentChange}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="mb-4 flex items-center space-x-2">
-                <Checkbox 
-                  id="includeCompanyLogo" 
-                  checked={workOrderOptions.includeCompanyLogo} 
-                  onCheckedChange={(checked) => handleCheckboxChange('includeCompanyLogo', !!checked)}
-                />
-                <Label htmlFor="includeCompanyLogo">Include company logo</Label>
-              </div>
-            </div>
+      // Open PDF in new window and trigger print
+      const pdfBlob = pdfDoc.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const printWindow = window.open(pdfUrl, '_blank');
+      
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print();
+          setTimeout(() => {
+            URL.revokeObjectURL(pdfUrl);
+          }, 1000);
+        };
+      }
+      
+      toast({
+        title: "Print Requested",
+        description: `${workOrderNumber} sent to printer.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Print Failed",
+        description: "Failed to print work order.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  return (
+    <div className="p-5 max-h-[85vh] overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-primary/10 rounded-lg">
+            <Wrench className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">Create Work Order</h2>
+            <p className="text-sm text-muted-foreground">{workOrderNumber}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-xs text-muted-foreground">Created</p>
+            <p className="text-sm font-medium">{new Date(createdDate).toLocaleDateString()}</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Order Summary Card */}
+      <div className="bg-muted/50 rounded-lg p-4 mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium">Order #{order.orderNumber || order.id}</span>
+          <Badge variant="outline">{order.items.length} items</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">{order.clientName}</p>
+      </div>
+
+      {/* Essential Fields */}
+      <div className="space-y-4 mb-5">
+        {/* Assigned Worker - Most Important */}
+        <div>
+          <Label htmlFor="assignedTo" className="flex items-center gap-1">
+            <User className="h-3.5 w-3.5" />
+            Assigned Worker <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="assignedTo"
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
+            placeholder="Enter worker name"
+            className="mt-1.5"
+          />
+        </div>
+
+        {/* Priority & Due Date Row */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label className="flex items-center gap-1">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Priority
+            </Label>
+            <Select value={priority} onValueChange={(v) => setPriority(v as any)}>
+              <SelectTrigger className="mt-1.5">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500" /> Low
+                  </span>
+                </SelectItem>
+                <SelectItem value="medium">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-yellow-500" /> Medium
+                  </span>
+                </SelectItem>
+                <SelectItem value="high">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500" /> High
+                  </span>
+                </SelectItem>
+                <SelectItem value="urgent">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500" /> Urgent
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           
-          <div className="mb-6">
-            <Label htmlFor="specialInstructions">Special Instructions</Label>
-            <Textarea
-              id="specialInstructions"
-              name="specialInstructions"
-              placeholder="Enter any special instructions or notes"
-              value={workOrderOptions.specialInstructions}
-              onChange={handleInputChange}
-              className="mt-1"
-              rows={4}
+          <div>
+            <Label htmlFor="dueDate" className="flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" />
+              Due Date
+            </Label>
+            <Input
+              id="dueDate"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="mt-1.5"
             />
           </div>
-          
-          <div className="mb-6">
-            <h3 className="text-lg font-medium mb-3">Item Instructions</h3>
-            <div className="border rounded-md overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Instructions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {order.items.map((item) => (
-                    <tr key={item.productId}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{item.productName}</div>
-                        <div className="text-sm text-gray-500">ID: {item.productId}</div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Textarea
-                          placeholder={`Special instructions for ${item.productName}`}
-                          value={itemInstructions.find(i => i.productId === item.productId)?.instruction || ''}
-                          onChange={(e) => handleItemInstructionChange(item.productId, e.target.value)}
-                          className="text-sm"
-                          rows={2}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        </div>
+
+        {/* Special Instructions */}
+        <div>
+          <Label htmlFor="instructions">Special Instructions</Label>
+          <Textarea
+            id="instructions"
+            value={specialInstructions}
+            onChange={(e) => setSpecialInstructions(e.target.value)}
+            placeholder="Any special handling or processing instructions..."
+            className="mt-1.5"
+            rows={2}
+          />
+        </div>
+      </div>
+
+      {/* Pallet Tracking Section (Collapsible) */}
+      <Collapsible open={showPalletSection} onOpenChange={setShowPalletSection} className="mb-5">
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" className="w-full justify-between">
+            <span className="flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Pallet Tracking
+              {showPalletSection && totalBoxes > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {palletCount} pallets • {totalBoxes} boxes
+                </Badge>
+              )}
+            </span>
+            {showPalletSection ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          <div className="border rounded-lg p-4 space-y-4">
+            {/* Pallet Count */}
+            <div className="flex items-center justify-between">
+              <Label>Number of Pallets</Label>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  className="h-8 w-8"
+                  onClick={() => setPalletCount(Math.max(1, palletCount - 1))}
+                >
+                  <Minus className="h-3 w-3" />
+                </Button>
+                <span className="w-12 text-center font-medium">{palletCount}</span>
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  className="h-8 w-8"
+                  onClick={() => setPalletCount(palletCount + 1)}
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Box Count per Product */}
+            <div>
+              <Label className="mb-2 block">Boxes per Product</Label>
+              <div className="space-y-2">
+                {order.items.map(item => (
+                  <div key={item.productId} className="flex items-center justify-between py-2 border-b last:border-0">
+                    <span className="text-sm">{item.productName}</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      className="w-20 h-8 text-center"
+                      value={boxesPerProduct[item.productId] || 0}
+                      onChange={(e) => setBoxesPerProduct(prev => ({
+                        ...prev,
+                        [item.productId]: parseInt(e.target.value) || 0
+                      }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Total */}
+            <div className="flex items-center justify-between pt-2 border-t font-medium">
+              <span>Total Boxes</span>
+              <span className="text-lg">{totalBoxes}</span>
             </div>
           </div>
-        </TabsContent>
-        
-        <TabsContent value="pallets">
-          <PalletTrackingForm
-            orderItems={order.items}
-            onSave={handleSavePalletData}
-            initialData={palletData || undefined}
-          />
-        </TabsContent>
-      </Tabs>
-      
-      <div className="flex items-center space-x-2 justify-end">
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button 
-          variant="outline" 
-          onClick={handlePreviewWorkOrder} 
-          className="flex items-center"
-        >
-          <Eye className="mr-2 h-4 w-4" />
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Advanced Options (Collapsible) */}
+      <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced} className="mb-6">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-full justify-between text-muted-foreground">
+            <span>Advanced Options</span>
+            {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Department</Label>
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Processing">Processing</SelectItem>
+                  <SelectItem value="Packaging">Packaging</SelectItem>
+                  <SelectItem value="Shipping">Shipping</SelectItem>
+                  <SelectItem value="Production">Production</SelectItem>
+                  <SelectItem value="Quality Control">Quality Control</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Equipment Needed</Label>
+              <Input
+                value={equipmentNeeded}
+                onChange={(e) => setEquipmentNeeded(e.target.value)}
+                placeholder="Forklift, Scale..."
+                className="mt-1.5"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox 
+              id="logo" 
+              checked={includeCompanyLogo}
+              onCheckedChange={(c) => setIncludeCompanyLogo(!!c)}
+            />
+            <Label htmlFor="logo" className="text-sm">Include company logo</Label>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2 pt-4 border-t">
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="outline" onClick={handlePreview}>
+          <Eye className="mr-1.5 h-4 w-4" />
           Preview
         </Button>
-        <Button 
-          variant="outline" 
-          onClick={handleEmailWorkOrder} 
-          disabled={isEmailing} 
-          className="flex items-center"
-        >
-          {isEmailing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Mail className="mr-2 h-4 w-4" />
-          )}
-          {isEmailing ? 'Sending...' : 'Email'}
+        <Button variant="outline" onClick={handlePrint} disabled={isPrinting}>
+          {isPrinting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Printer className="mr-1.5 h-4 w-4" />}
+          Print
         </Button>
-        <Button onClick={handleGenerateWorkOrder} disabled={isGenerating} className="flex items-center">
-          <Download className="mr-2 h-4 w-4" />
-          {isGenerating ? 'Generating...' : 'Generate Work Order'}
+        <Button variant="outline" onClick={handleEmail} disabled={isEmailing}>
+          {isEmailing ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />}
+          Email
+        </Button>
+        <Button onClick={handleGenerate} disabled={isGenerating} className="flex-1">
+          {isGenerating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+          Download
         </Button>
       </div>
     </div>

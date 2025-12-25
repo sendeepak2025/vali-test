@@ -20,7 +20,7 @@ import {
   ChevronRight, Plus, Minus, Eye, RefreshCw, Phone, Mail, MapPin,
   DollarSign, AlertCircle, CheckCircle2, XCircle, Truck, History,
   BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Loader2, ExternalLink,
-  ShoppingBag, Wallet, Building2, Star, Filter, MoreVertical
+  ShoppingBag, Wallet, Building2, Star, Filter, MoreVertical, AlertTriangle
 } from "lucide-react"
 import { getAllOrderAPI, getUserLatestOrdersAPI, getStatement } from "@/services2/operations/order"
 import { getAllProductAPI } from "@/services2/operations/product"
@@ -29,6 +29,7 @@ import StorePreOrders from "./StorePreOrders"
 import StoreProfileUpdate from "@/components/store/StoreProfileUpdate"
 import { logout } from "@/services2/operations/auth";
 import StoreInvoiceStatement from "@/components/store/StoreInvoiceStatement"
+import QualityIssueReport from "@/components/store/QualityIssueReport"
 
 const StoreDashboardEnhanced = () => {
   const { toast } = useToast()
@@ -285,6 +286,9 @@ const StoreDashboardEnhanced = () => {
             </TabsTrigger>
             <TabsTrigger value="billing" className="flex items-center gap-2">
               <User className="h-4 w-4" /> Billing
+            </TabsTrigger>
+            <TabsTrigger value="issues" className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Issues
             </TabsTrigger>
           </TabsList>
 
@@ -708,6 +712,11 @@ const StoreDashboardEnhanced = () => {
 
             
           </TabsContent>
+
+          {/* Issues Tab */}
+          <TabsContent value="issues" className="space-y-4">
+            <QualityIssueReport orders={orders} />
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -752,9 +761,60 @@ const StoreDashboardEnhanced = () => {
                 </div>
               </div>
 
-              {/* Total */}
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between text-lg font-bold">
+              {/* Price Breakdown */}
+              <div className="border-t pt-4 space-y-2">
+                {/* Items Subtotal */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Items Subtotal</span>
+                  <span>{formatCurrency(selectedOrder.items?.reduce((sum: number, item: any) => sum + (item.total || (item.quantity * (item.unitPrice || item.price))), 0) || 0)}</span>
+                </div>
+                
+                {/* Shipping/Delivery Fee */}
+                {(selectedOrder.shippinCost > 0 || selectedOrder.shipping > 0) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">
+                      <Truck className="h-3 w-3 inline mr-1" />
+                      Delivery Fee
+                    </span>
+                    <span>{formatCurrency(selectedOrder.shippinCost || selectedOrder.shipping || 0)}</span>
+                  </div>
+                )}
+
+                {/* Pallet Charges */}
+                {selectedOrder.palletData?.totalPalletCharge > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">
+                      <Package className="h-3 w-3 inline mr-1" />
+                      Pallet Charge ({selectedOrder.palletData.palletCount} pallets)
+                    </span>
+                    <span>{formatCurrency(selectedOrder.palletData.totalPalletCharge)}</span>
+                  </div>
+                )}
+
+                {/* Extra Charges (if total doesn't match calculated) */}
+                {(() => {
+                  const itemsTotal = selectedOrder.items?.reduce((sum: number, item: any) => sum + (item.total || (item.quantity * (item.unitPrice || item.price))), 0) || 0;
+                  const shippingCost = selectedOrder.shippinCost || selectedOrder.shipping || 0;
+                  const palletCharge = selectedOrder.palletData?.totalPalletCharge || 0;
+                  const calculatedTotal = itemsTotal + shippingCost + palletCharge;
+                  const extraCharges = (selectedOrder.total || 0) - calculatedTotal;
+                  
+                  if (extraCharges > 0.01) {
+                    return (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">
+                          <DollarSign className="h-3 w-3 inline mr-1" />
+                          Additional Charges
+                        </span>
+                        <span>{formatCurrency(extraCharges)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Total */}
+                <div className="flex items-center justify-between text-lg font-bold pt-2 border-t">
                   <span>Total</span>
                   <span className="text-blue-600">{formatCurrency(selectedOrder.total || 0)}</span>
                 </div>
@@ -772,14 +832,36 @@ const StoreDashboardEnhanced = () => {
                   )}
                 </div>
               )}
+
+              {/* Notes */}
+              {selectedOrder.notes && (
+                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <p className="text-sm text-yellow-800">
+                    <AlertCircle className="h-3 w-3 inline mr-1" />
+                    <span className="font-medium">Note:</span> {selectedOrder.notes}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOrderDetailOpen(false)}>Close</Button>
-            <Button onClick={() => navigate("/store/mobile")}>
-              <RefreshCw className="h-4 w-4 mr-2" /> Reorder
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button 
+              variant="outline" 
+              className="text-orange-600 border-orange-200 hover:bg-orange-50"
+              onClick={() => {
+                setOrderDetailOpen(false);
+                setActiveTab("issues");
+              }}
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" /> Report Issue
             </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setOrderDetailOpen(false)}>Close</Button>
+              <Button onClick={() => navigate("/store/mobile")}>
+                <RefreshCw className="h-4 w-4 mr-2" /> Reorder
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

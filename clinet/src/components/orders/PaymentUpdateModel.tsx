@@ -85,7 +85,7 @@ export function PaymentStatusPopup({
       paymentOrder?.paymentStatus === "paid" ||
       paymentOrder?.paymentStatus === "partial"
     ) {
-      setPaymentMethod(paymentOrder.paymentDetails.method as any);
+      setPaymentMethod(paymentOrder?.paymentDetails?.method as any || "cash");
       setTransactionId(paymentOrder?.paymentDetails?.transactionId || "");
       setNotes(paymentOrder?.paymentDetails?.notes || "");
       setPaymentType(
@@ -97,7 +97,7 @@ export function PaymentStatusPopup({
       // Ensure amount paid doesn't exceed total amount
       const savedAmount =
         paymentOrder?.paymentDetails?.amountPaid || totalAmount;
-      setAmountPaid(Number(paymentOrder?.paymentAmount));
+      setAmountPaid(Number(paymentOrder?.paymentAmount) || totalAmount);
     }
   }, [paymentOrder, open, totalAmount]);
 
@@ -189,6 +189,7 @@ export function PaymentStatusPopup({
 
       // Reset form
       onPayment(id, paymentData);
+      fetchOrders(); // Refresh the orders list
 
       setTransactionId("");
       setNotes("");

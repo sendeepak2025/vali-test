@@ -75,6 +75,7 @@ import OrderToPOWorkflow from "./pages/OrderToPOWorkflow";
 import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import StoreLegalDocuments from "./pages/StoreLegalDocuments";
+import QualityIssues from "./pages/QualityIssues";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -213,6 +214,14 @@ export default function App() {
           element={
             <PrivateRoute isAdmin={isAdmin}>
               <StoreLegalDocuments />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/quality-issues"
+          element={
+            <PrivateRoute isAdmin={isAdmin}>
+              <QualityIssues />
             </PrivateRoute>
           }
         />
