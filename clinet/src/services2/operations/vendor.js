@@ -40,21 +40,33 @@ export const createVendorAPI = async (formData, token) => {
   }
 };
 
-// Get All Vendors
-export const getAllVendorsAPI = async () => {
+// Get All Vendors (with pagination)
+export const getAllVendorsAPI = async (params = {}) => {
   try {
-    const response = await apiConnector("GET", GET_ALL_VENDORS);
+    const queryParams = new URLSearchParams();
+    
+    if (params.page) queryParams.append('page', params.page);
+    if (params.limit) queryParams.append('limit', params.limit);
+    if (params.search) queryParams.append('search', params.search);
+    if (params.type) queryParams.append('type', params.type);
+    if (params.status) queryParams.append('status', params.status);
+    
+    const url = queryParams.toString() 
+      ? `${GET_ALL_VENDORS}?${queryParams.toString()}`
+      : GET_ALL_VENDORS;
+    
+    const response = await apiConnector("GET", url);
 
     if (!response?.data?.success) {
       throw new Error(response?.data?.message || "Something went wrong!");
     }
 
     console.log(response.data.data)
-    return response?.data?.data || [];
+    return response?.data;
   } catch (error) {
     console.error("GET ALL Vendors API ERROR:", error);
     toast.error(error?.response?.data?.message || "Failed to get vendors!");
-    return [];
+    return { data: [], pagination: null };
   }
 };
 

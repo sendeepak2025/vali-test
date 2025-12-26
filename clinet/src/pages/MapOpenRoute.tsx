@@ -260,8 +260,8 @@ const MapContent = () => {
       )
       setCustomers(customersWithDetails.filter(c => c.lat && c.lng))
 
-      const vendorsData = await getAllVendorsAPI()
-      const vendorsWithCoords = (vendorsData || []).map((v: any) => ({
+      const vendorsResponse = await getAllVendorsAPI()
+      const vendorsWithCoords = (vendorsResponse?.data || []).map((v: any) => ({
         ...v, id: v._id,
         lat: getRandomCoord(33.3, 34.0),
         lng: getRandomCoord(-84.6, -84.0)

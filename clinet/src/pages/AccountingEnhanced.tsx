@@ -282,8 +282,8 @@ const AccountingContent = () => {
   const fetchVendors = async () => {
     setVendorLoading(true)
     try {
-      const data = await getAllVendorsAPI()
-      const vendorList = data || []
+      const response = await getAllVendorsAPI()
+      const vendorList = response?.data || []
       
       // Fetch details for each vendor
       const vendorsWithDetails = await Promise.all(

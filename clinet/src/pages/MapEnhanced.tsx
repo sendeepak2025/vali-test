@@ -168,8 +168,8 @@ const MapContent = () => {
       setCustomers(customersWithDetails.filter(c => c.coords))
 
       // Fetch vendors
-      const vendorsData = await getAllVendorsAPI()
-      const vendorsWithCoords = (vendorsData || []).map((v: any) => ({
+      const vendorsResponse = await getAllVendorsAPI()
+      const vendorsWithCoords = (vendorsResponse?.data || []).map((v: any) => ({
         ...v,
         id: v._id,
         coords: parseCoordinates(v.address, v.city, v.state)

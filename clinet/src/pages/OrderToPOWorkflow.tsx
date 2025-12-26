@@ -118,7 +118,7 @@ const OrderToPOWorkflow = () => {
       
       setOrders(ordersData.filter(o => !o.isDelete))
       setProducts(productsRes || [])
-      setVendors(vendorsRes || [])
+      setVendors(vendorsRes?.data || [])
       
       let poData: any[] = []
       if (Array.isArray(poRes)) {

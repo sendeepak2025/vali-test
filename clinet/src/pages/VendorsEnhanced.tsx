@@ -32,6 +32,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
+import { VendorSelect } from "@/components/ui/vendor-select"
 import { getAllVendorsAPI, deleteVendorAPI, updateVendorPaymentTermsAPI, updateVendorStatusAPI } from "@/services2/operations/vendor"
 import { getAllInvoicesAPI, createInvoiceAPI, approveInvoiceAPI, disputeInvoiceAPI, matchInvoiceAPI, getMatchingComparisonAPI } from "@/services2/operations/vendorInvoice"
 import { getAllVendorCreditMemosAPI, createVendorCreditMemoAPI, approveVendorCreditMemoAPI, applyVendorCreditMemoAPI, voidVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo"
@@ -115,6 +116,9 @@ const VendorManagementContent = () => {
   const [vendorSearch, setVendorSearch] = useState("")
   const [vendorTypeFilter, setVendorTypeFilter] = useState("all")
   const [vendorLoading, setVendorLoading] = useState(false)
+  const [vendorPagination, setVendorPagination] = useState<any>(null)
+  const [vendorPage, setVendorPage] = useState(1)
+  const [vendorPageSize] = useState(10)
 
   // Purchase Orders state
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
@@ -322,9 +326,18 @@ const VendorManagementContent = () => {
   const fetchVendors = async () => {
     setVendorLoading(true)
     try {
-      const data = await getAllVendorsAPI();
-      // console.log(data, "all vendors")
-      setVendors(data || [])
+      const params: any = {
+        page: vendorPage,
+        limit: vendorPageSize,
+      }
+      if (vendorSearch) params.search = vendorSearch
+      if (vendorTypeFilter !== "all") params.type = vendorTypeFilter
+      if (vendorStatusFilter !== "all") params.status = vendorStatusFilter
+      
+      const response = await getAllVendorsAPI(params);
+      // console.log(response, "all vendors")
+      setVendors(response?.data || [])
+      setVendorPagination(response?.pagination || null)
     } catch (error) {
       console.error("Error fetching vendors:", error)
       toast({ variant: "destructive", title: "Error", description: "Failed to fetch vendors" })
@@ -585,17 +598,16 @@ const VendorManagementContent = () => {
     return () => clearTimeout(timer)
   }, [disputeSearch, disputeStatusFilter, disputeTypeFilter, disputeVendorFilter])
 
-  // Filter vendors
-  const filteredVendors = vendors.filter((vendor) => {
-    const matchesSearch =
-      vendor.name?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-      vendor.contactName?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-      vendor.email?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
-      vendor.phone?.includes(vendorSearch)
-    const matchesType = vendorTypeFilter === "all" || vendor.type === vendorTypeFilter
-    const matchesStatus = vendorStatusFilter === "all" || vendor.status === vendorStatusFilter
-    return matchesSearch && matchesType && matchesStatus
-  })
+  // Refetch vendors when filters or page change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchVendors()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [vendorSearch, vendorTypeFilter, vendorStatusFilter, vendorPage])
+
+  // Vendors are now filtered on backend, use directly
+  const filteredVendors = vendors
 
   // Filter purchase orders by status
   const filteredPurchaseOrders = purchaseOrders.filter((po) => {
@@ -1743,12 +1755,18 @@ const VendorManagementContent = () => {
                   <Input
                     placeholder="Search vendors..."
                     value={vendorSearch}
-                    onChange={(e) => setVendorSearch(e.target.value)}
+                    onChange={(e) => {
+                      setVendorSearch(e.target.value)
+                      setVendorPage(1)
+                    }}
                     className="pl-9"
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Select value={vendorTypeFilter} onValueChange={setVendorTypeFilter}>
+                  <Select value={vendorTypeFilter} onValueChange={(value) => {
+                    setVendorTypeFilter(value)
+                    setVendorPage(1)
+                  }}>
                     <SelectTrigger className="w-[130px]">
                       <SelectValue placeholder="Type" />
                     </SelectTrigger>
@@ -1760,7 +1778,10 @@ const VendorManagementContent = () => {
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={vendorStatusFilter} onValueChange={setVendorStatusFilter}>
+                  <Select value={vendorStatusFilter} onValueChange={(value) => {
+                    setVendorStatusFilter(value)
+                    setVendorPage(1)
+                  }}>
                     <SelectTrigger className="w-[130px]">
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -1899,6 +1920,54 @@ const VendorManagementContent = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination */}
+              {vendorPagination && (
+                <div className="flex items-center justify-between px-2 py-4 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((vendorPagination.page - 1) * vendorPagination.limit) + 1} to{" "}
+                    {Math.min(vendorPagination.page * vendorPagination.limit, vendorPagination.total)} of{" "}
+                    {vendorPagination.total} vendors
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVendorPage(1)}
+                      disabled={!vendorPagination.hasPrevPage || vendorLoading}
+                    >
+                      First
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVendorPage(vendorPage - 1)}
+                      disabled={!vendorPagination.hasPrevPage || vendorLoading}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm px-2">
+                      Page {vendorPagination.page} of {vendorPagination.totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVendorPage(vendorPage + 1)}
+                      disabled={!vendorPagination.hasNextPage || vendorLoading}
+                    >
+                      Next
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setVendorPage(vendorPagination.totalPages)}
+                      disabled={!vendorPagination.hasNextPage || vendorLoading}
+                    >
+                      Last
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -2136,17 +2205,14 @@ const VendorManagementContent = () => {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Select value={invoiceVendorFilter} onValueChange={setInvoiceVendorFilter}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Vendors</SelectItem>
-                      {vendors.map((v) => (
-                        <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <VendorSelect
+                    value={invoiceVendorFilter}
+                    onValueChange={setInvoiceVendorFilter}
+                    placeholder="Vendor"
+                    includeAll={true}
+                    allLabel="All Vendors"
+                    className="w-[150px]"
+                  />
                   <Select value={invoiceStatusFilter} onValueChange={setInvoiceStatusFilter}>
                     <SelectTrigger className="w-[130px]">
                       <SelectValue placeholder="Status" />
@@ -2290,17 +2356,14 @@ const VendorManagementContent = () => {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Select value={paymentVendorFilter} onValueChange={setPaymentVendorFilter}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Vendors</SelectItem>
-                      {vendors.map((v) => (
-                        <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <VendorSelect
+                    value={paymentVendorFilter}
+                    onValueChange={setPaymentVendorFilter}
+                    placeholder="Vendor"
+                    includeAll={true}
+                    allLabel="All Vendors"
+                    className="w-[150px]"
+                  />
                   <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
                     <SelectTrigger className="w-[120px]">
                       <SelectValue placeholder="Method" />
@@ -2455,17 +2518,14 @@ const VendorManagementContent = () => {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Select value={creditMemoVendorFilter} onValueChange={setCreditMemoVendorFilter}>
-                    <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Vendors</SelectItem>
-                      {vendors.map((v) => (
-                        <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <VendorSelect
+                    value={creditMemoVendorFilter}
+                    onValueChange={setCreditMemoVendorFilter}
+                    placeholder="Vendor"
+                    includeAll={true}
+                    allLabel="All Vendors"
+                    className="w-[150px]"
+                  />
                   <Select value={creditMemoTypeFilter} onValueChange={setCreditMemoTypeFilter}>
                     <SelectTrigger className="w-[120px]">
                       <SelectValue placeholder="Type" />
@@ -2688,17 +2748,14 @@ const VendorManagementContent = () => {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={disputeVendorFilter} onValueChange={setDisputeVendorFilter}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Vendor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Vendors</SelectItem>
-                    {vendors.map((v) => (
-                      <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <VendorSelect
+                  value={disputeVendorFilter}
+                  onValueChange={setDisputeVendorFilter}
+                  placeholder="Vendor"
+                  includeAll={true}
+                  allLabel="All Vendors"
+                  className="w-[180px]"
+                />
                 <Button variant="outline" onClick={fetchDisputes} disabled={disputeLoading}>
                   <RefreshCw className={`h-4 w-4 ${disputeLoading ? "animate-spin" : ""}`} />
                 </Button>
@@ -2827,17 +2884,14 @@ const VendorManagementContent = () => {
                       <CardDescription>Outstanding balances by age bucket</CardDescription>
                     </div>
                     <div className="flex gap-2">
-                      <Select value={agingVendorFilter} onValueChange={setAgingVendorFilter}>
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue placeholder="Filter by vendor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Vendors</SelectItem>
-                          {vendors.map((v) => (
-                            <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <VendorSelect
+                        value={agingVendorFilter}
+                        onValueChange={setAgingVendorFilter}
+                        placeholder="Filter by vendor"
+                        includeAll={true}
+                        allLabel="All Vendors"
+                        className="w-[180px]"
+                      />
                       <Button onClick={fetchAgingReport} disabled={agingReportLoading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${agingReportLoading ? "animate-spin" : ""}`} />
                         Generate
@@ -2949,16 +3003,12 @@ const VendorManagementContent = () => {
                       <CardDescription>Transaction history and running balance</CardDescription>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Select value={statementVendorId} onValueChange={setStatementVendorId}>
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue placeholder="Select vendor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {vendors.map((v) => (
-                            <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <VendorSelect
+                        value={statementVendorId}
+                        onValueChange={setStatementVendorId}
+                        placeholder="Select vendor"
+                        className="w-[180px]"
+                      />
                       <Input
                         type="date"
                         value={statementStartDate}
@@ -3074,16 +3124,12 @@ const VendorManagementContent = () => {
                       <CardDescription>Quality, delivery, and fill rate metrics</CardDescription>
                     </div>
                     <div className="flex gap-2">
-                      <Select value={performanceVendorId} onValueChange={setPerformanceVendorId}>
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue placeholder="Select vendor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {vendors.map((v) => (
-                            <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <VendorSelect
+                        value={performanceVendorId}
+                        onValueChange={setPerformanceVendorId}
+                        placeholder="Select vendor"
+                        className="w-[180px]"
+                      />
                       <Button onClick={fetchVendorPerformance} disabled={performanceLoading || !performanceVendorId}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${performanceLoading ? "animate-spin" : ""}`} />
                         Generate
@@ -3538,19 +3584,12 @@ const VendorManagementContent = () => {
           <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
             <div className="space-y-2">
               <Label>Vendor *</Label>
-              <Select 
-                value={invoiceForm.vendorId || undefined} 
+              <VendorSelect
+                value={invoiceForm.vendorId}
                 onValueChange={(value) => setInvoiceForm(prev => ({ ...prev, vendorId: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vendors.filter(v => v.status === 'active' || !v.status).map((v) => (
-                    <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Select vendor"
+                className="w-full"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -3833,19 +3872,12 @@ const VendorManagementContent = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Vendor *</Label>
-                <Select 
-                  value={creditMemoForm.vendorId || undefined} 
+                <VendorSelect
+                  value={creditMemoForm.vendorId}
                   onValueChange={(value) => setCreditMemoForm(prev => ({ ...prev, vendorId: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select vendor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vendors.filter(v => v.status === 'active' || !v.status).map((v) => (
-                      <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Select vendor"
+                  className="w-full"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Type *</Label>
@@ -4129,24 +4161,17 @@ const VendorManagementContent = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Vendor *</Label>
-                <Select 
-                  value={paymentForm.vendorId || undefined} 
+                <VendorSelect
+                  value={paymentForm.vendorId}
                   onValueChange={(value) => setPaymentForm(prev => ({ 
                     ...prev, 
                     vendorId: value,
                     invoiceIds: [],
                     appliedCredits: []
                   }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select vendor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vendors.filter(v => v.status === 'active' || !v.status).map((v) => (
-                      <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Select vendor"
+                  className="w-full"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Payment Method *</Label>
@@ -4468,19 +4493,12 @@ const VendorManagementContent = () => {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Vendor *</Label>
-              <Select 
-                value={disputeForm.vendorId || undefined} 
+              <VendorSelect
+                value={disputeForm.vendorId}
                 onValueChange={(value) => setDisputeForm(prev => ({ ...prev, vendorId: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select vendor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {vendors.map((v) => (
-                    <SelectItem key={v._id} value={v._id}>{v.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Select vendor"
+                className="w-full"
+              />
             </div>
 
             <div className="space-y-2">

@@ -27,9 +27,9 @@ const VendorsList = () => {
 
   useEffect(() => {
     const fetchVendors = async () => {
-      const data = await getAllVendorsAPI();
-      console.log(data)
-      setVendors(data);
+      const response = await getAllVendorsAPI();
+      console.log(response)
+      setVendors(response?.data || []);
     };
     fetchVendors();
   }, []);

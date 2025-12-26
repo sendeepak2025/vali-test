@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
+import { VendorSelect } from "@/components/ui/vendor-select"
 import { getAllProductAPI } from "@/services2/operations/product"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { getSinglePurchaseOrderAPI, updatePurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
@@ -128,8 +129,8 @@ const EditPurchaseOrderForm = () => {
           setProducts(updatedProducts)
         }
 
-        if (vendorsResponse) {
-          const formattedData = vendorsResponse.map((vendor) => ({
+        if (vendorsResponse?.data) {
+          const formattedData = vendorsResponse.data.map((vendor) => ({
             ...vendor,
             id: vendor._id,
           }))
@@ -365,18 +366,12 @@ const EditPurchaseOrderForm = () => {
               <div className="space-y-4">
                 <div>
                   <Label htmlFor="vendor">Vendor</Label>
-                  <Select value={vendorId} onValueChange={setVendorId}>
-                    <SelectTrigger id="vendor">
-                      <SelectValue placeholder="Select a vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {vendors.map((vendor) => (
-                        <SelectItem key={vendor.id} value={vendor.id}>
-                          {vendor.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <VendorSelect
+                    value={vendorId}
+                    onValueChange={setVendorId}
+                    placeholder="Select a vendor"
+                    className="w-full"
+                  />
                 </div>
 
                 <div>

@@ -174,8 +174,8 @@ const VendorContent = () => {
   const fetchVendors = async () => {
     setVendorLoading(true)
     try {
-      const data = await getAllVendorsAPI()
-      setVendors(data || [])
+      const response = await getAllVendorsAPI()
+      setVendors(response?.data || [])
     } catch (error) {
       console.error("Error fetching vendors:", error)
       toast({ variant: "destructive", title: "Error", description: "Failed to fetch vendors" })

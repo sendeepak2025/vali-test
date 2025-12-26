@@ -43,14 +43,59 @@ const createVendor = async (req, res) => {
   }
 };
 
-// ✅ Get All Vendors
+// ✅ Get All Vendors (with pagination)
 const getAllVendors = async (req, res) => {
   try {
-    const vendors = await Vendor.find();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
+    // Search filter
+    const search = req.query.search || '';
+    const type = req.query.type;
+    const status = req.query.status;
+    
+    // Build query
+    const query = {};
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { contactName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
+    
+    if (type && type !== 'all') {
+      query.type = type;
+    }
+    
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    // Get total count for pagination
+    const total = await Vendor.countDocuments(query);
+    
+    // Get paginated vendors
+    const vendors = await Vendor.find(query)
+      .sort({ _id: -1 })
+      .skip(skip)
+      .limit(limit);
+    
     res.status(200).json({
       success: true,
       message: 'Vendors fetched successfully',
       data: vendors,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit),
+        hasPrevPage: page > 1,
+      },
     });
   } catch (err) {
     res.status(500).json({

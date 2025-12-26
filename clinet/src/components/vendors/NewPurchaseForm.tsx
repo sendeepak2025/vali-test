@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
+import { VendorSelect } from "@/components/ui/vendor-select"
 import PageHeader from "@/components/shared/PageHeader"
 import { getAllProductAPI } from "@/services2/operations/product"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
@@ -87,10 +88,10 @@ const NewPurchaseForm = () => {
   }
 
   const fetchVendors = async () => {
-    const data = await getAllVendorsAPI()
-    console.log(data)
+    const response = await getAllVendorsAPI()
+    console.log(response)
 
-    const formattedData = data.map((vendor) => ({
+    const formattedData = (response?.data || []).map((vendor) => ({
       ...vendor,
       id: vendor._id,
     }))
@@ -379,23 +380,12 @@ const NewPurchaseForm = () => {
 </div>
   <div>
                   <Label htmlFor="vendor">Vendor</Label>
-                  <Select value={vendorId} onValueChange={handleVendorChange}>
-                    <SelectTrigger id="vendor">
-                      <SelectValue placeholder="Select a vendor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {vendors.map((vendor) => (
-                        <SelectItem
-                          key={vendor.id}
-                          value={vendor.id}
-                          className={isRecommendedVendor(vendor.id) ? "text-green-600 font-medium" : ""}
-                        >
-                          {vendor.name}
-                          {isRecommendedVendor(vendor.id) && " (Recommended)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <VendorSelect
+                    value={vendorId}
+                    onValueChange={handleVendorChange}
+                    placeholder="Select a vendor"
+                    className="w-full"
+                  />
                 </div>
 
                 <div>
