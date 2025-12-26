@@ -179,7 +179,7 @@ export default function StoreCreditInfo({ storeId, storeName, onCreditApplied }:
                   <TableHead>Type</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Balance</TableHead>
-                  <TableHead>Reason</TableHead>
+                  <TableHead>Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -187,7 +187,7 @@ export default function StoreCreditInfo({ storeId, storeName, onCreditApplied }:
                   const typeInfo = CREDIT_TYPE_LABELS[entry.type] || { label: entry.type, color: "gray", icon: CreditCard }
                   const Icon = typeInfo.icon
                   return (
-                    <TableRow key={idx}>
+                    <TableRow key={idx} className={entry.type === "credit_applied" ? "bg-blue-50/50" : ""}>
                       <TableCell className="text-sm">
                         {new Date(entry.createdAt).toLocaleDateString()}
                       </TableCell>
@@ -198,13 +198,21 @@ export default function StoreCreditInfo({ storeId, storeName, onCreditApplied }:
                         </Badge>
                       </TableCell>
                       <TableCell className={entry.amount >= 0 ? "text-green-600" : "text-red-600"}>
-                        {entry.amount >= 0 ? "+" : ""}{formatCurrency(entry.amount)}
+                        {entry.amount >= 0 ? "+" : ""}{formatCurrency(Math.abs(entry.amount))}
                       </TableCell>
                       <TableCell className="font-medium">
                         {formatCurrency(entry.balanceAfter)}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                        {entry.reason}
+                      <TableCell className="text-sm">
+                        {entry.type === "credit_applied" && entry.orderNumber ? (
+                          <div>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 font-medium">
+                              Order #{entry.orderNumber}
+                            </Badge>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground truncate max-w-[200px] block">{entry.reason}</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   )

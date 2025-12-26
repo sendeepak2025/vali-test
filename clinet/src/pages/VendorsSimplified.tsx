@@ -565,7 +565,7 @@ const VendorContent = () => {
                   <CardTitle>Purchase Orders</CardTitle>
                   <CardDescription>Track what you've ordered from vendors</CardDescription>
                 </div>
-                <Button onClick={() => navigate("/purchase-orders/create")}>
+                <Button onClick={() => navigate("/vendors/new-purchase")}>
                   <Plus className="h-4 w-4 mr-2" />
                   New Purchase Order
                 </Button>

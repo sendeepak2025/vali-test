@@ -194,7 +194,7 @@ const AdminStoresEnhanced = () => {
   // Edit Store Form
   const [editFormData, setEditFormData] = useState({
     storeName: "", ownerName: "", email: "", phone: "", address: "", city: "", state: "", zipCode: "",
-    priceCategory: "aPrice", shippingCost: 0, isOrder: false, isProduct: false
+    priceCategory: "aPrice", shippingCost: 0, isOrder: true, isProduct: true
   })
   
   // Add Cheque Form
@@ -400,8 +400,8 @@ const AdminStoresEnhanced = () => {
       zipCode: selectedStore.zipCode || "",
       priceCategory: selectedStore.priceCategory || "aPrice",
       shippingCost: selectedStore.shippingCost || 0,
-      isOrder: selectedStore.isOrder || false,
-      isProduct: selectedStore.isProduct || false
+      isOrder: selectedStore.isOrder !== undefined ? selectedStore.isOrder : true,
+      isProduct: selectedStore.isProduct !== undefined ? selectedStore.isProduct : true
     })
     setEditStoreOpen(true)
   }

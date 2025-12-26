@@ -247,7 +247,9 @@ if (insufficientStock.length > 0  ) {
       .findById(clientId.value)
       .select("shippingCost");
 
-    const shippinCost = user.shippingCost;
+    // If order is created from preOrder, shipping cost should be 0
+    // Admin will manually add shipping cost in invoice for each order
+    const shippinCost = preOrder ? 0 : (user?.shippingCost || 0);
 
     // More robust date handling for VPS deployment
     let orderDate;

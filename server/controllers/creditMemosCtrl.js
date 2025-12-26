@@ -55,6 +55,10 @@ const applyStoreCreditToOrder = async (storeId, orderId, amount, userId, userNam
     throw new Error(`Insufficient credit balance. Available: ${currentBalance}, Requested: ${amount}`);
   }
 
+  // Get order details for reason text
+  const order = await Order.findById(orderId).select("orderNumber").session(session);
+  const orderNumber = order?.orderNumber || orderId.toString().slice(-6);
+
   const balanceBefore = currentBalance;
   const balanceAfter = currentBalance - amount;
 
@@ -62,9 +66,9 @@ const applyStoreCreditToOrder = async (storeId, orderId, amount, userId, userNam
   store.creditHistory.push({
     type: "credit_applied",
     amount: -amount,
-    reference: orderId.toString(),
+    reference: orderId.toString(),  // Store order ID for population
     referenceModel: "Order",
-    reason: `Credit applied to order`,
+    reason: `Credit applied to order #${orderNumber}`,
     balanceBefore,
     balanceAfter,
     performedBy: userId,
@@ -73,7 +77,7 @@ const applyStoreCreditToOrder = async (storeId, orderId, amount, userId, userNam
   });
 
   await store.save({ session });
-  return { balanceBefore, balanceAfter, amountApplied: amount };
+  return { balanceBefore, balanceAfter, amountApplied: amount, orderNumber };
 };
 
 // Create Credit Memo
@@ -600,12 +604,36 @@ exports.getStoreCreditInfo = async (req, res) => {
       refundMethod: "store_credit",
     }).select("creditMemoNumber totalAmount reason createdAt");
 
+    // Populate order details for credit_applied entries
+    const creditHistory = store.creditHistory || [];
+    const populatedHistory = [];
+
+    for (const entry of creditHistory) {
+      const historyEntry = entry.toObject ? entry.toObject() : { ...entry };
+      
+      // If it's a credit_applied entry with Order reference, populate order number
+      if (entry.type === "credit_applied" && entry.referenceModel === "Order" && entry.reference) {
+        try {
+          const order = await Order.findById(entry.reference).select("orderNumber");
+          if (order) {
+            historyEntry.orderNumber = order.orderNumber;
+            historyEntry.orderId = entry.reference;
+          }
+        } catch (err) {
+          // If order not found, continue without order number
+          console.log("Order not found for credit history entry:", entry.reference);
+        }
+      }
+      
+      populatedHistory.push(historyEntry);
+    }
+
     return res.status(200).json({
       success: true,
       data: {
         storeName: store.storeName,
         creditBalance: store.creditBalance || 0,
-        creditHistory: store.creditHistory || [],
+        creditHistory: populatedHistory,
         pendingCredits,
       },
     });

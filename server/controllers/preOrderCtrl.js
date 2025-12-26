@@ -297,21 +297,36 @@ const confirmOrderCtrl = async (req, res) => {
 
     // --- Capture the response from createOrderCtrl ---
     let createdOrderData;
+    let responseStatusCode = 200;
+    let responseData = null;
+    
     const fakeRes = {
       status: function (statusCode) {
+        responseStatusCode = statusCode;
         this.statusCode = statusCode;
         return this;
       },
       json: function (data) {
-        createdOrderData = data.newOrder || data; // Capture the created order
+        responseData = data;
+        createdOrderData = data.newOrder || data;
         return this;
       },
     };
 
     await createOrderCtrl(fakeReq, fakeRes);
 
-    if (!createdOrderData) {
-      return res.status(500).json({ success: false, message: "Order creation failed" });
+    // Check if order creation failed
+    if (responseStatusCode !== 201 && responseStatusCode !== 200) {
+      return res.status(responseStatusCode).json({
+        success: false,
+        message: responseData?.message || "Order creation failed",
+        error: responseData?.error,
+        insufficientStock: responseData?.insufficientStock
+      });
+    }
+
+    if (!createdOrderData || !createdOrderData._id) {
+      return res.status(500).json({ success: false, message: "Order creation failed - no order data returned" });
     }
 
     // --- Update PreOrder ---

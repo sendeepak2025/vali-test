@@ -341,11 +341,11 @@ const authSchema = new mongoose.Schema(
     },
     isOrder: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     isProduct: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     
     // Member specific fields

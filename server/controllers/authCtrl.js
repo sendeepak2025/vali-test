@@ -467,6 +467,8 @@ const sendStoreOrderOtpCtrl = async (req, res) => {
       loginOtpExpires: otpExpires,
     });
 
+    console.log("Store Order Otp", otp);
+
     const mailSender = require("../utils/mailSender");
     const emailTemplates = require("../templates/emails/emailTemplates");
     
@@ -769,7 +771,9 @@ const updateStoreCtrl = async (req, res) => {
       zipCode,
       businessDescription,
       priceCategory,
-      shippingCost
+      shippingCost,
+      isOrder,
+      isProduct
 
     } = req.body;
 
@@ -802,7 +806,11 @@ const updateStoreCtrl = async (req, res) => {
     store.zipCode = zipCode || store.zipCode;
     store.priceCategory = priceCategory || store.priceCategory;
     store.businessDescription = businessDescription || store.businessDescription;
-    store.shippingCost = shippingCost || store.shippingCost;
+    store.shippingCost = shippingCost !== undefined ? shippingCost : store.shippingCost;
+    
+    // Update permissions - handle boolean values properly
+    if (isOrder !== undefined) store.isOrder = isOrder;
+    if (isProduct !== undefined) store.isProduct = isProduct;
 
     await store.save();
 

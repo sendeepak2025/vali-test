@@ -13,11 +13,14 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  DollarSign, FileText, CheckCircle2, RefreshCw, AlertCircle
+  DollarSign, FileText, CheckCircle2, RefreshCw, AlertCircle, Wallet, CreditCard
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
 import { addPaymentRecordAPI } from "@/services2/operations/auth"
+import { getStoreCreditInfoAPI, applyStoreCreditAPI } from "@/services2/operations/creditMemo"
+import { useSelector } from "react-redux"
+import type { RootState } from "@/redux/store"
 
 interface Order {
   _id: string
@@ -50,6 +53,7 @@ export function RecordPaymentModal({
   onSuccess 
 }: RecordPaymentModalProps) {
   const { toast } = useToast()
+  const token = useSelector((state: RootState) => state.auth?.token ?? null)
   
   // Selected orders state
   const [selectedOrders, setSelectedOrders] = useState<string[]>([])
@@ -59,6 +63,12 @@ export function RecordPaymentModal({
   const [paymentNotes, setPaymentNotes] = useState("")
   const [loading, setLoading] = useState(false)
 
+  // Credit balance state
+  const [creditBalance, setCreditBalance] = useState(0)
+  const [useCreditBalance, setUseCreditBalance] = useState(false)
+  const [creditAmountToUse, setCreditAmountToUse] = useState("")
+  const [loadingCredit, setLoadingCredit] = useState(false)
+
   // Reset form when modal opens/closes
   useEffect(() => {
     if (!open) {
@@ -67,8 +77,29 @@ export function RecordPaymentModal({
       setPaymentType("cash")
       setPaymentReference("")
       setPaymentNotes("")
+      setUseCreditBalance(false)
+      setCreditAmountToUse("")
     }
   }, [open])
+
+  // Fetch credit balance when modal opens
+  useEffect(() => {
+    const fetchCreditBalance = async () => {
+      if (open && customer?.id && token) {
+        setLoadingCredit(true)
+        try {
+          const creditInfo = await getStoreCreditInfoAPI(customer.id, token)
+          setCreditBalance(creditInfo?.creditBalance || 0)
+        } catch (error) {
+          console.error("Error fetching credit balance:", error)
+          setCreditBalance(0)
+        } finally {
+          setLoadingCredit(false)
+        }
+      }
+    }
+    fetchCreditBalance()
+  }, [open, customer?.id, token])
 
   // Get unpaid orders
   const unpaidOrders = customer?.orders?.filter(
@@ -137,16 +168,29 @@ export function RecordPaymentModal({
       return
     }
 
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+    const creditToUse = useCreditBalance ? parseFloat(creditAmountToUse) || 0 : 0
+    const cashPayment = parseFloat(paymentAmount) || 0
+    const totalPayment = creditToUse + cashPayment
+
+    if (totalPayment <= 0) {
       toast({ variant: "destructive", title: "Error", description: "Please enter a valid amount" })
+      return
+    }
+
+    // Validate credit amount
+    if (creditToUse > creditBalance) {
+      toast({ variant: "destructive", title: "Error", description: "Credit amount exceeds available balance" })
       return
     }
 
     setLoading(true)
     try {
       // Calculate how to distribute payment across selected orders
-      let remainingPayment = parseFloat(paymentAmount)
-      const paymentDistribution: { orderId: string; amount: number }[] = []
+      let remainingPayment = totalPayment
+      const paymentDistribution: { orderId: string; amount: number; creditAmount: number }[] = []
+
+      // First, calculate total remaining credit to distribute
+      let remainingCredit = creditToUse
 
       for (const orderId of selectedOrders) {
         if (remainingPayment <= 0) break
@@ -159,12 +203,31 @@ export function RecordPaymentModal({
         const orderBalance = orderTotal - paidAmount
 
         const paymentForOrder = Math.min(remainingPayment, orderBalance)
-        paymentDistribution.push({ orderId, amount: paymentForOrder })
+        
+        // Determine how much credit to use for this order
+        const creditForOrder = Math.min(remainingCredit, paymentForOrder)
+        const cashForOrder = paymentForOrder - creditForOrder
+        
+        paymentDistribution.push({ 
+          orderId, 
+          amount: cashForOrder,
+          creditAmount: creditForOrder 
+        })
+        
         remainingPayment -= paymentForOrder
+        remainingCredit -= creditForOrder
       }
 
-      // Record payment for each order
+      // Apply credit first if using credit
       let successCount = 0
+      for (const { orderId, creditAmount } of paymentDistribution) {
+        if (creditAmount > 0) {
+          const creditResult = await applyStoreCreditAPI(customer.id, orderId, creditAmount, token)
+          if (creditResult) successCount++
+        }
+      }
+
+      // Record cash payment for each order
       for (const { orderId, amount } of paymentDistribution) {
         if (amount > 0) {
           const result = await addPaymentRecordAPI(customer.id, {
@@ -181,7 +244,7 @@ export function RecordPaymentModal({
       if (successCount > 0) {
         toast({ 
           title: "Success", 
-          description: `Payment recorded for ${successCount} order(s)` 
+          description: `Payment recorded successfully${creditToUse > 0 ? ` (${formatCurrency(creditToUse)} from credit)` : ''}` 
         })
         onOpenChange(false)
         onSuccess?.()
@@ -317,56 +380,163 @@ export function RecordPaymentModal({
             )}
           </div>
 
-          {/* Amount Input */}
-          <div className="space-y-2">
-            <Label htmlFor="paymentAmount">Payment Amount</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+          {/* Credit Balance Section - Only show if credit can cover full amount */}
+          {creditBalance > 0 && (
+            <div className={`space-y-3 p-4 rounded-lg border ${
+              creditBalance >= selectedTotal && selectedTotal > 0
+                ? 'bg-purple-50 border-purple-200' 
+                : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className={`h-5 w-5 ${creditBalance >= selectedTotal && selectedTotal > 0 ? 'text-purple-600' : 'text-gray-400'}`} />
+                  <div>
+                    <p className={`font-medium ${creditBalance >= selectedTotal && selectedTotal > 0 ? 'text-purple-900' : 'text-gray-600'}`}>
+                      Available Credit Balance
+                    </p>
+                    <p className={`text-xs ${creditBalance >= selectedTotal && selectedTotal > 0 ? 'text-purple-600' : 'text-gray-500'}`}>
+                      {creditBalance >= selectedTotal && selectedTotal > 0 
+                        ? 'You can pay fully with credit!' 
+                        : 'Insufficient credit for full payment'}
+                    </p>
+                  </div>
+                </div>
+                <Badge className={`text-lg px-3 py-1 ${
+                  creditBalance >= selectedTotal && selectedTotal > 0
+                    ? 'bg-purple-600 text-white' 
+                    : 'bg-gray-400 text-white'
+                }`}>
+                  {formatCurrency(creditBalance)}
+                </Badge>
+              </div>
+
+              {/* Show warning if credit is less than order amount */}
+              {creditBalance < selectedTotal && selectedTotal > 0 && (
+                <div className="p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-xs text-orange-700 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Credit balance ({formatCurrency(creditBalance)}) is less than selected amount ({formatCurrency(selectedTotal)}). 
+                    Credit can only be used when it covers the full payment.
+                  </p>
+                </div>
+              )}
+              
+              {/* Only allow credit payment if credit >= selected total */}
+              {creditBalance >= selectedTotal && selectedTotal > 0 && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="useCreditBalance"
+                      checked={useCreditBalance}
+                      onCheckedChange={(checked) => {
+                        setUseCreditBalance(checked as boolean)
+                        if (checked) {
+                          // Use full selected amount from credit
+                          setCreditAmountToUse(selectedTotal.toFixed(2))
+                          // No cash payment needed
+                          setPaymentAmount("0")
+                        } else {
+                          setCreditAmountToUse("")
+                          setPaymentAmount(selectedTotal.toFixed(2))
+                        }
+                      }}
+                    />
+                    <Label htmlFor="useCreditBalance" className="cursor-pointer text-sm text-purple-800">
+                      Pay full amount using credit balance
+                    </Label>
+                  </div>
+
+                  {useCreditBalance && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          <div>
+                            <p className="font-medium text-green-800">Paying with Credit</p>
+                            <p className="text-xs text-green-600">No cash payment required</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-700">{formatCurrency(selectedTotal)}</p>
+                          <p className="text-xs text-green-600">
+                            Remaining: {formatCurrency(creditBalance - selectedTotal)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Amount Input - Only show if not using credit */}
+          {!useCreditBalance && (
+            <div className="space-y-2">
+              <Label htmlFor="paymentAmount">Payment Amount</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <Input
+                  id="paymentAmount"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="pl-7"
+                />
+              </div>
+              {parseFloat(paymentAmount) > selectedTotal && selectedOrders.length > 0 && (
+                <p className="text-xs text-orange-600 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Amount exceeds selected orders total
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Payment Type - Only show if not using credit balance */}
+          {!useCreditBalance && (
+            <div className="space-y-2">
+              <Label htmlFor="paymentType">Payment Type</Label>
+              <select
+                id="paymentType"
+                value={paymentType}
+                onChange={(e) => setPaymentType(e.target.value)}
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              >
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+                <option value="credit">Store Credit</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          )}
+
+          {/* Show payment type info when using credit */}
+          {useCreditBalance && (
+            <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-purple-600" />
+                <span className="text-sm text-purple-800">Payment Type: <strong>Store Credit</strong></span>
+              </div>
+            </div>
+          )}
+
+          {/* Reference - Only show if not using credit */}
+          {!useCreditBalance && (
+            <div className="space-y-2">
+              <Label htmlFor="paymentReference">Reference (Optional)</Label>
               <Input
-                id="paymentAmount"
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                className="pl-7"
+                id="paymentReference"
+                placeholder="Transaction ID, receipt number..."
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
               />
             </div>
-            {parseFloat(paymentAmount) > selectedTotal && selectedOrders.length > 0 && (
-              <p className="text-xs text-orange-600 flex items-center gap-1">
-                <AlertCircle className="h-3 w-3" />
-                Amount exceeds selected orders total
-              </p>
-            )}
-          </div>
-
-          {/* Payment Type */}
-          <div className="space-y-2">
-            <Label htmlFor="paymentType">Payment Type</Label>
-            <select
-              id="paymentType"
-              value={paymentType}
-              onChange={(e) => setPaymentType(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            >
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="cheque">Cheque</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          {/* Reference */}
-          <div className="space-y-2">
-            <Label htmlFor="paymentReference">Reference (Optional)</Label>
-            <Input
-              id="paymentReference"
-              placeholder="Transaction ID, receipt number..."
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-            />
-          </div>
+          )}
 
           {/* Notes */}
           <div className="space-y-2">
@@ -387,10 +557,16 @@ export function RecordPaymentModal({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={loading || selectedOrders.length === 0 || !paymentAmount}
+            disabled={
+              loading || 
+              selectedOrders.length === 0 || 
+              (useCreditBalance ? selectedTotal <= 0 : (parseFloat(paymentAmount) || 0) <= 0)
+            }
           >
             {loading ? (
               <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Recording...</>
+            ) : useCreditBalance ? (
+              <><Wallet className="h-4 w-4 mr-2" /> Pay with Credit</>
             ) : (
               <><CheckCircle2 className="h-4 w-4 mr-2" /> Record Payment</>
             )}

@@ -111,6 +111,8 @@ interface Order {
   billingAddress: AddressType
   shipping: number
   total: number
+  confirmed?: boolean
+  linkedOrderId?: string
 }
 
 const UpdatePreOrder = () => {
@@ -320,6 +322,8 @@ const UpdatePreOrder = () => {
           billingAddress: res.billingAddress,
           shipping: res.shippinCost || 0,
           total: res.total,
+          confirmed: res.confirmed || false,
+          linkedOrderId: res.orderId,
         }
 
         setOrder(formattedOrder)
@@ -948,15 +952,22 @@ const UpdatePreOrder = () => {
                     </div>
 
                     {/* Confirm Pre-Order Button */}
-                    <Button className="w-full bg-green-600 hover:bg-green-700" size="lg" onClick={handleConfirmPreOrder} disabled={confirming || submitting || orderItems.length === 0}>
+                    <Button 
+                      className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400" 
+                      size="lg" 
+                      onClick={handleConfirmPreOrder} 
+                      disabled={confirming || submitting || orderItems.length === 0 || order?.confirmed}
+                    >
                       {confirming ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Confirming...</>
+                      ) : order?.confirmed ? (
+                        <><CheckCircle2 className="h-4 w-4 mr-2" />Already Confirmed</>
                       ) : (
                         <><Send className="h-4 w-4 mr-2" />Confirm & Create Order</>
                       )}
                     </Button>
 
-                    <Button className="w-full bg-orange-600 hover:bg-orange-700" size="lg" onClick={handleSubmit} disabled={submitting || confirming || orderItems.length === 0}>
+                    <Button className="w-full bg-orange-600 hover:bg-orange-700" size="lg" onClick={handleSubmit} disabled={submitting || confirming || orderItems.length === 0 || order?.confirmed}>
                       {submitting ? (
                         <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating...</>
                       ) : (
@@ -967,6 +978,19 @@ const UpdatePreOrder = () => {
                     <Button variant="outline" className="w-full" onClick={handleCancel} disabled={submitting || confirming}>
                       <ArrowLeft className="h-4 w-4 mr-2" />Cancel
                     </Button>
+
+                    {order?.confirmed && order?.linkedOrderId && (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-center">
+                        <p className="text-sm text-green-700 font-medium">✓ This pre-order has been confirmed</p>
+                        <Button 
+                          variant="link" 
+                          className="text-green-600 p-0 h-auto text-sm"
+                          onClick={() => navigate(`/admin/orders`)}
+                        >
+                          View Order →
+                        </Button>
+                      </div>
+                    )}
 
                     {orderItems.length === 0 && (
                       <div className="text-xs text-center text-muted-foreground">
