@@ -318,7 +318,14 @@ exports.getAllPurchaseOrders = async (req, res) => {
 
     const result = await PurchaseOrder.aggregate(aggregateQuery);
 
-    const orders = result[0].data;
+    let orders = result[0].data;
+    
+    // Populate items.productId for each order
+    orders = await PurchaseOrder.populate(orders, {
+      path: 'items.productId',
+      select: 'name sku price'
+    });
+    
     const totalOrders = result[0].totalCount[0]?.count || 0;
     const totalPages = Math.ceil(totalOrders / limit);
 

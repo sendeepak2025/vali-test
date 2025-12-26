@@ -10,6 +10,7 @@ const createInvoice = async (req, res) => {
     const {
       vendorId,
       linkedPurchaseOrders,
+      invoiceNumber: userInvoiceNumber,
       invoiceDate,
       dueDate,
       lineItems,
@@ -21,7 +22,11 @@ const createInvoice = async (req, res) => {
       documentUrl,
       documentName,
       vendorInvoiceNumber,
-      notes
+      notes,
+      poTotalAmount,
+      amountMatchType,
+      amountDifferenceReason,
+      productReceivedDetails
     } = req.body;
 
     // Validate vendor exists
@@ -48,8 +53,21 @@ const createInvoice = async (req, res) => {
       }
     }
 
-    // Generate invoice number
-    const invoiceNumber = await Invoice.generateInvoiceNumber();
+    // Use user-provided invoice number or generate one
+    let invoiceNumber = userInvoiceNumber;
+    if (!invoiceNumber || invoiceNumber.trim() === '') {
+      invoiceNumber = await Invoice.generateInvoiceNumber();
+    } else {
+      // Check if invoice number already exists
+      const existingInvoice = await Invoice.findOne({ invoiceNumber: invoiceNumber.trim() });
+      if (existingInvoice) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invoice number already exists. Please use a different number.'
+        });
+      }
+      invoiceNumber = invoiceNumber.trim();
+    }
 
     // Calculate due date based on vendor payment terms if not provided
     let calculatedDueDate = dueDate;
@@ -74,8 +92,12 @@ const createInvoice = async (req, res) => {
       remainingAmount: totalAmount,
       documentUrl,
       documentName,
-      vendorInvoiceNumber,
+      vendorInvoiceNumber: vendorInvoiceNumber || userInvoiceNumber,
       notes,
+      poTotalAmount: poTotalAmount || totalAmount,
+      amountMatchType: amountMatchType || 'same',
+      amountDifferenceReason: amountDifferenceReason || '',
+      productReceivedDetails: productReceivedDetails || [],
       createdBy: req.user?._id
     });
 
@@ -113,38 +135,39 @@ const getAllInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    const matchStage = {};
-
-    // Filter by vendor
+    // Pre-lookup match stage (for fields that exist before $lookup)
+    const preLookupMatch = {};
+    
+    // Filter by vendor - must be done BEFORE $lookup transforms vendorId
     if (vendorId) {
-      matchStage.vendorId = new mongoose.Types.ObjectId(vendorId);
+      preLookupMatch.vendorId = new mongoose.Types.ObjectId(vendorId);
     }
 
     // Filter by status
     if (status && status !== 'all') {
-      matchStage.status = status;
+      preLookupMatch.status = status;
     }
 
     // Filter by date range
     if (startDate || endDate) {
-      matchStage.invoiceDate = {};
+      preLookupMatch.invoiceDate = {};
       if (startDate) {
-        matchStage.invoiceDate.$gte = new Date(startDate);
+        preLookupMatch.invoiceDate.$gte = new Date(startDate);
       }
       if (endDate) {
-        matchStage.invoiceDate.$lte = new Date(endDate + 'T23:59:59.999Z');
+        preLookupMatch.invoiceDate.$lte = new Date(endDate + 'T23:59:59.999Z');
       }
     }
 
     // Filter overdue invoices
     if (isOverdue === 'true') {
-      matchStage.dueDate = { $lt: new Date() };
-      matchStage.status = { $nin: ['paid', 'cancelled'] };
+      preLookupMatch.dueDate = { $lt: new Date() };
+      preLookupMatch.status = { $nin: ['paid', 'cancelled'] };
     }
 
     // Filter on-hold invoices
     if (isOnHold === 'true') {
-      matchStage.isOnHold = true;
+      preLookupMatch.isOnHold = true;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -152,25 +175,40 @@ const getAllInvoices = async (req, res) => {
 
     // Build aggregation pipeline
     const pipeline = [
+      // Apply pre-lookup filters FIRST (including vendorId)
+      ...(Object.keys(preLookupMatch).length > 0 ? [{ $match: preLookupMatch }] : []),
       {
         $lookup: {
           from: 'vendors',
           localField: 'vendorId',
           foreignField: '_id',
-          as: 'vendor'
+          as: 'vendorData'
         }
       },
-      { $unwind: { path: '$vendor', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$vendorData', preserveNullAndEmptyArrays: true } },
       {
+        $addFields: {
+          vendorId: {
+            _id: '$vendorData._id',
+            name: '$vendorData.name',
+            email: '$vendorData.email',
+            phone: '$vendorData.phone'
+          }
+        }
+      },
+      // Post-lookup match for search (needs vendor name)
+      ...(search ? [{
         $match: {
-          ...matchStage,
-          ...(search ? {
-            $or: [
-              { invoiceNumber: { $regex: search, $options: 'i' } },
-              { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
-              { 'vendor.name': { $regex: search, $options: 'i' } }
-            ]
-          } : {})
+          $or: [
+            { invoiceNumber: { $regex: search, $options: 'i' } },
+            { vendorInvoiceNumber: { $regex: search, $options: 'i' } },
+            { 'vendorId.name': { $regex: search, $options: 'i' } }
+          ]
+        }
+      }] : []),
+      { 
+        $project: {
+          vendorData: 0  // Remove the temporary vendorData field
         }
       },
       { $sort: { [sortBy]: sortDirection } },
@@ -286,13 +324,18 @@ const getInvoiceById = async (req, res) => {
 const updateInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
 
     // Don't allow updating certain fields directly
     delete updateData.invoiceNumber;
     delete updateData.paidAmount;
     delete updateData.paymentIds;
     delete updateData.matchingResults;
+    delete updateData._id;
+    delete updateData.vendorId;
+    delete updateData.createdAt;
+    delete updateData.updatedAt;
+    delete updateData.__v;
 
     const invoice = await Invoice.findById(id);
     if (!invoice) {
@@ -310,12 +353,35 @@ const updateInvoice = async (req, res) => {
       });
     }
 
+    // Sanitize productReceivedDetails if present
+    if (updateData.productReceivedDetails && Array.isArray(updateData.productReceivedDetails)) {
+      updateData.productReceivedDetails = updateData.productReceivedDetails.map(item => ({
+        productId: item.productId || null,
+        productName: item.productName || '',
+        unitPrice: Number(item.unitPrice) || 0,
+        orderedQty: Number(item.orderedQty) || 0,
+        receivedQty: Number(item.receivedQty) || 0,
+        totalPrice: Number(item.totalPrice) || (Number(item.receivedQty) * Number(item.unitPrice)) || 0,
+        hasIssue: Boolean(item.hasIssue),
+        issueNote: item.issueNote || ''
+      }));
+    }
+
+    // Ensure numeric fields are numbers
+    if (updateData.totalAmount) updateData.totalAmount = Number(updateData.totalAmount);
+    if (updateData.subtotal) updateData.subtotal = Number(updateData.subtotal);
+    if (updateData.poTotalAmount) updateData.poTotalAmount = Number(updateData.poTotalAmount);
+    if (updateData.invoiceSettledAmount) {
+      updateData.totalAmount = Number(updateData.invoiceSettledAmount);
+      delete updateData.invoiceSettledAmount;
+    }
+
     updateData.updatedBy = req.user?._id;
 
     const updatedInvoice = await Invoice.findByIdAndUpdate(
       id,
-      updateData,
-      { new: true }
+      { $set: updateData },
+      { new: true, runValidators: false }
     ).populate('vendorId', 'name email');
 
     res.status(200).json({
@@ -633,7 +699,69 @@ const getMatchingComparison = async (req, res) => {
       });
     }
 
-    // Build comparison data
+    // Build line items comparison from POs
+    const lineItems = [];
+    let totalPOAmount = 0;
+    let totalReceivedAmount = 0;
+    
+    if (invoice.linkedPurchaseOrders && invoice.linkedPurchaseOrders.length > 0) {
+      invoice.linkedPurchaseOrders.forEach(po => {
+        totalPOAmount += po.totalAmount || 0;
+        
+        if (po.items && po.items.length > 0) {
+          po.items.forEach(item => {
+            const receivedQty = item.qualityStatus === 'approved' ? item.quantity : 
+                               (item.receivedQuantity || 0);
+            const receivedAmount = receivedQty * (item.unitPrice || 0);
+            totalReceivedAmount += receivedAmount;
+            
+            // Find matching invoice line item if exists
+            const invoiceItem = invoice.lineItems?.find(li => 
+              li.productId?.toString() === item.productId?._id?.toString() ||
+              li.description?.toLowerCase().includes(item.productId?.name?.toLowerCase() || '')
+            );
+            
+            lineItems.push({
+              productName: item.productId?.name || item.productName || 'Unknown Product',
+              poQuantity: item.quantity || 0,
+              receivedQuantity: receivedQty,
+              invoiceQuantity: invoiceItem?.quantity || item.quantity || 0,
+              poPrice: item.unitPrice || 0,
+              invoicePrice: invoiceItem?.unitPrice || item.unitPrice || 0,
+              poTotal: item.totalPrice || (item.quantity * item.unitPrice) || 0,
+              invoiceTotal: invoiceItem?.amount || item.totalPrice || 0,
+              hasDiscrepancy: receivedQty !== item.quantity || 
+                             (invoiceItem && invoiceItem.unitPrice !== item.unitPrice),
+              unit: item.productId?.unit || item.unit || 'unit'
+            });
+          });
+        }
+      });
+    }
+
+    // If no line items from POs, use invoice line items
+    if (lineItems.length === 0 && invoice.lineItems && invoice.lineItems.length > 0) {
+      invoice.lineItems.forEach(item => {
+        lineItems.push({
+          productName: item.description || item.productName || 'Item',
+          poQuantity: item.quantity || 0,
+          receivedQuantity: item.quantity || 0,
+          invoiceQuantity: item.quantity || 0,
+          poPrice: item.unitPrice || 0,
+          invoicePrice: item.unitPrice || 0,
+          poTotal: item.amount || 0,
+          invoiceTotal: item.amount || 0,
+          hasDiscrepancy: false
+        });
+      });
+    }
+
+    const invoiceTotal = invoice.totalAmount || 0;
+    const variance = invoiceTotal - totalPOAmount;
+    const variancePercentage = totalPOAmount > 0 
+      ? ((invoiceTotal - totalPOAmount) / totalPOAmount) * 100 
+      : 0;
+
     const comparison = {
       invoice: {
         invoiceNumber: invoice.invoiceNumber,
@@ -641,46 +769,23 @@ const getMatchingComparison = async (req, res) => {
         totalAmount: invoice.totalAmount,
         lineItems: invoice.lineItems
       },
-      purchaseOrders: invoice.linkedPurchaseOrders.map(po => ({
+      purchaseOrders: invoice.linkedPurchaseOrders?.map(po => ({
         purchaseOrderNumber: po.purchaseOrderNumber,
         totalAmount: po.totalAmount,
         status: po.status,
-        items: po.items.map(item => ({
-          productId: item.productId?._id || item.productId,
-          productName: item.productId?.name || item.productName,
-          orderedQuantity: item.quantity,
-          receivedQuantity: item.qualityStatus === 'approved' ? item.quantity : 0,
-          qualityStatus: item.qualityStatus,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          unit: item.productId?.unit || item.unit
-        }))
-      })),
+        items: po.items
+      })) || [],
+      lineItems,
+      summary: {
+        poTotal: totalPOAmount,
+        receivedTotal: totalReceivedAmount,
+        invoiceTotal: invoiceTotal,
+        variance: variance,
+        variancePercentage: variancePercentage,
+        hasDiscrepancy: Math.abs(variance) > 0.01 || lineItems.some(item => item.hasDiscrepancy)
+      },
       matchingResults: invoice.matchingResults,
       approvalRequired: invoice.approvalRequired
-    };
-
-    // Calculate totals for comparison
-    let totalPOAmount = 0;
-    let totalReceivedAmount = 0;
-    
-    comparison.purchaseOrders.forEach(po => {
-      totalPOAmount += po.totalAmount;
-      po.items.forEach(item => {
-        if (item.qualityStatus === 'approved') {
-          totalReceivedAmount += item.totalPrice;
-        }
-      });
-    });
-
-    comparison.totals = {
-      poTotal: totalPOAmount,
-      receivedTotal: totalReceivedAmount,
-      invoiceTotal: invoice.totalAmount,
-      variance: invoice.totalAmount - totalPOAmount,
-      variancePercentage: totalPOAmount > 0 
-        ? ((invoice.totalAmount - totalPOAmount) / totalPOAmount) * 100 
-        : 0
     };
 
     res.status(200).json({

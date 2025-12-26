@@ -592,7 +592,7 @@ const getVendorComparison = async (req, res) => {
 // ✅ Get Dashboard Summary
 const getDashboardSummary = async (req, res) => {
   try {
-    // Get vendor counts by status
+    // Get vendor counts by type and status
     const vendorCounts = await Vendor.aggregate([
       {
         $group: {
@@ -602,7 +602,99 @@ const getDashboardSummary = async (req, res) => {
       }
     ]);
 
-    // Get invoice summary
+    // Get vendor counts by type (farmer/supplier)
+    const vendorTypeCounts = await Vendor.aggregate([
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const totalVendors = vendorCounts.reduce((sum, v) => sum + v.count, 0);
+    const farmerCount = vendorTypeCounts.find(v => v._id === 'farmer')?.count || 0;
+    const supplierCount = vendorTypeCounts.find(v => v._id === 'supplier')?.count || 0;
+
+    // Get Purchase Order summary - this is the main data source for purchases
+    const purchaseOrderSummary = await PurchaseOrder.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } },
+          totalPaid: { 
+            $sum: { 
+              $cond: [
+                { $eq: ['$paymentStatus', 'paid'] },
+                { $ifNull: ['$totalAmount', 0] },
+                { 
+                  $cond: [
+                    { $eq: ['$paymentStatus', 'partial'] },
+                    { $toDouble: { $ifNull: ['$paymentAmount', 0] } },
+                    0
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    // Calculate paid amount from paymentAmount field for all orders
+    const paidAmountSummary = await PurchaseOrder.aggregate([
+      {
+        $addFields: {
+          paidAmountNum: {
+            $cond: [
+              { $eq: [{ $type: '$paymentAmount' }, 'string'] },
+              { $toDouble: { $ifNull: ['$paymentAmount', '0'] } },
+              { $ifNull: ['$paymentAmount', 0] }
+            ]
+          },
+          creditApplied: { $ifNull: ['$totalCreditApplied', 0] }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalPaidAmount: { $sum: '$paidAmountNum' },
+          totalCreditApplied: { $sum: '$creditApplied' }
+        }
+      }
+    ]);
+
+    const poSummary = purchaseOrderSummary[0] || { totalOrders: 0, totalAmount: 0, totalPaid: 0 };
+    const paidSummary = paidAmountSummary[0] || { totalPaidAmount: 0, totalCreditApplied: 0 };
+    
+    // Total paid = direct payments + credits applied
+    const totalAmountPaid = paidSummary.totalPaidAmount + paidSummary.totalCreditApplied;
+    const pendingPayment = poSummary.totalAmount - totalAmountPaid;
+
+    // Get PO counts by status
+    const poCounts = await PurchaseOrder.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } }
+        }
+      }
+    ]);
+
+    // Get PO counts by payment status
+    const poPaymentCounts = await PurchaseOrder.aggregate([
+      {
+        $group: {
+          _id: '$paymentStatus',
+          count: { $sum: 1 },
+          totalAmount: { $sum: { $ifNull: ['$totalAmount', 0] } }
+        }
+      }
+    ]);
+
+    // Get invoice summary (vendor bills)
     const invoiceSummary = await Invoice.aggregate([
       {
         $group: {
@@ -633,21 +725,15 @@ const getDashboardSummary = async (req, res) => {
       }
     ]);
 
-    // Get PO counts by status
-    const poCounts = await PurchaseOrder.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalAmount: { $sum: '$totalAmount' }
-        }
-      }
-    ]);
-
     // Get open disputes
-    const openDisputes = await mongoose.model('VendorDispute').countDocuments({
-      status: { $in: ['open', 'in_progress', 'pending_vendor', 'escalated'] }
-    });
+    let openDisputes = 0;
+    try {
+      openDisputes = await mongoose.model('VendorDispute').countDocuments({
+        status: { $in: ['open', 'in_progress', 'pending_vendor', 'escalated'] }
+      });
+    } catch (e) {
+      // Model might not exist
+    }
 
     // Get pending checks
     const pendingChecks = await VendorPayment.aggregate([
@@ -667,18 +753,45 @@ const getDashboardSummary = async (req, res) => {
       }
     ]);
 
-    // Get top vendors by outstanding balance
-    const topVendorsByOutstanding = await Invoice.aggregate([
+    // Get top vendors by outstanding balance (from purchase orders)
+    const topVendorsByOutstanding = await PurchaseOrder.aggregate([
       {
         $match: {
-          status: { $nin: ['paid', 'cancelled'] },
-          remainingAmount: { $gt: 0 }
+          paymentStatus: { $nin: ['paid'] }
+        }
+      },
+      {
+        $addFields: {
+          paidAmountNum: {
+            $cond: [
+              { $eq: [{ $type: '$paymentAmount' }, 'string'] },
+              { $toDouble: { $ifNull: ['$paymentAmount', '0'] } },
+              { $ifNull: ['$paymentAmount', 0] }
+            ]
+          },
+          creditApplied: { $ifNull: ['$totalCreditApplied', 0] }
+        }
+      },
+      {
+        $addFields: {
+          outstanding: { 
+            $subtract: [
+              { $ifNull: ['$totalAmount', 0] }, 
+              { $add: ['$paidAmountNum', '$creditApplied'] }
+            ] 
+          }
+        }
+      },
+      {
+        $match: {
+          outstanding: { $gt: 0 }
         }
       },
       {
         $group: {
           _id: '$vendorId',
-          outstanding: { $sum: '$remainingAmount' }
+          outstanding: { $sum: '$outstanding' },
+          orderCount: { $sum: 1 }
         }
       },
       { $sort: { outstanding: -1 } },
@@ -691,15 +804,36 @@ const getDashboardSummary = async (req, res) => {
           as: 'vendor'
         }
       },
-      { $unwind: '$vendor' },
+      { $unwind: { path: '$vendor', preserveNullAndEmptyArrays: true } },
       {
         $project: {
           vendorId: '$_id',
-          vendorName: '$vendor.name',
-          outstanding: 1
+          vendorName: { $ifNull: ['$vendor.name', 'Unknown Vendor'] },
+          outstanding: 1,
+          orderCount: 1
         }
       }
     ]);
+
+    // Get credit memo summary
+    const creditMemoSummary = await VendorCreditMemo.aggregate([
+      {
+        $match: {
+          status: { $in: ['approved', 'partially_applied'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$type',
+          totalAmount: { $sum: '$amount' },
+          remainingAmount: { $sum: '$remainingAmount' },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const creditSummary = creditMemoSummary.find(c => c._id === 'credit') || { totalAmount: 0, remainingAmount: 0, count: 0 };
+    const debitSummary = creditMemoSummary.find(c => c._id === 'debit') || { totalAmount: 0, remainingAmount: 0, count: 0 };
 
     res.status(200).json({
       success: true,
@@ -710,8 +844,23 @@ const getDashboardSummary = async (req, res) => {
             acc[v._id] = v.count;
             return acc;
           }, {}),
-          total: vendorCounts.reduce((sum, v) => sum + v.count, 0)
+          byType: {
+            farmer: farmerCount,
+            supplier: supplierCount
+          },
+          total: totalVendors
         },
+        // Main purchase summary from PurchaseOrder model
+        purchases: {
+          totalOrders: poSummary.totalOrders,
+          totalAmount: poSummary.totalAmount,
+          totalPaid: totalAmountPaid,
+          pendingPayment: pendingPayment > 0 ? pendingPayment : 0,
+          paidPercentage: poSummary.totalAmount > 0 
+            ? Math.round((totalAmountPaid / poSummary.totalAmount) * 100) 
+            : 0
+        },
+        // Invoice/Bills summary (separate from purchases)
         invoices: invoiceSummary[0] || {
           totalInvoices: 0,
           totalAmount: 0,
@@ -724,7 +873,18 @@ const getDashboardSummary = async (req, res) => {
             acc[po._id] = { count: po.count, totalAmount: po.totalAmount };
             return acc;
           }, {}),
+          byPaymentStatus: poPaymentCounts.reduce((acc, po) => {
+            acc[po._id || 'pending'] = { count: po.count, totalAmount: po.totalAmount };
+            return acc;
+          }, {}),
           total: poCounts.reduce((sum, po) => sum + po.count, 0)
+        },
+        credits: {
+          totalCredits: creditSummary.totalAmount,
+          unappliedCredits: creditSummary.remainingAmount,
+          creditCount: creditSummary.count,
+          totalDebits: debitSummary.totalAmount,
+          debitCount: debitSummary.count
         },
         openDisputes,
         pendingChecks: pendingChecks[0] || { count: 0, totalAmount: 0 },

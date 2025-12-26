@@ -36,7 +36,7 @@ import { VendorSelect } from "@/components/ui/vendor-select"
 import { getAllVendorsAPI, deleteVendorAPI, updateVendorPaymentTermsAPI, updateVendorStatusAPI } from "@/services2/operations/vendor"
 import { getAllInvoicesAPI, createInvoiceAPI, approveInvoiceAPI, disputeInvoiceAPI, matchInvoiceAPI, getMatchingComparisonAPI } from "@/services2/operations/vendorInvoice"
 import { getAllVendorCreditMemosAPI, createVendorCreditMemoAPI, approveVendorCreditMemoAPI, applyVendorCreditMemoAPI, voidVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo"
-import { getAllVendorPaymentsAPI, createVendorPaymentAPI, updateCheckStatusAPI, voidVendorPaymentAPI } from "@/services2/operations/vendorPayment"
+import { getAllVendorPaymentsAPI, createVendorPaymentAPI, updateCheckStatusAPI, voidVendorPaymentAPI, getVendorPaymentAPI, updateVendorPaymentAPI } from "@/services2/operations/vendorPayment"
 import { getAllVendorDisputesAPI, createVendorDisputeAPI, updateDisputeStatusAPI, addDisputeCommunicationAPI, resolveVendorDisputeAPI } from "@/services2/operations/vendorDispute"
 import { getAllPurchaseOrdersAPI } from "@/services2/operations/purchaseOrder"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
@@ -185,9 +185,30 @@ const VendorManagementContent = () => {
     dueDate: "",
     linkedPurchaseOrders: [] as string[],
     lineItems: [] as any[],
-    notes: ""
+    notes: "",
+    amountMatchType: "same" as "same" | "different",
+    invoiceSettledAmount: 0,
+    amountDifferenceReason: "",
+    productReceivedDetails: [] as {
+      productId: string;
+      productName: string;
+      unitPrice: number;
+      orderedQty: number;
+      receivedQty: number;
+      totalPrice: number;
+      hasIssue: boolean;
+      issueNote: string;
+    }[]
   })
   const [invoiceCreateLoading, setInvoiceCreateLoading] = useState(false)
+  
+  // Amount Difference Reason Modal state
+  const [amountReasonModalOpen, setAmountReasonModalOpen] = useState(false)
+  
+  // Invoice Edit Modal state
+  const [invoiceEditModalOpen, setInvoiceEditModalOpen] = useState(false)
+  const [selectedInvoiceForEdit, setSelectedInvoiceForEdit] = useState<any>(null)
+  const [invoiceEditLoading, setInvoiceEditLoading] = useState(false)
 
   // Three-Way Matching Modal state
   const [matchingModalOpen, setMatchingModalOpen] = useState(false)
@@ -245,6 +266,19 @@ const VendorManagementContent = () => {
   })
   const [paymentCreateLoading, setPaymentCreateLoading] = useState(false)
 
+  // Payment Edit Modal state
+  const [paymentEditModalOpen, setPaymentEditModalOpen] = useState(false)
+  const [selectedPaymentForEdit, setSelectedPaymentForEdit] = useState<any>(null)
+  const [paymentEditForm, setPaymentEditForm] = useState({
+    method: "check" as "check" | "ach" | "wire" | "cash" | "credit_card",
+    checkNumber: "",
+    transactionId: "",
+    bankReference: "",
+    notes: "",
+    newAmount: ""
+  })
+  const [paymentEditLoading, setPaymentEditLoading] = useState(false)
+
   // Check Status Modal state
   const [checkStatusModalOpen, setCheckStatusModalOpen] = useState(false)
   const [selectedPaymentForCheck, setSelectedPaymentForCheck] = useState<any>(null)
@@ -254,6 +288,11 @@ const VendorManagementContent = () => {
     notes: ""
   })
   const [checkStatusLoading, setCheckStatusLoading] = useState(false)
+
+  // Payment Details Modal state
+  const [paymentDetailsModalOpen, setPaymentDetailsModalOpen] = useState(false)
+  const [selectedPaymentDetails, setSelectedPaymentDetails] = useState<any>(null)
+  const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false)
 
   // Reports state
   const [activeReportTab, setActiveReportTab] = useState("aging")
@@ -352,9 +391,12 @@ const VendorManagementContent = () => {
     try {
       const params: any = {}
       if (invoiceStatusFilter !== "all") params.status = invoiceStatusFilter
-      if (invoiceVendorFilter !== "all") params.vendorId = invoiceVendorFilter
+      if (invoiceVendorFilter && invoiceVendorFilter !== "all") params.vendorId = invoiceVendorFilter
       if (invoiceSearch) params.search = invoiceSearch
+      console.log("fetchInvoices called - invoiceVendorFilter:", invoiceVendorFilter)
+      console.log("Fetching invoices with params:", params)
       const data = await getAllInvoicesAPI(params, token)
+      console.log("Invoices received:", data?.invoices?.length)
       setInvoices(data?.invoices || [])
     } catch (error) {
       console.error("Error fetching invoices:", error)
@@ -850,9 +892,81 @@ const VendorManagementContent = () => {
       dueDate: "",
       linkedPurchaseOrders: [],
       lineItems: [],
-      notes: ""
+      notes: "",
+      amountMatchType: "same",
+      invoiceSettledAmount: 0,
+      amountDifferenceReason: "",
+      productReceivedDetails: []
     })
     setInvoiceCreateModalOpen(true)
+  }
+
+  // Get PO IDs that are already linked to any invoice
+  const getLinkedPOIds = () => {
+    const linkedIds = new Set<string>()
+    invoices.forEach((invoice: any) => {
+      if (invoice.linkedPurchaseOrders && Array.isArray(invoice.linkedPurchaseOrders)) {
+        invoice.linkedPurchaseOrders.forEach((po: any) => {
+          const poId = typeof po === 'string' ? po : po._id
+          if (poId) linkedIds.add(poId)
+        })
+      }
+    })
+    return linkedIds
+  }
+
+  // Calculate PO total amount
+  const calculatePOTotal = () => {
+    if (invoiceForm.linkedPurchaseOrders.length === 0) return 0
+    return purchaseOrders
+      .filter(po => invoiceForm.linkedPurchaseOrders.includes(po._id))
+      .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+  }
+
+  // Calculate invoice amount based on received quantities
+  const calculateReceivedAmount = () => {
+    if (invoiceForm.productReceivedDetails.length === 0) return calculatePOTotal()
+    return invoiceForm.productReceivedDetails.reduce((sum, item) => {
+      return sum + (item.receivedQty * item.unitPrice)
+    }, 0)
+  }
+
+  // Update product received details when POs are linked
+  const updateProductReceivedDetails = (poIds: string[]) => {
+    const details: any[] = []
+    poIds.forEach(poId => {
+      const po = purchaseOrders.find(p => p._id === poId)
+      if (po?.items) {
+        po.items.forEach((item: any) => {
+          // Get product name from populated productId or fallback options
+          let productName = "Unknown Product"
+          if (item.productId) {
+            if (typeof item.productId === 'object' && item.productId.name) {
+              productName = item.productId.name
+            } else if (item.productName) {
+              productName = item.productName
+            } else if (item.name) {
+              productName = item.name
+            }
+          }
+          
+          const unitPrice = item.unitPrice || 0
+          const orderedQty = item.quantity || 0
+          
+          details.push({
+            productId: item.productId?._id || item.productId || "",
+            productName,
+            unitPrice,
+            orderedQty,
+            receivedQty: orderedQty,
+            totalPrice: unitPrice * orderedQty,
+            hasIssue: false,
+            issueNote: ""
+          })
+        })
+      }
+    })
+    return details
   }
 
   // Handle create invoice
@@ -861,18 +975,211 @@ const VendorManagementContent = () => {
       toast({ variant: "destructive", title: "Error", description: "Please select a vendor" })
       return
     }
+    
+    // Calculate totalAmount from linked POs
+    let poTotalAmount = 0
+    if (invoiceForm.linkedPurchaseOrders.length > 0) {
+      const linkedPOs = purchaseOrders.filter(po => invoiceForm.linkedPurchaseOrders.includes(po._id))
+      poTotalAmount = linkedPOs.reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+    }
+    
+    // Use settled amount if different, otherwise use PO total
+    let totalAmount = invoiceForm.amountMatchType === "different" && invoiceForm.invoiceSettledAmount > 0
+      ? invoiceForm.invoiceSettledAmount
+      : poTotalAmount
+    
+    // If no linked POs, calculate from line items
+    if (totalAmount === 0 && invoiceForm.lineItems.length > 0) {
+      totalAmount = invoiceForm.lineItems.reduce((sum, item) => sum + (item.amount || item.totalPrice || 0), 0)
+    }
+    
+    if (totalAmount === 0) {
+      toast({ variant: "destructive", title: "Error", description: "Please link purchase orders or add line items with amounts" })
+      return
+    }
+    
     setInvoiceCreateLoading(true)
     try {
-      const result = await createInvoiceAPI(invoiceForm, token)
+      const invoiceData = {
+        vendorId: invoiceForm.vendorId,
+        invoiceNumber: invoiceForm.invoiceNumber,
+        invoiceDate: invoiceForm.invoiceDate,
+        dueDate: invoiceForm.dueDate,
+        linkedPurchaseOrders: invoiceForm.linkedPurchaseOrders,
+        lineItems: invoiceForm.lineItems,
+        notes: invoiceForm.notes,
+        totalAmount,
+        subtotal: totalAmount,
+        poTotalAmount,
+        amountMatchType: invoiceForm.amountMatchType,
+        amountDifferenceReason: invoiceForm.amountDifferenceReason,
+        productReceivedDetails: invoiceForm.productReceivedDetails
+      }
+      const result = await createInvoiceAPI(invoiceData, token)
       if (result) {
         setInvoiceCreateModalOpen(false)
+        setInvoiceForm({
+          vendorId: "",
+          invoiceNumber: "",
+          invoiceDate: new Date().toISOString().split('T')[0],
+          dueDate: "",
+          linkedPurchaseOrders: [],
+          lineItems: [],
+          notes: "",
+          amountMatchType: "same",
+          invoiceSettledAmount: 0,
+          amountDifferenceReason: "",
+          productReceivedDetails: []
+        })
         fetchInvoices()
         fetchDashboard()
+        fetchPurchaseOrders()
       }
     } catch (error) {
       console.error("Error creating invoice:", error)
     } finally {
       setInvoiceCreateLoading(false)
+    }
+  }
+
+  // Open invoice edit modal
+  const openInvoiceEditModal = (invoice: any) => {
+    // Calculate PO total for this invoice
+    const linkedPOIds = invoice.linkedPurchaseOrders?.map((po: any) => po._id || po) || []
+    const poTotal = purchaseOrders
+      .filter(po => linkedPOIds.includes(po._id))
+      .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+    
+    setSelectedInvoiceForEdit({
+      _id: invoice._id,
+      vendorId: invoice.vendorId?._id || invoice.vendorId,
+      vendorName: invoice.vendorId?.name || "",
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceDate: invoice.invoiceDate ? new Date(invoice.invoiceDate).toISOString().split('T')[0] : "",
+      dueDate: invoice.dueDate ? new Date(invoice.dueDate).toISOString().split('T')[0] : "",
+      linkedPurchaseOrders: linkedPOIds,
+      totalAmount: invoice.totalAmount || 0,
+      poTotalAmount: invoice.poTotalAmount || poTotal || invoice.totalAmount || 0,
+      notes: invoice.notes || "",
+      status: invoice.status,
+      amountMatchType: invoice.amountMatchType || (invoice.poTotalAmount && invoice.poTotalAmount !== invoice.totalAmount ? 'different' : 'same'),
+      invoiceSettledAmount: invoice.totalAmount || 0,
+      amountDifferenceReason: invoice.amountDifferenceReason || "",
+      productReceivedDetails: invoice.productReceivedDetails || []
+    })
+    setInvoiceEditModalOpen(true)
+  }
+
+  // Update product received details for edit modal
+  const updateEditProductReceivedDetails = (poIds: string[]) => {
+    const details: any[] = []
+    poIds.forEach(poId => {
+      const po = purchaseOrders.find(p => p._id === poId)
+      if (po?.items) {
+        po.items.forEach((item: any) => {
+          let productName = "Unknown Product"
+          if (item.productId) {
+            if (typeof item.productId === 'object' && item.productId.name) {
+              productName = item.productId.name
+            } else if (item.productName) {
+              productName = item.productName
+            } else if (item.name) {
+              productName = item.name
+            }
+          }
+          
+          const unitPrice = item.unitPrice || 0
+          const orderedQty = item.quantity || 0
+          
+          details.push({
+            productId: item.productId?._id || item.productId || "",
+            productName,
+            unitPrice,
+            orderedQty,
+            receivedQty: orderedQty,
+            totalPrice: unitPrice * orderedQty,
+            hasIssue: false,
+            issueNote: ""
+          })
+        })
+      }
+    })
+    return details
+  }
+
+  // Calculate edit PO total amount
+  const calculateEditPOTotal = () => {
+    if (!selectedInvoiceForEdit?.linkedPurchaseOrders?.length) return 0
+    return purchaseOrders
+      .filter(po => selectedInvoiceForEdit.linkedPurchaseOrders.includes(po._id))
+      .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+  }
+
+  // Calculate edit received amount
+  const calculateEditReceivedAmount = () => {
+    if (!selectedInvoiceForEdit?.productReceivedDetails?.length) return calculateEditPOTotal()
+    return selectedInvoiceForEdit.productReceivedDetails.reduce((sum: number, item: any) => {
+      return sum + ((item.receivedQty || 0) * (item.unitPrice || 0))
+    }, 0)
+  }
+
+  // Handle update invoice
+  const handleUpdateInvoice = async () => {
+    if (!selectedInvoiceForEdit) return
+    
+    setInvoiceEditLoading(true)
+    try {
+      // Calculate PO total
+      const poTotalAmount = calculateEditPOTotal()
+      
+      // Use settled amount if different, otherwise use PO total
+      let totalAmount = selectedInvoiceForEdit.amountMatchType === "different" && selectedInvoiceForEdit.invoiceSettledAmount > 0
+        ? selectedInvoiceForEdit.invoiceSettledAmount
+        : poTotalAmount
+      
+      // If no linked POs, keep current total
+      if (totalAmount === 0) {
+        totalAmount = selectedInvoiceForEdit.totalAmount
+      }
+      
+      const updateData = {
+        invoiceDate: selectedInvoiceForEdit.invoiceDate,
+        dueDate: selectedInvoiceForEdit.dueDate,
+        linkedPurchaseOrders: selectedInvoiceForEdit.linkedPurchaseOrders,
+        totalAmount,
+        subtotal: totalAmount,
+        poTotalAmount,
+        amountMatchType: selectedInvoiceForEdit.amountMatchType,
+        amountDifferenceReason: selectedInvoiceForEdit.amountDifferenceReason,
+        productReceivedDetails: selectedInvoiceForEdit.productReceivedDetails,
+        notes: selectedInvoiceForEdit.notes
+      }
+      
+      const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/invoices/update/${selectedInvoiceForEdit._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(updateData)
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        toast({ title: "Success", description: "Invoice updated successfully" })
+        setInvoiceEditModalOpen(false)
+        setSelectedInvoiceForEdit(null)
+        fetchInvoices()
+        fetchDashboard()
+      } else {
+        toast({ variant: "destructive", title: "Error", description: result.message || "Failed to update invoice" })
+      }
+    } catch (error) {
+      console.error("Error updating invoice:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to update invoice" })
+    } finally {
+      setInvoiceEditLoading(false)
     }
   }
 
@@ -908,7 +1215,7 @@ const VendorManagementContent = () => {
   // Handle dispute invoice
   const handleDisputeInvoice = async (invoiceId: string, reason: string) => {
     try {
-      const result = await disputeInvoiceAPI(invoiceId, { reason }, token)
+      const result = await disputeInvoiceAPI(invoiceId, { disputeReason: reason }, token)
       if (result) {
         fetchInvoices()
         fetchDashboard()
@@ -1101,14 +1408,52 @@ const VendorManagementContent = () => {
       toast({ variant: "destructive", title: "Error", description: "Please enter a valid amount" })
       return
     }
+    if (paymentForm.invoiceIds.length === 0) {
+      toast({ variant: "destructive", title: "Error", description: "Please select at least one invoice" })
+      return
+    }
+    
     setPaymentCreateLoading(true)
     try {
-      const result = await createVendorPaymentAPI({
-        ...paymentForm,
-        amount: parseFloat(paymentForm.amount)
-      }, token)
+      // Transform invoiceIds to invoicePayments format expected by backend
+      const totalAmount = parseFloat(paymentForm.amount)
+      const selectedInvoices = invoices.filter(inv => paymentForm.invoiceIds.includes(inv._id))
+      
+      // Distribute payment amount across selected invoices
+      let remainingAmount = totalAmount
+      const invoicePayments = selectedInvoices.map(inv => {
+        const invoiceRemaining = inv.remainingAmount || inv.totalAmount - (inv.paidAmount || 0)
+        const amountToPay = Math.min(remainingAmount, invoiceRemaining)
+        remainingAmount -= amountToPay
+        return {
+          invoiceId: inv._id,
+          amountPaid: amountToPay
+        }
+      }).filter(ip => ip.amountPaid > 0)
+      
+      const paymentData = {
+        vendorId: paymentForm.vendorId,
+        invoicePayments,
+        method: paymentForm.method,
+        checkNumber: paymentForm.checkNumber,
+        paymentDate: new Date().toISOString(),
+        appliedCredits: paymentForm.appliedCredits.filter(c => c.amount > 0),
+        notes: paymentForm.notes
+      }
+      
+      const result = await createVendorPaymentAPI(paymentData, token)
       if (result) {
         setPaymentCreateModalOpen(false)
+        setPaymentForm({
+          vendorId: "",
+          invoiceIds: [],
+          amount: "",
+          method: "check",
+          checkNumber: "",
+          referenceNumber: "",
+          appliedCredits: [],
+          notes: ""
+        })
         fetchPayments()
         fetchInvoices()
         fetchCreditMemos()
@@ -1125,11 +1470,26 @@ const VendorManagementContent = () => {
   const openCheckStatusModal = (payment: any) => {
     setSelectedPaymentForCheck(payment)
     setCheckStatusForm({
-      status: payment.checkStatus || "pending",
+      status: payment.checkClearanceStatus || "pending",
       clearedDate: payment.checkClearedDate ? new Date(payment.checkClearedDate).toISOString().split('T')[0] : "",
       notes: ""
     })
     setCheckStatusModalOpen(true)
+  }
+
+  // Open payment details modal
+  const openPaymentDetailsModal = async (payment: any) => {
+    setPaymentDetailsLoading(true)
+    setPaymentDetailsModalOpen(true)
+    try {
+      const details = await getVendorPaymentAPI(payment._id, token)
+      setSelectedPaymentDetails(details)
+    } catch (error) {
+      console.error("Error fetching payment details:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to fetch payment details" })
+    } finally {
+      setPaymentDetailsLoading(false)
+    }
   }
 
   // Handle update check status
@@ -1154,7 +1514,7 @@ const VendorManagementContent = () => {
   const handleVoidPayment = async (paymentId: string) => {
     if (!confirm("Are you sure you want to void this payment? This will reverse all applied amounts.")) return
     try {
-      const result = await voidVendorPaymentAPI(paymentId, { reason: "Voided by user" }, token)
+      const result = await voidVendorPaymentAPI(paymentId, { voidReason: "Voided by user" }, token)
       if (result) {
         fetchPayments()
         fetchInvoices()
@@ -1163,6 +1523,56 @@ const VendorManagementContent = () => {
       }
     } catch (error) {
       console.error("Error voiding payment:", error)
+    }
+  }
+
+  // Open payment edit modal
+  const openPaymentEditModal = (payment: any) => {
+    setSelectedPaymentForEdit(payment)
+    setPaymentEditForm({
+      method: payment.method || "check",
+      checkNumber: payment.checkNumber || "",
+      transactionId: payment.transactionId || "",
+      bankReference: payment.bankReference || "",
+      notes: payment.notes || "",
+      newAmount: String(payment.grossAmount || payment.netAmount || 0)
+    })
+    setPaymentEditModalOpen(true)
+  }
+
+  // Handle update payment
+  const handleUpdatePayment = async () => {
+    if (!selectedPaymentForEdit) return
+    setPaymentEditLoading(true)
+    try {
+      const updateData: any = {
+        method: paymentEditForm.method,
+        checkNumber: paymentEditForm.checkNumber,
+        transactionId: paymentEditForm.transactionId,
+        bankReference: paymentEditForm.bankReference,
+        notes: paymentEditForm.notes
+      }
+      
+      // Include amount if changed
+      const originalAmount = selectedPaymentForEdit.grossAmount || selectedPaymentForEdit.netAmount || 0
+      const newAmount = parseFloat(paymentEditForm.newAmount) || 0
+      if (newAmount !== originalAmount && newAmount > 0) {
+        updateData.newAmount = newAmount
+      }
+      
+      const result = await updateVendorPaymentAPI(selectedPaymentForEdit._id, updateData, token)
+      if (result) {
+        setPaymentEditModalOpen(false)
+        setSelectedPaymentForEdit(null)
+        fetchPayments()
+        fetchInvoices() // Refresh invoices as amounts may have changed
+        fetchDashboard()
+        toast({ title: "Success", description: "Payment updated successfully" })
+      }
+    } catch (error) {
+      console.error("Error updating payment:", error)
+    } finally {
+      setPaymentEditLoading(false)
     }
   }
 
@@ -1416,14 +1826,6 @@ const VendorManagementContent = () => {
     return matchesSearch
   })
 
-  // Calculate vendor stats
-  const vendorStats = {
-    total: vendors.length,
-    farmers: vendors.filter((v) => v.type === "farmer").length,
-    suppliers: vendors.filter((v) => v.type === "supplier").length,
-    distributors: vendors.filter((v) => v.type === "distributor").length,
-  }
-
   // Payment status badge
   const getPaymentBadge = (status: string) => {
     const variants: any = {
@@ -1478,35 +1880,45 @@ const VendorManagementContent = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Main KPI Cards - Always visible */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total Vendors"
-          value={vendorStats.total}
-          subtitle={`${vendorStats.farmers} farmers, ${vendorStats.suppliers} suppliers`}
+          value={dashboardData?.vendors?.total || vendors.length}
+          subtitle={`${dashboardData?.vendors?.byType?.farmer || 0} farmers, ${dashboardData?.vendors?.byType?.supplier || 0} suppliers`}
           icon={Users}
           color="blue"
+          clickable
+          onClick={() => setActiveTab("vendors")}
         />
         <StatsCard
           title="Total Purchases"
-          value={formatCurrency(poSummary?.totalAmount || 0)}
-          subtitle={`${poSummary?.totalOrders || 0} orders`}
-          icon={Package}
+          value={formatCurrency(dashboardData?.purchases?.totalAmount || 0)}
+          subtitle={`${dashboardData?.purchases?.totalOrders || 0} orders`}
+          icon={ShoppingCart}
           color="purple"
+          clickable
+          onClick={() => setActiveTab("purchases")}
         />
         <StatsCard
           title="Amount Paid"
-          value={formatCurrency(poSummary?.totalPaid || 0)}
-          subtitle={`${receivedPercentage}% of total`}
+          value={formatCurrency(dashboardData?.purchases?.totalPaid || 0)}
+          subtitle={dashboardData?.purchases?.totalAmount > 0 
+            ? `${dashboardData?.purchases?.paidPercentage || 0}% of total`
+            : "0% of total"}
           icon={CheckCircle}
           color="green"
+          clickable
+          onClick={() => setActiveTab("payments")}
         />
         <StatsCard
           title="Pending Payment"
-          value={formatCurrency(poSummary?.totalPending || 0)}
+          value={formatCurrency(dashboardData?.purchases?.pendingPayment || 0)}
           subtitle="Outstanding balance"
           icon={AlertTriangle}
           color="orange"
+          clickable
+          onClick={() => setActiveTab("purchases")}
         />
       </div>
 
@@ -1549,58 +1961,16 @@ const VendorManagementContent = () => {
 
         {/* Dashboard Tab */}
         <TabsContent value="dashboard" className="space-y-6">
-          {/* Main KPI Cards */}
+          {/* Secondary Stats Row */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatsCard
-              title="Total Billed"
-              value={formatCurrency(dashboardData?.invoices?.totalAmount || 0)}
-              subtitle={`${dashboardData?.invoices?.totalInvoices || 0} vendor bills`}
+              title="Vendor Bills"
+              value={dashboardData?.invoices?.totalInvoices || 0}
+              subtitle={formatCurrency(dashboardData?.invoices?.totalAmount || 0)}
               icon={Receipt}
               color="blue"
               clickable
               onClick={() => setActiveTab("invoices")}
-            />
-            <StatsCard
-              title="Total Paid"
-              value={formatCurrency(dashboardData?.invoices?.totalPaid || 0)}
-              subtitle={dashboardData?.invoices?.totalAmount > 0 
-                ? `${Math.round((dashboardData.invoices.totalPaid / dashboardData.invoices.totalAmount) * 100)}% of total`
-                : "0% of total"}
-              icon={CheckCircle}
-              color="green"
-              clickable
-              onClick={() => setActiveTab("payments")}
-            />
-            <StatsCard
-              title="Outstanding Balance"
-              value={formatCurrency(dashboardData?.invoices?.totalOutstanding || 0)}
-              subtitle="Unpaid invoices"
-              icon={DollarSign}
-              color="purple"
-              clickable
-              onClick={() => setActiveTab("invoices")}
-            />
-            <StatsCard
-              title="Overdue Amount"
-              value={formatCurrency(dashboardData?.overdue?.totalAmount || 0)}
-              subtitle={`${dashboardData?.overdue?.count || 0} overdue invoices`}
-              icon={AlertTriangle}
-              color="red"
-              clickable
-              onClick={() => setActiveTab("reports")}
-            />
-          </div>
-
-          {/* Secondary Stats Row */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatsCard
-              title="Active Vendors"
-              value={dashboardData?.vendors?.total || vendors.length}
-              subtitle={`${dashboardData?.vendors?.byStatus?.active || 0} active`}
-              icon={Users}
-              color="blue"
-              clickable
-              onClick={() => setActiveTab("vendors")}
             />
             <StatsCard
               title="Open Disputes"
@@ -1621,13 +1991,13 @@ const VendorManagementContent = () => {
               onClick={() => setActiveTab("payments")}
             />
             <StatsCard
-              title="Purchase Orders"
-              value={dashboardData?.purchaseOrders?.total || purchaseOrders.length}
-              subtitle={`${poSummary?.totalOrders || 0} this period`}
-              icon={ShoppingCart}
+              title="Unapplied Credits"
+              value={formatCurrency(dashboardData?.credits?.unappliedCredits || 0)}
+              subtitle={`${dashboardData?.credits?.creditCount || 0} credit memos`}
+              icon={Scale}
               color="purple"
               clickable
-              onClick={() => setActiveTab("purchases")}
+              onClick={() => setActiveTab("credits")}
             />
           </div>
 
@@ -1637,37 +2007,46 @@ const VendorManagementContent = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Payment Progress</CardTitle>
-                <CardDescription>Overall payment status across all invoices</CardDescription>
+                <CardDescription>Overall payment status across all purchases</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Paid</span>
                     <span className="font-medium">
-                      {dashboardData?.invoices?.totalAmount > 0 
-                        ? `${Math.round((dashboardData.invoices.totalPaid / dashboardData.invoices.totalAmount) * 100)}%`
-                        : "0%"}
+                      {dashboardData?.purchases?.paidPercentage || 0}%
                     </span>
                   </div>
                   <Progress 
-                    value={dashboardData?.invoices?.totalAmount > 0 
-                      ? (dashboardData.invoices.totalPaid / dashboardData.invoices.totalAmount) * 100
-                      : 0} 
+                    value={dashboardData?.purchases?.paidPercentage || 0} 
                     className="h-3"
                   />
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Paid: {formatCurrency(dashboardData?.invoices?.totalPaid || 0)}</span>
-                    <span>Outstanding: {formatCurrency(dashboardData?.invoices?.totalOutstanding || 0)}</span>
+                    <span>Paid: {formatCurrency(dashboardData?.purchases?.totalPaid || 0)}</span>
+                    <span>Pending: {formatCurrency(dashboardData?.purchases?.pendingPayment || 0)}</span>
+                  </div>
+                </div>
+
+                {/* PO Payment Status Breakdown */}
+                <div className="pt-4 border-t">
+                  <p className="text-sm font-medium mb-3">Payment Status Breakdown</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(dashboardData?.purchaseOrders?.byPaymentStatus || {}).map(([status, data]: [string, any]) => (
+                      <div key={status} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                        <span className="text-xs capitalize">{status.replace(/_/g, ' ')}</span>
+                        <Badge variant="outline" className="text-xs">{data?.count || 0}</Badge>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
                 {/* PO Status Breakdown */}
                 <div className="pt-4 border-t">
-                  <p className="text-sm font-medium mb-3">Purchase Order Status</p>
+                  <p className="text-sm font-medium mb-3">Order Status</p>
                   <div className="grid grid-cols-2 gap-2">
                     {Object.entries(dashboardData?.purchaseOrders?.byStatus || {}).map(([status, data]: [string, any]) => (
                       <div key={status} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                        <span className="text-xs capitalize">{status.replace(/_/g, ' ')}</span>
+                        <span className="text-xs capitalize">{status.replace(/-/g, ' ')}</span>
                         <Badge variant="outline" className="text-xs">{data?.count || 0}</Badge>
                       </div>
                     ))}
@@ -2207,7 +2586,10 @@ const VendorManagementContent = () => {
                 <div className="flex flex-wrap gap-2">
                   <VendorSelect
                     value={invoiceVendorFilter}
-                    onValueChange={setInvoiceVendorFilter}
+                    onValueChange={(val) => {
+                      console.log("VendorsEnhanced: Invoice vendor filter changed to:", val)
+                      setInvoiceVendorFilter(val)
+                    }}
                     placeholder="Vendor"
                     includeAll={true}
                     allLabel="All Vendors"
@@ -2241,20 +2623,22 @@ const VendorManagementContent = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Bill #</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Due Date</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Matching</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="w-[120px]">Bill #</TableHead>
+                    <TableHead className="w-[130px]">Vendor</TableHead>
+                    <TableHead className="w-[80px] text-center">POs</TableHead>
+                    <TableHead className="w-[100px]">Date</TableHead>
+                    <TableHead className="w-[100px]">Due Date</TableHead>
+                    <TableHead className="w-[100px] text-right">PO Amt</TableHead>
+                    <TableHead className="w-[120px] text-right">Invoice Amt</TableHead>
+                    <TableHead className="w-[90px] text-center">Status</TableHead>
+                    <TableHead className="w-[90px] text-center">Matching</TableHead>
+                    <TableHead className="w-[60px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredInvoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                         No vendor bills found
                       </TableCell>
                     </TableRow>
@@ -2262,57 +2646,97 @@ const VendorManagementContent = () => {
                     filteredInvoices.map((invoice) => {
                       const isOverdue = invoice.dueDate && new Date(invoice.dueDate) < new Date() && invoice.status !== 'paid';
                       const daysOverdue = isOverdue ? Math.floor((new Date().getTime() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+                      const hasDifference = invoice.amountMatchType === 'different' || (invoice.poTotalAmount && invoice.poTotalAmount !== invoice.totalAmount);
+                      const linkedPOCount = invoice.linkedPurchaseOrders?.length || 0;
                       
                       return (
                       <TableRow key={invoice._id} className={isOverdue ? "bg-red-50/50" : ""}>
                         <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            {invoice.invoiceNumber}
+                          <div className="flex items-center gap-1">
+                            <span className="truncate">{invoice.invoiceNumber}</span>
                             {isOverdue && (
-                              <Badge variant="destructive" className="text-xs">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                {daysOverdue}d overdue
+                              <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                                {daysOverdue}d
                               </Badge>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{invoice.vendorId?.name || "-"}</TableCell>
                         <TableCell>
+                          <span className="truncate block max-w-[120px]">{invoice.vendorId?.name || "-"}</span>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {linkedPOCount > 0 ? (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                              {linkedPOCount}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
                           {invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString("en-US", {
                             timeZone: "UTC",
-                            year: "numeric",
                             month: "short",
                             day: "numeric",
                           }) : "-"}
                         </TableCell>
-                        <TableCell>
-                          <div className={isOverdue ? "text-red-600 font-medium" : ""}>
+                        <TableCell className="text-sm">
+                          <span className={isOverdue ? "text-red-600 font-medium" : ""}>
                             {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString("en-US", {
                               timeZone: "UTC",
-                              year: "numeric",
                               month: "short",
                               day: "numeric",
                             }) : "-"}
-                          </div>
+                          </span>
                         </TableCell>
-                        <TableCell>
-                          <div>{formatCurrency(invoice.totalAmount || 0)}</div>
-                          {invoice.remainingAmount > 0 && invoice.remainingAmount !== invoice.totalAmount && (
-                            <div className="text-xs text-muted-foreground">
-                              Due: {formatCurrency(invoice.remainingAmount)}
+                        <TableCell className="text-right">
+                          <span className="font-medium text-blue-600 text-sm">
+                            {formatCurrency(invoice.poTotalAmount || invoice.totalAmount || 0)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className={`font-medium text-sm ${hasDifference ? 'text-orange-600' : 'text-green-600'}`}>
+                            {formatCurrency(invoice.totalAmount || 0)}
+                          </div>
+                          {(invoice.paidAmount > 0 || invoice.remainingAmount > 0) && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {invoice.paidAmount > 0 && <span className="text-green-600">Paid: {formatCurrency(invoice.paidAmount)}</span>}
+                              {invoice.remainingAmount > 0 && <span className="text-orange-600 ml-1">Due: {formatCurrency(invoice.remainingAmount)}</span>}
                             </div>
                           )}
                         </TableCell>
-                        <TableCell>{getInvoiceStatusBadge(invoice.status)}</TableCell>
-                        <TableCell>{getMatchingStatusBadge(invoice.matchingStatus || 'not_matched')}</TableCell>
+                        <TableCell className="text-center">{getInvoiceStatusBadge(invoice.status)}</TableCell>
+                        <TableCell className="text-center">{getMatchingStatusBadge(invoice.matchingStatus || 'not_matched')}</TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
                                 <MoreVertical className="h-4 w-4" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openInvoiceEditModal(invoice)}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit Invoice
+                              </DropdownMenuItem>
+                              {invoice.status !== 'paid' && invoice.remainingAmount > 0 && (
+                                <DropdownMenuItem onClick={() => {
+                                  setPaymentForm({
+                                    vendorId: invoice.vendorId?._id || invoice.vendorId,
+                                    invoiceIds: [invoice._id],
+                                    amount: String(invoice.remainingAmount || invoice.totalAmount || 0),
+                                    method: "check",
+                                    checkNumber: "",
+                                    referenceNumber: "",
+                                    appliedCredits: [],
+                                    notes: `Payment for invoice ${invoice.invoiceNumber}`
+                                  })
+                                  setPaymentCreateModalOpen(true)
+                                }}>
+                                  <DollarSign className="h-4 w-4 mr-2" />
+                                  Record Payment
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem onClick={() => openMatchingModal(invoice)}>
                                 <FileCheck className="h-4 w-4 mr-2" />
                                 Three-Way Match
@@ -2402,7 +2826,7 @@ const VendorManagementContent = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Payment #</TableHead>
+                    {/* <TableHead>Payment #</TableHead> */}
                     <TableHead>Vendor</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Method</TableHead>
@@ -2423,7 +2847,7 @@ const VendorManagementContent = () => {
                   ) : (
                     filteredPayments.map((payment) => (
                       <TableRow key={payment._id}>
-                        <TableCell className="font-medium">{payment.paymentNumber}</TableCell>
+                        {/* <TableCell className="font-medium">{payment.paymentNumber}</TableCell> */}
                         <TableCell>{payment.vendorId?.name || "-"}</TableCell>
                         <TableCell>
                           {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString("en-US", {
@@ -2436,15 +2860,21 @@ const VendorManagementContent = () => {
                         <TableCell>{getPaymentMethodBadge(payment.method)}</TableCell>
                         <TableCell>{payment.checkNumber || "-"}</TableCell>
                         <TableCell className="text-right font-medium">
-                          {formatCurrency(payment.amount || 0)}
-                          {payment.appliedCredits?.length > 0 && (
-                            <div className="text-xs text-green-600">
-                              Credits: {formatCurrency(payment.appliedCredits.reduce((sum: number, c: any) => sum + c.amount, 0))}
-                            </div>
+                          {payment.invoicePayments && payment.invoicePayments.length > 0 ? (
+                            <>
+                              <div className="font-bold">
+                                {formatCurrency(payment.invoicePayments.reduce((sum: number, ip: any) => sum + (ip.invoiceAmount || 0), 0))}
+                              </div>
+                              <div className="text-xs text-green-600">
+                                Paid: {formatCurrency(payment.grossAmount || 0)}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="font-bold">{formatCurrency(payment.grossAmount || 0)}</div>
                           )}
-                          {payment.earlyPaymentDiscountTaken > 0 && (
+                          {payment.totalCreditsApplied > 0 && (
                             <div className="text-xs text-blue-600">
-                              Discount: {formatCurrency(payment.earlyPaymentDiscountTaken)}
+                              Credits: -{formatCurrency(payment.totalCreditsApplied)}
                             </div>
                           )}
                         </TableCell>
@@ -2454,7 +2884,7 @@ const VendorManagementContent = () => {
                               className="cursor-pointer"
                               onClick={() => openCheckStatusModal(payment)}
                             >
-                              {getCheckStatusBadge(payment.checkStatus || 'pending')}
+                              {getCheckStatusBadge(payment.checkClearanceStatus || 'pending')}
                             </div>
                           ) : (
                             <span className="text-muted-foreground text-sm">N/A</span>
@@ -2469,10 +2899,16 @@ const VendorManagementContent = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => {}}>
+                              <DropdownMenuItem onClick={() => openPaymentDetailsModal(payment)}>
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
                               </DropdownMenuItem>
+                              {payment.status !== 'voided' && (
+                                <DropdownMenuItem onClick={() => openPaymentEditModal(payment)}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Payment
+                                </DropdownMenuItem>
+                              )}
                               {payment.method === 'check' && payment.status !== 'voided' && (
                                 <DropdownMenuItem onClick={() => openCheckStatusModal(payment)}>
                                   <CreditCard className="h-4 w-4 mr-2" />
@@ -3571,8 +4007,8 @@ const VendorManagementContent = () => {
 
       {/* Invoice Create Modal */}
       <Dialog open={invoiceCreateModalOpen} onOpenChange={setInvoiceCreateModalOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Receipt className="h-5 w-5" />
               Create Invoice
@@ -3581,7 +4017,7 @@ const VendorManagementContent = () => {
               Create a new vendor invoice
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+          <div className="space-y-4 py-4 flex-1 overflow-y-auto pr-2 -mr-2">
             <div className="space-y-2">
               <Label>Vendor *</Label>
               <VendorSelect
@@ -3594,9 +4030,9 @@ const VendorManagementContent = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Invoice Number</Label>
+                <Label>Invoice Number *</Label>
                 <Input
-                  placeholder="Auto-generated if empty"
+                  placeholder="Enter Invoice Number"
                   value={invoiceForm.invoiceNumber}
                   onChange={(e) => setInvoiceForm(prev => ({ ...prev, invoiceNumber: e.target.value }))}
                 />
@@ -3629,9 +4065,16 @@ const VendorManagementContent = () => {
                 value={undefined}
                 onValueChange={(value) => {
                   if (value && !invoiceForm.linkedPurchaseOrders.includes(value)) {
+                    const newLinkedPOs = [...invoiceForm.linkedPurchaseOrders, value]
+                    const productDetails = updateProductReceivedDetails(newLinkedPOs)
+                    const poTotal = purchaseOrders
+                      .filter(po => newLinkedPOs.includes(po._id))
+                      .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
                     setInvoiceForm(prev => ({ 
                       ...prev, 
-                      linkedPurchaseOrders: [...prev.linkedPurchaseOrders, value] 
+                      linkedPurchaseOrders: newLinkedPOs,
+                      productReceivedDetails: productDetails,
+                      invoiceSettledAmount: poTotal
                     }))
                   }
                 }}
@@ -3640,16 +4083,20 @@ const VendorManagementContent = () => {
                   <SelectValue placeholder="Select PO to link" />
                 </SelectTrigger>
                 <SelectContent>
-                  {purchaseOrders
-                    .filter(po => 
-                      (invoiceForm.vendorId ? po.vendor?._id === invoiceForm.vendorId || po.vendorId === invoiceForm.vendorId : true) &&
-                      !invoiceForm.linkedPurchaseOrders.includes(po._id)
-                    )
-                    .map((po) => (
-                      <SelectItem key={po._id} value={po._id}>
-                        {po.purchaseOrderNumber} - {formatCurrency(po.totalAmount)}
-                      </SelectItem>
-                    ))}
+                  {(() => {
+                    const linkedPOIds = getLinkedPOIds()
+                    return purchaseOrders
+                      .filter(po => 
+                        (invoiceForm.vendorId ? po.vendor?._id === invoiceForm.vendorId || po.vendorId === invoiceForm.vendorId : true) &&
+                        !invoiceForm.linkedPurchaseOrders.includes(po._id) &&
+                        !linkedPOIds.has(po._id)
+                      )
+                      .map((po) => (
+                        <SelectItem key={po._id} value={po._id}>
+                          {po.purchaseOrderNumber} - {formatCurrency(po.totalAmount)}
+                        </SelectItem>
+                      ))
+                  })()}
                 </SelectContent>
               </Select>
               {invoiceForm.linkedPurchaseOrders.length > 0 && (
@@ -3658,13 +4105,22 @@ const VendorManagementContent = () => {
                     const po = purchaseOrders.find(p => p._id === poId)
                     return (
                       <Badge key={poId} variant="secondary" className="flex items-center gap-1">
-                        {po?.purchaseOrderNumber || poId}
+                        {po?.purchaseOrderNumber || poId} - {formatCurrency(po?.totalAmount || 0)}
                         <X 
                           className="h-3 w-3 cursor-pointer" 
-                          onClick={() => setInvoiceForm(prev => ({
-                            ...prev,
-                            linkedPurchaseOrders: prev.linkedPurchaseOrders.filter(id => id !== poId)
-                          }))}
+                          onClick={() => {
+                            const newLinkedPOs = invoiceForm.linkedPurchaseOrders.filter(id => id !== poId)
+                            const productDetails = updateProductReceivedDetails(newLinkedPOs)
+                            const poTotal = purchaseOrders
+                              .filter(po => newLinkedPOs.includes(po._id))
+                              .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+                            setInvoiceForm(prev => ({
+                              ...prev,
+                              linkedPurchaseOrders: newLinkedPOs,
+                              productReceivedDetails: productDetails,
+                              invoiceSettledAmount: poTotal
+                            }))
+                          }}
                         />
                       </Badge>
                     )
@@ -3672,6 +4128,84 @@ const VendorManagementContent = () => {
                 </div>
               )}
             </div>
+
+            {/* Amount Match Section */}
+            {invoiceForm.linkedPurchaseOrders.length > 0 && (
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Amount Match</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={invoiceForm.amountMatchType === "same" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        const poTotal = calculatePOTotal()
+                        setInvoiceForm(prev => ({ 
+                          ...prev, 
+                          amountMatchType: "same",
+                          invoiceSettledAmount: poTotal,
+                          amountDifferenceReason: ""
+                        }))
+                      }}
+                    >
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Same
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={invoiceForm.amountMatchType === "different" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setInvoiceForm(prev => ({ ...prev, amountMatchType: "different" }))}
+                    >
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Different
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div className="p-3 bg-background rounded-lg border">
+                    <p className="text-xs text-muted-foreground">PO Amount</p>
+                    <p className="text-lg font-bold text-blue-600">{formatCurrency(calculatePOTotal())}</p>
+                  </div>
+                  <div className="p-3 bg-background rounded-lg border">
+                    <p className="text-xs text-muted-foreground">Invoice Settled Amount</p>
+                    {invoiceForm.amountMatchType === "same" ? (
+                      <p className="text-lg font-bold text-green-600">{formatCurrency(calculatePOTotal())}</p>
+                    ) : (
+                      <Input
+                        type="number"
+                        value={invoiceForm.invoiceSettledAmount}
+                        onChange={(e) => setInvoiceForm(prev => ({ ...prev, invoiceSettledAmount: parseFloat(e.target.value) || 0 }))}
+                        className="mt-1 h-8"
+                        placeholder="Enter amount"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {invoiceForm.amountMatchType === "different" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={() => setAmountReasonModalOpen(true)}
+                  >
+                    <MessageSquareWarning className="h-4 w-4 mr-2" />
+                    {invoiceForm.amountDifferenceReason ? "View/Edit Reason Details" : "Add Reason for Difference"}
+                  </Button>
+                )}
+
+                {invoiceForm.amountMatchType === "different" && invoiceForm.amountDifferenceReason && (
+                  <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                    <p className="font-medium text-yellow-800">Reason Added</p>
+                    <p className="text-yellow-700 truncate">{invoiceForm.amountDifferenceReason}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Notes</Label>
@@ -3694,6 +4228,471 @@ const VendorManagementContent = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Amount Difference Reason Modal */}
+      <Dialog open={amountReasonModalOpen} onOpenChange={setAmountReasonModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquareWarning className="h-5 w-5 text-yellow-600" />
+              Amount Difference Details
+            </DialogTitle>
+            <DialogDescription>
+              Specify why the invoice amount differs from PO amount
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto space-y-4 py-4">
+            {/* Amount Summary */}
+            <div className="grid grid-cols-3 gap-3 p-3 bg-muted rounded-lg">
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground">PO Amount</p>
+                <p className="text-lg font-bold text-blue-600">{formatCurrency(calculatePOTotal())}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground">Invoice Amount</p>
+                <p className="text-lg font-bold text-green-600">{formatCurrency(invoiceForm.invoiceSettledAmount)}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground">Difference</p>
+                <p className={`text-lg font-bold ${(invoiceForm.invoiceSettledAmount - calculatePOTotal()) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {formatCurrency(invoiceForm.invoiceSettledAmount - calculatePOTotal())}
+                </p>
+              </div>
+            </div>
+
+            {/* Product Received Details */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                Product Received Details
+              </Label>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="text-xs">Product</TableHead>
+                      <TableHead className="text-xs text-center">Unit Price</TableHead>
+                      <TableHead className="text-xs text-center">Ordered</TableHead>
+                      <TableHead className="text-xs text-center">Received</TableHead>
+                      <TableHead className="text-xs text-center">Issue?</TableHead>
+                      <TableHead className="text-xs">Issue Note</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoiceForm.productReceivedDetails.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="text-sm font-medium max-w-[150px] truncate">{item.productName}</TableCell>
+                        <TableCell className="text-center text-sm">{formatCurrency(item.unitPrice)}</TableCell>
+                        <TableCell className="text-center">{item.orderedQty}</TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            value={item.receivedQty}
+                            onChange={(e) => {
+                              const newDetails = [...invoiceForm.productReceivedDetails]
+                              const receivedQty = parseInt(e.target.value) || 0
+                              newDetails[index].receivedQty = receivedQty
+                              newDetails[index].totalPrice = receivedQty * newDetails[index].unitPrice
+                              
+                              // Auto-calculate invoice settled amount
+                              const newInvoiceAmount = newDetails.reduce((sum, d) => sum + (d.receivedQty * d.unitPrice), 0)
+                              
+                              setInvoiceForm(prev => ({ 
+                                ...prev, 
+                                productReceivedDetails: newDetails,
+                                invoiceSettledAmount: newInvoiceAmount
+                              }))
+                            }}
+                            className="h-8 w-20 text-center mx-auto"
+                            min={0}
+                            max={item.orderedQty}
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="text-center">
+                          <input
+                            type="checkbox"
+                            checked={item.hasIssue}
+                            onChange={(e) => {
+                              const newDetails = [...invoiceForm.productReceivedDetails]
+                              newDetails[index].hasIssue = e.target.checked
+                              setInvoiceForm(prev => ({ ...prev, productReceivedDetails: newDetails }))
+                            }}
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {item.hasIssue && (
+                            <Input
+                              value={item.issueNote}
+                              onChange={(e) => {
+                                const newDetails = [...invoiceForm.productReceivedDetails]
+                                newDetails[index].issueNote = e.target.value
+                                setInvoiceForm(prev => ({ ...prev, productReceivedDetails: newDetails }))
+                              }}
+                              placeholder="Describe issue..."
+                              className="h-8 text-xs"
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {/* Calculated Total */}
+              <div className="flex justify-end p-2 bg-muted/50 rounded-lg">
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Calculated Invoice Amount: </span>
+                  <span className="font-bold text-green-600">{formatCurrency(calculateReceivedAmount())}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Reason for Difference */}
+            <div className="space-y-2">
+              <Label>Reason for Amount Difference *</Label>
+              <Textarea
+                placeholder="Explain why the invoice amount is different from PO amount (e.g., partial delivery, damaged goods, price adjustment, etc.)"
+                value={invoiceForm.amountDifferenceReason}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, amountDifferenceReason: e.target.value }))}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAmountReasonModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => setAmountReasonModalOpen(false)}
+              disabled={!invoiceForm.amountDifferenceReason.trim()}
+            >
+              Save Details
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invoice Edit Modal */}
+      <Dialog open={invoiceEditModalOpen} onOpenChange={setInvoiceEditModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5" />
+              Edit Invoice
+            </DialogTitle>
+            <DialogDescription>
+              Update invoice {selectedInvoiceForEdit?.invoiceNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedInvoiceForEdit && (
+            <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto">
+              <div className="p-3 bg-muted rounded-lg">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Invoice #:</span>
+                    <span className="ml-2 font-medium">{selectedInvoiceForEdit.invoiceNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Vendor:</span>
+                    <span className="ml-2 font-medium">{selectedInvoiceForEdit.vendorName}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <span className="ml-2">{getInvoiceStatusBadge(selectedInvoiceForEdit.status)}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Current Total:</span>
+                    <span className="ml-2 font-medium">{formatCurrency(selectedInvoiceForEdit.totalAmount)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Invoice Date</Label>
+                  <Input
+                    type="date"
+                    value={selectedInvoiceForEdit.invoiceDate}
+                    onChange={(e) => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, invoiceDate: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Due Date</Label>
+                  <Input
+                    type="date"
+                    value={selectedInvoiceForEdit.dueDate}
+                    onChange={(e) => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, dueDate: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Link Purchase Orders</Label>
+                <Select
+                  value=""
+                  onValueChange={(value) => {
+                    if (value && !selectedInvoiceForEdit.linkedPurchaseOrders.includes(value)) {
+                      const newLinkedPOs = [...selectedInvoiceForEdit.linkedPurchaseOrders, value]
+                      const productDetails = selectedInvoiceForEdit.productReceivedDetails?.length > 0 
+                        ? selectedInvoiceForEdit.productReceivedDetails 
+                        : updateEditProductReceivedDetails(newLinkedPOs)
+                      const poTotal = purchaseOrders
+                        .filter(po => newLinkedPOs.includes(po._id))
+                        .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+                      setSelectedInvoiceForEdit((prev: any) => ({
+                        ...prev,
+                        linkedPurchaseOrders: newLinkedPOs,
+                        productReceivedDetails: productDetails,
+                        poTotalAmount: poTotal,
+                        invoiceSettledAmount: prev.amountMatchType === 'same' ? poTotal : prev.invoiceSettledAmount
+                      }))
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select PO to link" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(() => {
+                      const linkedPOIds = getLinkedPOIds()
+                      return purchaseOrders
+                        .filter(po => 
+                          (po.vendor?._id === selectedInvoiceForEdit.vendorId || po.vendorId === selectedInvoiceForEdit.vendorId) &&
+                          !selectedInvoiceForEdit.linkedPurchaseOrders.includes(po._id) &&
+                          (!linkedPOIds.has(po._id) || selectedInvoiceForEdit.linkedPurchaseOrders.includes(po._id))
+                        )
+                        .map((po) => (
+                          <SelectItem key={po._id} value={po._id}>
+                            {po.purchaseOrderNumber} - {formatCurrency(po.totalAmount)}
+                          </SelectItem>
+                        ))
+                    })()}
+                  </SelectContent>
+                </Select>
+                {selectedInvoiceForEdit.linkedPurchaseOrders.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {selectedInvoiceForEdit.linkedPurchaseOrders.map((poId: string) => {
+                      const po = purchaseOrders.find(p => p._id === poId)
+                      return (
+                        <Badge key={poId} variant="secondary" className="flex items-center gap-1">
+                          {po?.purchaseOrderNumber || poId} - {formatCurrency(po?.totalAmount || 0)}
+                          <X 
+                            className="h-3 w-3 cursor-pointer" 
+                            onClick={() => {
+                              const newLinkedPOs = selectedInvoiceForEdit.linkedPurchaseOrders.filter((id: string) => id !== poId)
+                              const poTotal = purchaseOrders
+                                .filter(po => newLinkedPOs.includes(po._id))
+                                .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+                              setSelectedInvoiceForEdit((prev: any) => ({
+                                ...prev,
+                                linkedPurchaseOrders: newLinkedPOs,
+                                poTotalAmount: poTotal,
+                                invoiceSettledAmount: prev.amountMatchType === 'same' ? poTotal : prev.invoiceSettledAmount
+                              }))
+                            }}
+                          />
+                        </Badge>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Amount Match Section */}
+              {selectedInvoiceForEdit.linkedPurchaseOrders.length > 0 && (
+                <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Amount Match</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant={selectedInvoiceForEdit.amountMatchType === "same" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          const poTotal = calculateEditPOTotal()
+                          setSelectedInvoiceForEdit((prev: any) => ({ 
+                            ...prev, 
+                            amountMatchType: "same",
+                            invoiceSettledAmount: poTotal,
+                            amountDifferenceReason: ""
+                          }))
+                        }}
+                      >
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Same
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={selectedInvoiceForEdit.amountMatchType === "different" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, amountMatchType: "different" }))}
+                      >
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Different
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div className="p-3 bg-background rounded-lg border">
+                      <p className="text-xs text-muted-foreground">PO Amount</p>
+                      <p className="text-lg font-bold text-blue-600">{formatCurrency(calculateEditPOTotal())}</p>
+                    </div>
+                    <div className="p-3 bg-background rounded-lg border">
+                      <p className="text-xs text-muted-foreground">Invoice Settled Amount</p>
+                      {selectedInvoiceForEdit.amountMatchType === "same" ? (
+                        <p className="text-lg font-bold text-green-600">{formatCurrency(calculateEditPOTotal())}</p>
+                      ) : (
+                        <Input
+                          type="number"
+                          value={selectedInvoiceForEdit.invoiceSettledAmount}
+                          onChange={(e) => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, invoiceSettledAmount: parseFloat(e.target.value) || 0 }))}
+                          className="mt-1 h-8"
+                          placeholder="Enter amount"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedInvoiceForEdit.amountMatchType === "different" && (
+                    <>
+                      {/* Product Received Details */}
+                      {selectedInvoiceForEdit.productReceivedDetails?.length > 0 && (
+                        <div className="space-y-2 mt-3">
+                          <Label className="flex items-center gap-2 text-xs">
+                            <Package className="h-3 w-3" />
+                            Product Received Details
+                          </Label>
+                          <div className="border rounded-lg overflow-hidden">
+                            <Table>
+                              <TableHeader>
+                                <TableRow className="bg-muted/50">
+                                  <TableHead className="text-xs">Product</TableHead>
+                                  <TableHead className="text-xs text-center">Unit Price</TableHead>
+                                  <TableHead className="text-xs text-center">Ordered</TableHead>
+                                  <TableHead className="text-xs text-center">Received</TableHead>
+                                  <TableHead className="text-xs text-center">Amount</TableHead>
+                                  <TableHead className="text-xs text-center">Issue?</TableHead>
+                                  <TableHead className="text-xs">Issue Note</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {selectedInvoiceForEdit.productReceivedDetails.map((item: any, index: number) => (
+                                  <TableRow key={index}>
+                                    <TableCell className="text-xs font-medium max-w-[120px] truncate">{item.productName}</TableCell>
+                                    <TableCell className="text-center text-xs">{formatCurrency(item.unitPrice)}</TableCell>
+                                    <TableCell className="text-center text-xs">{item.orderedQty}</TableCell>
+                                    <TableCell>
+                                      <Input
+                                        type="number"
+                                        value={item.receivedQty}
+                                        onChange={(e) => {
+                                          const newDetails = [...selectedInvoiceForEdit.productReceivedDetails]
+                                          const receivedQty = parseInt(e.target.value) || 0
+                                          newDetails[index].receivedQty = receivedQty
+                                          newDetails[index].totalPrice = receivedQty * newDetails[index].unitPrice
+                                          
+                                          const newInvoiceAmount = newDetails.reduce((sum: number, d: any) => sum + (d.receivedQty * d.unitPrice), 0)
+                                          
+                                          setSelectedInvoiceForEdit((prev: any) => ({ 
+                                            ...prev, 
+                                            productReceivedDetails: newDetails,
+                                            invoiceSettledAmount: newInvoiceAmount
+                                          }))
+                                        }}
+                                        className="h-7 w-16 text-center text-xs"
+                                        min={0}
+                                        max={item.orderedQty}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="text-center text-xs font-medium">
+                                      {formatCurrency(item.receivedQty * item.unitPrice)}
+                                    </TableCell>
+                                    <TableCell className="text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.hasIssue}
+                                        onChange={(e) => {
+                                          const newDetails = [...selectedInvoiceForEdit.productReceivedDetails]
+                                          newDetails[index].hasIssue = e.target.checked
+                                          if (!e.target.checked) {
+                                            newDetails[index].issueNote = ""
+                                          }
+                                          setSelectedInvoiceForEdit((prev: any) => ({ ...prev, productReceivedDetails: newDetails }))
+                                        }}
+                                        className="h-3 w-3 rounded border-gray-300"
+                                      />
+                                    </TableCell>
+                                    <TableCell>
+                                      {item.hasIssue && (
+                                        <Input
+                                          value={item.issueNote || ""}
+                                          onChange={(e) => {
+                                            const newDetails = [...selectedInvoiceForEdit.productReceivedDetails]
+                                            newDetails[index].issueNote = e.target.value
+                                            setSelectedInvoiceForEdit((prev: any) => ({ ...prev, productReceivedDetails: newDetails }))
+                                          }}
+                                          placeholder="Describe issue..."
+                                          className="h-7 text-xs w-24"
+                                        />
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                          <div className="flex justify-end p-2 bg-muted/50 rounded-lg">
+                            <div className="text-xs">
+                              <span className="text-muted-foreground">Calculated Amount: </span>
+                              <span className="font-bold text-green-600">{formatCurrency(calculateEditReceivedAmount())}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Reason for Difference */}
+                      <div className="space-y-2 mt-3">
+                        <Label className="text-xs">Reason for Amount Difference</Label>
+                        <Textarea
+                          placeholder="Explain why the invoice amount is different..."
+                          value={selectedInvoiceForEdit.amountDifferenceReason}
+                          onChange={(e) => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, amountDifferenceReason: e.target.value }))}
+                          rows={2}
+                          className="text-xs"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <Textarea
+                  placeholder="Additional notes..."
+                  value={selectedInvoiceForEdit.notes}
+                  onChange={(e) => setSelectedInvoiceForEdit((prev: any) => ({ ...prev, notes: e.target.value }))}
+                  rows={2}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setInvoiceEditModalOpen(false)
+              setSelectedInvoiceForEdit(null)
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateInvoice} disabled={invoiceEditLoading || selectedInvoiceForEdit?.status === 'paid'}>
+              {invoiceEditLoading ? "Updating..." : "Update Invoice"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Three-Way Matching Modal */}
       <Dialog open={matchingModalOpen} onOpenChange={setMatchingModalOpen}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -3711,145 +4710,268 @@ const VendorManagementContent = () => {
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : matchingComparison ? (
-            <div className="space-y-4">
-              {/* Summary */}
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">PO Total</p>
-                    <p className="text-xl font-bold">{formatCurrency(matchingComparison.summary?.poTotal || 0)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Received Total</p>
-                    <p className="text-xl font-bold">{formatCurrency(matchingComparison.summary?.receivedTotal || 0)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-sm text-muted-foreground">Invoice Total</p>
-                    <p className="text-xl font-bold">{formatCurrency(matchingComparison.summary?.invoiceTotal || 0)}</p>
-                  </CardContent>
-                </Card>
-              </div>
+          ) : (
+            <Tabs defaultValue="matching" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="matching">Matching Details</TabsTrigger>
+                <TabsTrigger value="reason" className="flex items-center gap-1">
+                  <MessageSquareWarning className="h-4 w-4" />
+                  Reason & Issues
+                  {selectedInvoiceForMatching?.amountMatchType === 'different' && (
+                    <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">!</Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
 
-              {/* Variance Alert */}
-              {matchingComparison.summary?.hasDiscrepancy && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-                  <AlertTriangle className="h-5 w-5 text-red-600" />
-                  <div>
-                    <p className="font-medium text-red-800">Discrepancy Detected</p>
-                    <p className="text-sm text-red-600">
-                      Variance: {formatCurrency(Math.abs(matchingComparison.summary?.variance || 0))} 
-                      ({matchingComparison.summary?.variancePercentage?.toFixed(2)}%)
-                    </p>
-                  </div>
+              {/* Matching Tab */}
+              <TabsContent value="matching" className="space-y-4 mt-4">
+                {/* Summary */}
+                <div className="grid grid-cols-4 gap-3">
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">PO Amount</p>
+                      <p className="text-lg font-bold text-blue-600">{formatCurrency(selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0)}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">Received Total</p>
+                      <p className="text-lg font-bold">{formatCurrency(selectedInvoiceForMatching?.totalAmount || 0)}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">Invoice Amount</p>
+                      <p className="text-lg font-bold text-green-600">{formatCurrency(selectedInvoiceForMatching?.totalAmount || 0)}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">Difference</p>
+                      <p className={`text-lg font-bold ${((selectedInvoiceForMatching?.totalAmount || 0) - (selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0)) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {formatCurrency((selectedInvoiceForMatching?.totalAmount || 0) - (selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0))}
+                      </p>
+                    </CardContent>
+                  </Card>
                 </div>
-              )}
 
-              {/* Line Items Comparison */}
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead>Item</TableHead>
-                      <TableHead className="text-center">PO Qty</TableHead>
-                      <TableHead className="text-center">Received</TableHead>
-                      <TableHead className="text-center">Invoice Qty</TableHead>
-                      <TableHead className="text-right">PO Price</TableHead>
-                      <TableHead className="text-right">Invoice Price</TableHead>
-                      <TableHead className="text-center">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {matchingComparison.lineItems?.map((item: any, index: number) => (
-                      <TableRow key={index} className={item.hasDiscrepancy ? "bg-red-50" : ""}>
-                        <TableCell className="font-medium">{item.productName || item.description}</TableCell>
-                        <TableCell className="text-center">{item.poQuantity || 0}</TableCell>
-                        <TableCell className="text-center">{item.receivedQuantity || 0}</TableCell>
-                        <TableCell className="text-center">{item.invoiceQuantity || 0}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.poPrice || 0)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(item.invoicePrice || 0)}</TableCell>
-                        <TableCell className="text-center">
-                          {item.hasDiscrepancy ? (
-                            <Badge variant="destructive">Mismatch</Badge>
-                          ) : (
-                            <Badge variant="success">Match</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                {/* Variance Alert */}
+                {selectedInvoiceForMatching?.amountMatchType === 'different' && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                    <div>
+                      <p className="font-medium text-red-800">Discrepancy Detected</p>
+                      <p className="text-sm text-red-600">
+                        Variance: {formatCurrency(Math.abs((selectedInvoiceForMatching?.totalAmount || 0) - (selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0)))}
+                        {" - Check Reason tab for details"}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-              {/* Matching Results */}
-              {selectedInvoiceForMatching?.matchingResults && (
+                {/* Line Items Comparison - Using productReceivedDetails */}
+                {selectedInvoiceForMatching?.productReceivedDetails && selectedInvoiceForMatching.productReceivedDetails.length > 0 ? (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead>Item</TableHead>
+                          <TableHead className="text-center">PO Qty</TableHead>
+                          <TableHead className="text-center">Received</TableHead>
+                          <TableHead className="text-center">Invoice Qty</TableHead>
+                          <TableHead className="text-right">Unit Price</TableHead>
+                          <TableHead className="text-right">Invoice Amount</TableHead>
+                          <TableHead className="text-center">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedInvoiceForMatching.productReceivedDetails.map((item: any, index: number) => {
+                          const hasDiscrepancy = item.orderedQty !== item.receivedQty || item.hasIssue
+                          return (
+                            <TableRow key={index} className={hasDiscrepancy ? "bg-red-50" : ""}>
+                              <TableCell className="font-medium">{item.productName}</TableCell>
+                              <TableCell className="text-center">{item.orderedQty || 0}</TableCell>
+                              <TableCell className="text-center">{item.receivedQty || 0}</TableCell>
+                              <TableCell className="text-center">{item.receivedQty || 0}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(item.unitPrice || 0)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency((item.receivedQty || 0) * (item.unitPrice || 0))}</TableCell>
+                              <TableCell className="text-center">
+                                {hasDiscrepancy ? (
+                                  <Badge variant="destructive">Mismatch</Badge>
+                                ) : (
+                                  <Badge className="bg-green-100 text-green-800">Match</Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>No product details available</p>
+                  </div>
+                )}
+
+                {/* Matching Summary */}
                 <div className="p-4 bg-muted/50 rounded-lg">
-                  <p className="text-sm font-medium mb-2">Matching Results</p>
+                  <p className="text-sm font-medium mb-2">Matching Summary</p>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground">Quantity Match:</span>{" "}
-                      <span className={selectedInvoiceForMatching.matchingResults.quantityMatch ? "text-green-600" : "text-red-600"}>
-                        {selectedInvoiceForMatching.matchingResults.quantityMatch ? "Yes" : "No"}
+                      <span className={selectedInvoiceForMatching?.productReceivedDetails?.every((item: any) => item.orderedQty === item.receivedQty) ? "text-green-600" : "text-red-600"}>
+                        {selectedInvoiceForMatching?.productReceivedDetails?.every((item: any) => item.orderedQty === item.receivedQty) ? "Yes" : "No"}
                       </span>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Price Match:</span>{" "}
-                      <span className={selectedInvoiceForMatching.matchingResults.priceMatch ? "text-green-600" : "text-red-600"}>
-                        {selectedInvoiceForMatching.matchingResults.priceMatch ? "Yes" : "No"}
+                      <span className="text-muted-foreground">Amount Match:</span>{" "}
+                      <span className={selectedInvoiceForMatching?.amountMatchType === 'same' ? "text-green-600" : "text-red-600"}>
+                        {selectedInvoiceForMatching?.amountMatchType === 'same' ? "Yes" : "No"}
                       </span>
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No matching data available</p>
-              <Button 
-                variant="outline" 
-                className="mt-4"
-                onClick={() => selectedInvoiceForMatching && handleRunMatching(selectedInvoiceForMatching._id)}
-              >
-                Run Matching
-              </Button>
-            </div>
+              </TabsContent>
+
+              {/* Reason Tab */}
+              <TabsContent value="reason" className="space-y-4 mt-4">
+                {/* Amount Summary */}
+                <div className="grid grid-cols-3 gap-3 p-4 bg-muted rounded-lg">
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Original PO Amount</p>
+                    <p className="text-xl font-bold text-blue-600">{formatCurrency(selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Invoice Settled Amount</p>
+                    <p className="text-xl font-bold text-green-600">{formatCurrency(selectedInvoiceForMatching?.totalAmount || 0)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-muted-foreground">Difference</p>
+                    <p className={`text-xl font-bold ${((selectedInvoiceForMatching?.totalAmount || 0) - (selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0)) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {formatCurrency((selectedInvoiceForMatching?.totalAmount || 0) - (selectedInvoiceForMatching?.poTotalAmount || selectedInvoiceForMatching?.totalAmount || 0))}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Amount Match Type */}
+                <div className="p-3 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Amount Match Type:</span>
+                    <Badge variant={selectedInvoiceForMatching?.amountMatchType === 'same' ? 'default' : 'destructive'}>
+                      {selectedInvoiceForMatching?.amountMatchType === 'same' ? 'Same as PO' : 'Different from PO'}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Product Received Details */}
+                {selectedInvoiceForMatching?.productReceivedDetails && selectedInvoiceForMatching.productReceivedDetails.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <Package className="h-4 w-4" />
+                      Product Received Details
+                    </Label>
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="text-xs">Product</TableHead>
+                            <TableHead className="text-xs text-center">Unit Price</TableHead>
+                            <TableHead className="text-xs text-center">Ordered</TableHead>
+                            <TableHead className="text-xs text-center">Received</TableHead>
+                            <TableHead className="text-xs text-center">Difference</TableHead>
+                            <TableHead className="text-xs text-center">Amount</TableHead>
+                            <TableHead className="text-xs text-center">Issue</TableHead>
+                            <TableHead className="text-xs">Issue Note</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedInvoiceForMatching.productReceivedDetails.map((item: any, index: number) => {
+                            const qtyDiff = (item.receivedQty || 0) - (item.orderedQty || 0)
+                            return (
+                              <TableRow key={index} className={item.hasIssue || qtyDiff < 0 ? "bg-red-50" : ""}>
+                                <TableCell className="text-sm font-medium">{item.productName}</TableCell>
+                                <TableCell className="text-center text-sm">{formatCurrency(item.unitPrice || 0)}</TableCell>
+                                <TableCell className="text-center">{item.orderedQty || 0}</TableCell>
+                                <TableCell className="text-center">{item.receivedQty || 0}</TableCell>
+                                <TableCell className={`text-center font-medium ${qtyDiff < 0 ? 'text-red-600' : qtyDiff > 0 ? 'text-green-600' : ''}`}>
+                                  {qtyDiff !== 0 ? (qtyDiff > 0 ? '+' : '') + qtyDiff : '-'}
+                                </TableCell>
+                                <TableCell className="text-center text-sm font-medium">
+                                  {formatCurrency((item.receivedQty || 0) * (item.unitPrice || 0))}
+                                </TableCell>
+                                <TableCell className="text-center">
+                                  {item.hasIssue ? (
+                                    <Badge variant="destructive" className="text-xs">Yes</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs">No</Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">
+                                  {item.issueNote || '-'}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reason for Difference */}
+                {selectedInvoiceForMatching?.amountDifferenceReason && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <MessageSquareWarning className="h-4 w-4 text-yellow-600" />
+                      Reason for Amount Difference
+                    </Label>
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-sm text-yellow-800 whitespace-pre-wrap">{selectedInvoiceForMatching.amountDifferenceReason}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* No Reason Available */}
+                {!selectedInvoiceForMatching?.amountDifferenceReason && selectedInvoiceForMatching?.amountMatchType !== 'different' && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
+                    <p>No discrepancy - Invoice amount matches PO amount</p>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {selectedInvoiceForMatching?.notes && (
+                  <div className="space-y-2">
+                    <Label>Additional Notes</Label>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <p className="text-sm">{selectedInvoiceForMatching.notes}</p>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           )}
 
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setMatchingModalOpen(false)}>
               Close
             </Button>
-            {selectedInvoiceForMatching && (
+            {selectedInvoiceForMatching && selectedInvoiceForMatching.status === 'pending' && (
               <>
                 <Button 
-                  variant="outline"
-                  onClick={() => handleRunMatching(selectedInvoiceForMatching._id)}
-                  disabled={matchingLoading}
+                  variant="destructive"
+                  onClick={() => handleDisputeInvoice(selectedInvoiceForMatching._id, "Discrepancy found during matching")}
                 >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${matchingLoading ? "animate-spin" : ""}`} />
-                  Re-run Matching
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Dispute
                 </Button>
-                {selectedInvoiceForMatching.status === 'pending' && (
-                  <>
-                    <Button 
-                      variant="destructive"
-                      onClick={() => handleDisputeInvoice(selectedInvoiceForMatching._id, "Discrepancy found during matching")}
-                    >
-                      <AlertTriangle className="h-4 w-4 mr-2" />
-                      Dispute
-                    </Button>
-                    <Button 
-                      onClick={() => handleApproveInvoice(selectedInvoiceForMatching._id)}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Approve
-                    </Button>
-                  </>
-                )}
+                <Button 
+                  onClick={() => handleApproveInvoice(selectedInvoiceForMatching._id)}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Approve
+                </Button>
               </>
             )}
           </DialogFooter>
@@ -4265,8 +5387,10 @@ const VendorManagementContent = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-medium">{formatCurrency(inv.remainingAmount || inv.totalAmount || 0)}</div>
-                          <div className="text-xs text-muted-foreground">Outstanding</div>
+                          <div className="font-bold">{formatCurrency(inv.totalAmount || 0)}</div>
+                          <div className="text-xs text-orange-600">
+                            Due: {formatCurrency(inv.remainingAmount || inv.totalAmount || 0)}
+                          </div>
                         </div>
                       </div>
                     ))
@@ -4395,11 +5519,11 @@ const VendorManagementContent = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Amount:</span>
-                    <span className="font-medium">{formatCurrency(selectedPaymentForCheck.amount || 0)}</span>
+                    <span className="font-medium">{formatCurrency(selectedPaymentForCheck.netAmount || selectedPaymentForCheck.grossAmount || 0)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Current Status:</span>
-                    {getCheckStatusBadge(selectedPaymentForCheck.checkStatus || 'pending')}
+                    {getCheckStatusBadge(selectedPaymentForCheck.checkClearanceStatus || 'pending')}
                   </div>
                 </div>
 
@@ -4473,6 +5597,309 @@ const VendorManagementContent = () => {
             </Button>
             <Button onClick={handleUpdateCheckStatus} disabled={checkStatusLoading}>
               {checkStatusLoading ? "Updating..." : "Update Status"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Payment Modal */}
+      <Dialog open={paymentEditModalOpen} onOpenChange={setPaymentEditModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5" />
+              Edit Payment
+            </DialogTitle>
+            <DialogDescription>
+              Update payment {selectedPaymentForEdit?.paymentNumber}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {selectedPaymentForEdit && (
+              <>
+                <div className="p-3 bg-muted/50 rounded-lg space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Vendor:</span>
+                    <span className="font-medium">{selectedPaymentForEdit.vendorId?.name || "-"}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Original Amount:</span>
+                    <span className="font-medium">{formatCurrency(selectedPaymentForEdit.grossAmount || 0)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Amount</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={paymentEditForm.newAmount}
+                    onChange={(e) => setPaymentEditForm(prev => ({ ...prev, newAmount: e.target.value }))}
+                    placeholder="Enter amount"
+                  />
+                  {selectedPaymentForEdit.method === 'check' && selectedPaymentForEdit.checkClearanceStatus === 'cleared' && (
+                    <p className="text-xs text-muted-foreground">Amount cannot be changed for cleared checks</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Payment Method</Label>
+                  <Select 
+                    value={paymentEditForm.method} 
+                    onValueChange={(value: any) => setPaymentEditForm(prev => ({ ...prev, method: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="check">Check</SelectItem>
+                      <SelectItem value="ach">ACH</SelectItem>
+                      <SelectItem value="wire">Wire Transfer</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="credit_card">Credit Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {paymentEditForm.method === 'check' && (
+                  <div className="space-y-2">
+                    <Label>Check Number</Label>
+                    <Input
+                      value={paymentEditForm.checkNumber}
+                      onChange={(e) => setPaymentEditForm(prev => ({ ...prev, checkNumber: e.target.value }))}
+                      placeholder="Enter check number"
+                    />
+                  </div>
+                )}
+
+                {paymentEditForm.method !== 'check' && paymentEditForm.method !== 'cash' && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Transaction ID</Label>
+                      <Input
+                        value={paymentEditForm.transactionId}
+                        onChange={(e) => setPaymentEditForm(prev => ({ ...prev, transactionId: e.target.value }))}
+                        placeholder="Enter transaction ID"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Bank Reference</Label>
+                      <Input
+                        value={paymentEditForm.bankReference}
+                        onChange={(e) => setPaymentEditForm(prev => ({ ...prev, bankReference: e.target.value }))}
+                        placeholder="Enter bank reference"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Textarea
+                    value={paymentEditForm.notes}
+                    onChange={(e) => setPaymentEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Additional notes..."
+                    rows={2}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentEditModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdatePayment} disabled={paymentEditLoading}>
+              {paymentEditLoading ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Details Modal */}
+      <Dialog open={paymentDetailsModalOpen} onOpenChange={setPaymentDetailsModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5" />
+              Payment Details
+            </DialogTitle>
+            <DialogDescription>
+              {selectedPaymentDetails?.paymentNumber || "Loading..."}
+            </DialogDescription>
+          </DialogHeader>
+          {paymentDetailsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : selectedPaymentDetails ? (
+            <div className="space-y-6 py-4">
+              {/* Payment Summary */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Vendor</p>
+                  <p className="font-medium">{selectedPaymentDetails.vendorId?.name || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Payment Date</p>
+                  <p className="font-medium">
+                    {selectedPaymentDetails.paymentDate ? new Date(selectedPaymentDetails.paymentDate).toLocaleDateString("en-US", {
+                      timeZone: "UTC",
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    }) : "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Method</p>
+                  <p className="font-medium">{getPaymentMethodBadge(selectedPaymentDetails.method)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <p className="font-medium">{getVendorPaymentStatusBadge(selectedPaymentDetails.status)}</p>
+                </div>
+                {selectedPaymentDetails.method === 'check' && (
+                  <>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Check #</p>
+                      <p className="font-medium">{selectedPaymentDetails.checkNumber || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Check Status</p>
+                      <p className="font-medium">{getCheckStatusBadge(selectedPaymentDetails.checkClearanceStatus || 'pending')}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Amount Breakdown */}
+              <div className="space-y-2">
+                <h4 className="font-semibold">Amount Breakdown</h4>
+                <div className="p-4 border rounded-lg space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gross Amount:</span>
+                    <span className="font-medium">{formatCurrency(selectedPaymentDetails.grossAmount || 0)}</span>
+                  </div>
+                  {selectedPaymentDetails.totalCreditsApplied > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Credits Applied:</span>
+                      <span>-{formatCurrency(selectedPaymentDetails.totalCreditsApplied)}</span>
+                    </div>
+                  )}
+                  {selectedPaymentDetails.earlyPaymentDiscountTaken > 0 && (
+                    <div className="flex justify-between text-blue-600">
+                      <span>Early Payment Discount:</span>
+                      <span>-{formatCurrency(selectedPaymentDetails.earlyPaymentDiscountTaken)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t pt-2 font-bold">
+                    <span>Net Amount Paid:</span>
+                    <span>{formatCurrency(selectedPaymentDetails.netAmount || 0)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invoices Paid */}
+              {selectedPaymentDetails.invoicePayments && selectedPaymentDetails.invoicePayments.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Invoices Paid ({selectedPaymentDetails.invoicePayments.length})</h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Invoice #</TableHead>
+                          <TableHead className="text-right">Invoice Total</TableHead>
+                          <TableHead className="text-right">Amount Paid</TableHead>
+                          <TableHead className="text-right">Remaining</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPaymentDetails.invoicePayments.map((ip: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">
+                              {ip.invoiceId?.invoiceNumber || ip.invoiceNumber || "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(ip.invoiceId?.totalAmount || ip.invoiceAmount || 0)}
+                            </TableCell>
+                            <TableCell className="text-right text-green-600 font-medium">
+                              {formatCurrency(ip.amountPaid || 0)}
+                            </TableCell>
+                            <TableCell className="text-right text-orange-600">
+                              {formatCurrency(ip.remainingAfterPayment || 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Applied Credits */}
+              {selectedPaymentDetails.appliedCredits && selectedPaymentDetails.appliedCredits.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Applied Credits</h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Credit Memo #</TableHead>
+                          <TableHead className="text-right">Amount Applied</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPaymentDetails.appliedCredits.map((credit: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">
+                              {credit.creditMemoId?.memoNumber || credit.memoNumber || "-"}
+                            </TableCell>
+                            <TableCell className="text-right text-green-600">
+                              {formatCurrency(credit.amount || 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              {selectedPaymentDetails.notes && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Notes</h4>
+                  <p className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg">
+                    {selectedPaymentDetails.notes}
+                  </p>
+                </div>
+              )}
+
+              {/* Void Info */}
+              {selectedPaymentDetails.status === 'voided' && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                  <h4 className="font-semibold text-red-800">Payment Voided</h4>
+                  {selectedPaymentDetails.voidReason && (
+                    <p className="text-sm text-red-700">Reason: {selectedPaymentDetails.voidReason}</p>
+                  )}
+                  {selectedPaymentDetails.voidedAt && (
+                    <p className="text-sm text-red-700">
+                      Voided on: {new Date(selectedPaymentDetails.voidedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No payment details available
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDetailsModalOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

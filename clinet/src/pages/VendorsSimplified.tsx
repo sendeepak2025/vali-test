@@ -6,7 +6,8 @@ import {
   Search, Plus, RefreshCw, Eye, Edit, Trash2, Ban,
   DollarSign, Package, Users, CheckCircle, Clock,
   TrendingUp, Building2, Phone, Mail, ChevronDown,
-  Calendar, ArrowUpDown, MoreVertical, Settings2
+  Calendar, ArrowUpDown, MoreVertical, Settings2,
+  Receipt, FileText, AlertCircle, CreditCard
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,11 +32,13 @@ import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
 import { getAllVendorsAPI, deleteVendorAPI, createVendorAPI, updateVendorAPI } from "@/services2/operations/vendor"
 import { getAllPurchaseOrdersAPI } from "@/services2/operations/purchaseOrder"
+import { getAllInvoicesAPI, createInvoiceAPI } from "@/services2/operations/vendorInvoice"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { PaymentStatusPopup } from "@/components/orders/PaymentUpdateModel"
 import DateFilterDialog from "@/components/orders/DateFilterPopup"
 import Sidebar from "@/components/layout/Sidebar"
 import UserDetailsModal from "@/components/admin/user-details-modal"
+import CreateInvoiceModal from "@/components/vendors/CreateInvoiceModal"
 import { useSelector } from "react-redux"
 import type { RootState } from "@/redux/store"
 
@@ -43,25 +46,36 @@ import type { RootState } from "@/redux/store"
 import VendorsEnhanced from "./VendorsEnhanced"
 
 // Stats Card Component
-const StatsCard = ({ title, value, subtitle, icon: Icon, color = "blue" }: any) => {
-  const colorClasses: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-600",
-    green: "bg-green-50 text-green-600",
-    orange: "bg-orange-50 text-orange-600",
-    red: "bg-red-50 text-red-600",
+const StatsCard = ({ title, value, subtitle, icon: Icon, color = "blue", trend, trendValue }: any) => {
+  const colorClasses: Record<string, { bg: string; text: string; iconBg: string }> = {
+    blue: { bg: "bg-blue-50", text: "text-blue-600", iconBg: "bg-blue-100" },
+    green: { bg: "bg-green-50", text: "text-green-600", iconBg: "bg-green-100" },
+    orange: { bg: "bg-orange-50", text: "text-orange-600", iconBg: "bg-orange-100" },
+    red: { bg: "bg-red-50", text: "text-red-600", iconBg: "bg-red-100" },
+    purple: { bg: "bg-purple-50", text: "text-purple-600", iconBg: "bg-purple-100" },
   }
 
+  const colors = colorClasses[color] || colorClasses.blue
+
   return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
-          </div>
-          <div className={`p-3 rounded-full ${colorClasses[color]}`}>
-            <Icon className="h-6 w-6" />
+    <Card className="overflow-hidden hover:shadow-md transition-shadow">
+      <CardContent className="p-0">
+        <div className={`${colors.bg} p-4`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">{title}</p>
+              <p className={`text-2xl font-bold mt-1 ${colors.text}`}>{value}</p>
+              {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+              {trend && (
+                <div className={`flex items-center mt-2 text-xs ${trend === "up" ? "text-green-600" : "text-red-600"}`}>
+                  <TrendingUp className={`h-3 w-3 mr-1 ${trend === "down" ? "rotate-180" : ""}`} />
+                  {trendValue}
+                </div>
+              )}
+            </div>
+            <div className={`p-3 rounded-xl ${colors.iconBg}`}>
+              <Icon className={`h-6 w-6 ${colors.text}`} />
+            </div>
           </div>
         </div>
       </CardContent>
@@ -144,6 +158,14 @@ const VendorContent = () => {
   const [poSummary, setPoSummary] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
 
+  // Invoice state
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [invoiceLoading, setInvoiceLoading] = useState(false)
+  const [invoiceSearch, setInvoiceSearch] = useState("")
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("all")
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
+  const [invoiceCreateLoading, setInvoiceCreateLoading] = useState(false)
+
   // Payment Modal state
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
@@ -184,6 +206,51 @@ const VendorContent = () => {
     }
   }
 
+  // Fetch invoices
+  const fetchInvoices = async () => {
+    setInvoiceLoading(true)
+    try {
+      const params: any = {}
+      if (invoiceStatusFilter !== "all") params.status = invoiceStatusFilter
+      if (invoiceSearch) params.search = invoiceSearch
+      const data = await getAllInvoicesAPI(params, token)
+      setInvoices(data?.invoices || [])
+    } catch (error) {
+      console.error("Error fetching invoices:", error)
+    } finally {
+      setInvoiceLoading(false)
+    }
+  }
+
+  // Get linked PO IDs (already linked to invoices)
+  const getLinkedPOIds = (): Set<string> => {
+    const linkedIds = new Set<string>()
+    invoices.forEach((invoice: any) => {
+      invoice.linkedPurchaseOrders?.forEach((poId: string) => {
+        linkedIds.add(poId)
+      })
+    })
+    return linkedIds
+  }
+
+  // Handle create invoice
+  const handleCreateInvoice = async (formData: any) => {
+    setInvoiceCreateLoading(true)
+    try {
+      const result = await createInvoiceAPI(formData, token)
+      if (result) {
+        setInvoiceModalOpen(false)
+        fetchInvoices()
+        fetchPurchaseOrders()
+        toast({ title: "Success", description: "Invoice created successfully" })
+      }
+    } catch (error) {
+      console.error("Error creating invoice:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to create invoice" })
+    } finally {
+      setInvoiceCreateLoading(false)
+    }
+  }
   // Fetch purchase orders
   const fetchPurchaseOrders = async () => {
     setPoLoading(true)
@@ -216,12 +283,18 @@ const VendorContent = () => {
   useEffect(() => {
     fetchVendors()
     fetchPurchaseOrders()
+    fetchInvoices()
   }, [])
 
   useEffect(() => {
     const timer = setTimeout(() => fetchPurchaseOrders(), 500)
     return () => clearTimeout(timer)
   }, [poSearch, poPaymentFilter, startDate, endDate, currentPage])
+
+  useEffect(() => {
+    const timer = setTimeout(() => fetchInvoices(), 500)
+    return () => clearTimeout(timer)
+  }, [invoiceSearch, invoiceStatusFilter])
 
   // Filter vendors
   const filteredVendors = vendors.filter((vendor) => {
@@ -386,21 +459,30 @@ const VendorContent = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 bg-gray-50/50 min-h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-lg shadow-sm border">
         <div>
-          <h1 className="text-2xl font-bold">Vendor Management</h1>
-          <p className="text-muted-foreground">Manage vendors, purchases, and payments</p>
+          <h1 className="text-2xl font-bold text-gray-900">Vendor Management</h1>
+          <p className="text-muted-foreground">Manage vendors, purchases, invoices and payments</p>
         </div>
-        <Button onClick={() => fetchVendors()} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setInvoiceModalOpen(true)} className="bg-blue-600 hover:bg-blue-700">
+            <Receipt className="h-4 w-4 mr-2" />
+            Create Invoice
+          </Button>
+          <Button onClick={() => navigate("/vendors/new-purchase")} variant="outline">
+            <Plus className="h-4 w-4 mr-2" />
+            New Purchase
+          </Button>
+          <Button onClick={() => { fetchVendors(); fetchPurchaseOrders(); fetchInvoices(); }} variant="ghost" size="icon">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatsCard
           title="Total Vendors"
           value={vendors.length}
@@ -414,74 +496,88 @@ const VendorContent = () => {
           color="green"
         />
         <StatsCard
-          title="Total Paid"
+          title="Invoices"
+          value={invoices.length}
+          subtitle={`${invoices.filter((i: any) => i.status === 'pending').length} pending`}
+          icon={Receipt}
+          color="purple"
+        />
+        <StatsCard
+          title="Amount Paid"
           value={formatCurrency(totalPaid)}
           icon={CheckCircle}
           color="green"
         />
         <StatsCard
-          title="Outstanding"
+          title="Pending Payment"
           value={formatCurrency(totalOwed)}
-          icon={Clock}
+          icon={AlertCircle}
           color="orange"
         />
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="vendors">
-            <Users className="h-4 w-4 mr-2" />
-            Vendors
-          </TabsTrigger>
-          <TabsTrigger value="purchases">
-            <Package className="h-4 w-4 mr-2" />
-            Purchase Orders
-          </TabsTrigger>
-          <TabsTrigger value="payments">
-            <DollarSign className="h-4 w-4 mr-2" />
-            Payments
-          </TabsTrigger>
-        </TabsList>
+      <div className="bg-white rounded-lg shadow-sm border">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div className="border-b px-4 pt-4">
+            <TabsList className="grid w-full max-w-2xl grid-cols-4 h-12">
+              <TabsTrigger value="vendors" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+                <Users className="h-4 w-4" />
+                <span className="hidden sm:inline">Vendors</span>
+              </TabsTrigger>
+              <TabsTrigger value="purchases" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+                <Package className="h-4 w-4" />
+                <span className="hidden sm:inline">Purchase Orders</span>
+              </TabsTrigger>
+              <TabsTrigger value="invoices" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+                <Receipt className="h-4 w-4" />
+                <span className="hidden sm:inline">Invoices</span>
+              </TabsTrigger>
+              <TabsTrigger value="payments" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+                <DollarSign className="h-4 w-4" />
+                <span className="hidden sm:inline">Payments</span>
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
         {/* Vendors Tab */}
-        <TabsContent value="vendors" className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Vendors</CardTitle>
-                <CardDescription>Your suppliers and their contact info</CardDescription>
-              </div>
-              <Button onClick={() => openVendorModal()}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Vendor
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-4 mb-4">
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search vendors..."
-                    value={vendorSearch}
-                    onChange={(e) => setVendorSearch(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
+        <TabsContent value="vendors" className="p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Vendors</h3>
+              <p className="text-sm text-muted-foreground">Your suppliers and their contact info</p>
+            </div>
+            <Button onClick={() => openVendorModal()} className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Vendor
+            </Button>
+          </div>
+          
+          <div className="flex items-center gap-4 mb-4">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search vendors..."
+                value={vendorSearch}
+                onChange={(e) => setVendorSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
 
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vendor Name</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Products</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead>Vendor Name</TableHead>
+                  <TableHead>Contact</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Products</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                   {vendorLoading ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8">Loading...</TableCell>
@@ -550,38 +646,34 @@ const VendorContent = () => {
                       </TableRow>
                     ))
                   )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
 
         {/* Purchase Orders Tab */}
-        <TabsContent value="purchases" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Purchase Orders</CardTitle>
-                  <CardDescription>Track what you've ordered from vendors</CardDescription>
-                </div>
-                <Button onClick={() => navigate("/vendors/new-purchase")}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Purchase Order
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-4 mb-4">
-                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search PO#, vendor..."
-                    value={poSearch}
-                    onChange={(e) => setPoSearch(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
+        <TabsContent value="purchases" className="p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Purchase Orders</h3>
+              <p className="text-sm text-muted-foreground">Track what you've ordered from vendors</p>
+            </div>
+            <Button onClick={() => navigate("/vendors/new-purchase")} className="bg-green-600 hover:bg-green-700">
+              <Plus className="h-4 w-4 mr-2" />
+              New Purchase Order
+            </Button>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search PO#, vendor..."
+                value={poSearch}
+                onChange={(e) => setPoSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
                 <Select value={poPaymentFilter} onValueChange={setPoPaymentFilter}>
                   <SelectTrigger className="w-[150px]">
                     <SelectValue placeholder="Payment Status" />
@@ -600,42 +692,43 @@ const VendorContent = () => {
                   setEndDate={setEndDate}
                   onReset={handleResetDates}
                 />
-              </div>
+          </div>
 
-              <Table>
-                <TableHeader>
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead 
+                    className="cursor-pointer"
+                    onClick={() => handleSort("purchaseOrderNumber")}
+                  >
+                    PO # <ArrowUpDown className="inline h-3 w-3 ml-1" />
+                  </TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead 
+                    className="cursor-pointer"
+                    onClick={() => handleSort("purchaseDate")}
+                  >
+                    Date <ArrowUpDown className="inline h-3 w-3 ml-1" />
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer text-right"
+                    onClick={() => handleSort("totalAmount")}
+                  >
+                    Amount <ArrowUpDown className="inline h-3 w-3 ml-1" />
+                  </TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {poLoading ? (
                   <TableRow>
-                    <TableHead 
-                      className="cursor-pointer"
-                      onClick={() => handleSort("purchaseOrderNumber")}
-                    >
-                      PO # <ArrowUpDown className="inline h-3 w-3 ml-1" />
-                    </TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead 
-                      className="cursor-pointer"
-                      onClick={() => handleSort("purchaseDate")}
-                    >
-                      Date <ArrowUpDown className="inline h-3 w-3 ml-1" />
-                    </TableHead>
-                    <TableHead 
-                      className="cursor-pointer text-right"
-                      onClick={() => handleSort("totalAmount")}
-                    >
-                      Amount <ArrowUpDown className="inline h-3 w-3 ml-1" />
-                    </TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableCell colSpan={6} className="text-center py-8">Loading...</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {poLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">Loading...</TableCell>
-                    </TableRow>
-                  ) : sortedPurchaseOrders.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                ) : sortedPurchaseOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         No purchase orders found
                       </TableCell>
                     </TableRow>
@@ -677,34 +770,33 @@ const VendorContent = () => {
                       </TableRow>
                     ))
                   )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
 
         {/* Payments Tab - Simple Payment History */}
-        <TabsContent value="payments" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Payment History</CardTitle>
-              <CardDescription>Recent payments to vendors</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>PO #</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {purchaseOrders
-                    .filter(po => po.paymentStatus === "paid" || po.paymentStatus === "partial")
+        <TabsContent value="payments" className="p-4">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold">Payment History</h3>
+            <p className="text-sm text-muted-foreground">Recent payments to vendors</p>
+          </div>
+          
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead>PO #</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {purchaseOrders
+                  .filter(po => po.paymentStatus === "paid" || po.paymentStatus === "partial")
                     .slice(0, 20)
                     .map((po) => (
                       <TableRow key={po._id}>
@@ -729,20 +821,187 @@ const VendorContent = () => {
                         <TableCell>{getPaymentStatusBadge(po.paymentStatus)}</TableCell>
                       </TableRow>
                     ))
-                  }
-                  {purchaseOrders.filter(po => po.paymentStatus === "paid" || po.paymentStatus === "partial").length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        No payments recorded yet
+                }
+                {purchaseOrders.filter(po => po.paymentStatus === "paid" || po.paymentStatus === "partial").length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      No payments recorded yet
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* Invoices Tab */}
+        <TabsContent value="invoices" className="p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Receipt className="h-5 w-5" />
+                Vendor Invoices
+              </h3>
+              <p className="text-sm text-muted-foreground">Track and manage invoices from your vendors</p>
+            </div>
+            <Button onClick={() => setInvoiceModalOpen(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Invoice
+            </Button>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search invoices..."
+                value={invoiceSearch}
+                onChange={(e) => setInvoiceSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={invoiceStatusFilter} onValueChange={setInvoiceStatusFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="disputed">Disputed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={fetchInvoices}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead className="w-[120px]">Invoice #</TableHead>
+                  <TableHead className="w-[130px]">Vendor</TableHead>
+                  <TableHead className="w-[70px] text-center">POs</TableHead>
+                  <TableHead className="w-[90px]">Date</TableHead>
+                  <TableHead className="w-[90px]">Due Date</TableHead>
+                  <TableHead className="w-[100px] text-right">Amount</TableHead>
+                  <TableHead className="w-[80px] text-center">Status</TableHead>
+                  <TableHead className="w-[80px] text-center">Matching</TableHead>
+                  <TableHead className="w-[50px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoiceLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">Loading...</TableCell>
+                  </TableRow>
+                ) : invoices.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                      <div className="flex flex-col items-center gap-3">
+                        <Receipt className="h-12 w-12 opacity-30" />
+                        <div>
+                          <p className="font-medium">No invoices found</p>
+                          <p className="text-sm">Create your first invoice to get started</p>
+                        </div>
+                        <Button onClick={() => setInvoiceModalOpen(true)} variant="outline" className="mt-2">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Create Invoice
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  invoices.map((invoice: any) => {
+                    const linkedPOCount = invoice.linkedPurchaseOrders?.length || 0;
+                    
+                    return (
+                    <TableRow key={invoice._id}>
+                      <TableCell className="font-mono font-medium text-sm">
+                        {invoice.invoiceNumber || `INV-${invoice._id?.slice(-6)}`}
+                      </TableCell>
+                      <TableCell>
+                        <span className="truncate block max-w-[120px] text-sm">{invoice.vendor?.name || invoice.vendorId?.name || "-"}</span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {linkedPOCount > 0 ? (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                            {linkedPOCount}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "-"}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-sm">
+                        {formatCurrency(invoice.totalAmount || invoice.invoiceSettledAmount || 0)}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge className={`text-xs ${
+                          invoice.status === "paid" ? "bg-green-100 text-green-800" :
+                          invoice.status === "approved" ? "bg-blue-100 text-blue-800" :
+                          invoice.status === "disputed" ? "bg-red-100 text-red-800" :
+                          "bg-yellow-100 text-yellow-800"
+                        }`}>
+                          {invoice.status || "pending"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className={`text-xs ${
+                          invoice.matchingStatus === "matched" ? "border-green-500 text-green-700" :
+                          invoice.matchingStatus === "partial" ? "border-yellow-500 text-yellow-700" :
+                          "border-gray-300 text-gray-600"
+                        }`}>
+                          {invoice.matchingStatus === "matched" ? "Matched" : invoice.matchingStatus === "partial" ? "Partial" : "No"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigate(`/vendors/invoice/${invoice._id}`)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/vendors/invoice/${invoice._id}`)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit Invoice
+                            </DropdownMenuItem>
+                            {invoice.status !== "paid" && (invoice.remainingAmount > 0 || !invoice.paidAmount) && (
+                              <DropdownMenuItem onClick={() => navigate(`/vendors/payment/${invoice._id}`)}>
+                                <DollarSign className="h-4 w-4 mr-2" />
+                                Record Payment
+                              </DropdownMenuItem>
+                            )}
+                            {invoice.status === "pending" && (
+                              <DropdownMenuItem>
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Approve
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                  )})
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      </div>
 
       {/* Vendor Create/Edit Modal */}
       <Dialog open={vendorModalOpen} onOpenChange={setVendorModalOpen}>
@@ -855,6 +1114,17 @@ const VendorContent = () => {
           type="vendor"
         />
       )}
+
+      {/* Create Invoice Modal */}
+      <CreateInvoiceModal
+        open={invoiceModalOpen}
+        onOpenChange={setInvoiceModalOpen}
+        vendors={vendors}
+        purchaseOrders={purchaseOrders}
+        linkedPOIds={getLinkedPOIds()}
+        onCreateInvoice={handleCreateInvoice}
+        loading={invoiceCreateLoading}
+      />
     </div>
   )
 }

@@ -255,6 +255,7 @@ const getAllVendorPayments = async (req, res) => {
       vendorId,
       method,
       checkClearanceStatus,
+      status,
       startDate,
       endDate,
       search,
@@ -264,27 +265,33 @@ const getAllVendorPayments = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    const matchStage = {};
+    // Pre-lookup match (for fields before $lookup transforms them)
+    const preLookupMatch = {};
 
+    // Filter by vendor - MUST be before $lookup
     if (vendorId) {
-      matchStage.vendorId = new mongoose.Types.ObjectId(vendorId);
+      preLookupMatch.vendorId = new mongoose.Types.ObjectId(vendorId);
     }
 
     if (method && method !== 'all') {
-      matchStage.method = method;
+      preLookupMatch.method = method;
+    }
+
+    if (status && status !== 'all') {
+      preLookupMatch.status = status;
     }
 
     if (checkClearanceStatus && checkClearanceStatus !== 'all') {
-      matchStage.checkClearanceStatus = checkClearanceStatus;
+      preLookupMatch.checkClearanceStatus = checkClearanceStatus;
     }
 
     if (startDate || endDate) {
-      matchStage.paymentDate = {};
+      preLookupMatch.paymentDate = {};
       if (startDate) {
-        matchStage.paymentDate.$gte = new Date(startDate);
+        preLookupMatch.paymentDate.$gte = new Date(startDate);
       }
       if (endDate) {
-        matchStage.paymentDate.$lte = new Date(endDate + 'T23:59:59.999Z');
+        preLookupMatch.paymentDate.$lte = new Date(endDate + 'T23:59:59.999Z');
       }
     }
 
@@ -292,25 +299,40 @@ const getAllVendorPayments = async (req, res) => {
     const sortDirection = sortOrder === 'asc' ? 1 : -1;
 
     const pipeline = [
+      // Apply pre-lookup filters FIRST (including vendorId)
+      ...(Object.keys(preLookupMatch).length > 0 ? [{ $match: preLookupMatch }] : []),
       {
         $lookup: {
           from: 'vendors',
           localField: 'vendorId',
           foreignField: '_id',
-          as: 'vendor'
+          as: 'vendorData'
         }
       },
-      { $unwind: { path: '$vendor', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$vendorData', preserveNullAndEmptyArrays: true } },
       {
+        $addFields: {
+          vendorId: {
+            _id: '$vendorData._id',
+            name: '$vendorData.name',
+            email: '$vendorData.email',
+            phone: '$vendorData.phone'
+          }
+        }
+      },
+      // Post-lookup match for search (needs vendor name)
+      ...(search ? [{
         $match: {
-          ...matchStage,
-          ...(search ? {
-            $or: [
-              { paymentNumber: { $regex: search, $options: 'i' } },
-              { checkNumber: { $regex: search, $options: 'i' } },
-              { 'vendor.name': { $regex: search, $options: 'i' } }
-            ]
-          } : {})
+          $or: [
+            { paymentNumber: { $regex: search, $options: 'i' } },
+            { checkNumber: { $regex: search, $options: 'i' } },
+            { 'vendorId.name': { $regex: search, $options: 'i' } }
+          ]
+        }
+      }] : []),
+      {
+        $project: {
+          vendorData: 0
         }
       },
       { $sort: { [sortBy]: sortDirection } },
@@ -687,6 +709,202 @@ const getVendorPaymentSummary = async (req, res) => {
   }
 };
 
+// ✅ Update Vendor Payment (with amount editing support)
+const updateVendorPayment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id } = req.params;
+    const { method, checkNumber, transactionId, bankReference, notes, newAmount } = req.body;
+
+    const payment = await VendorPayment.findById(id).session(session);
+    
+    if (!payment) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
+      });
+    }
+
+    if (payment.status === 'voided') {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot edit a voided payment'
+      });
+    }
+
+    // If check is already cleared, don't allow amount changes
+    if (newAmount !== undefined && payment.method === 'check' && payment.checkClearanceStatus === 'cleared') {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change amount for a cleared check payment'
+      });
+    }
+
+    // Handle amount change
+    if (newAmount !== undefined && newAmount !== payment.grossAmount) {
+      const amountDiff = newAmount - payment.grossAmount;
+      
+      // Get the first invoice payment (for simple single-invoice payments)
+      if (payment.invoicePayments.length === 1) {
+        const invoicePayment = payment.invoicePayments[0];
+        const invoice = await Invoice.findById(invoicePayment.invoiceId).session(session);
+        
+        if (!invoice) {
+          await session.abortTransaction();
+          return res.status(404).json({
+            success: false,
+            message: 'Linked invoice not found'
+          });
+        }
+
+        // Calculate new amount for this invoice
+        const newInvoicePaymentAmount = invoicePayment.amountPaid + amountDiff;
+        
+        // Validate: can't be negative
+        if (newInvoicePaymentAmount < 0) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            message: 'Payment amount cannot be negative'
+          });
+        }
+
+        // Validate: can't exceed invoice total (considering other payments)
+        const otherPaymentsTotal = invoice.paidAmount - invoicePayment.amountPaid;
+        const maxAllowed = invoice.totalAmount - otherPaymentsTotal;
+        
+        if (newInvoicePaymentAmount > maxAllowed) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            message: `Payment amount (${newInvoicePaymentAmount}) exceeds maximum allowed (${maxAllowed}) for invoice ${invoice.invoiceNumber}`
+          });
+        }
+
+        // Update invoice amounts
+        invoice.paidAmount = otherPaymentsTotal + newInvoicePaymentAmount;
+        invoice.remainingAmount = invoice.totalAmount - invoice.paidAmount;
+        
+        // Update invoice status
+        if (invoice.remainingAmount <= 0) {
+          invoice.status = 'paid';
+        } else if (invoice.paidAmount > 0) {
+          invoice.status = 'approved'; // partially paid
+        }
+        
+        await invoice.save({ session });
+
+        // Update payment record
+        payment.invoicePayments[0].amountPaid = newInvoicePaymentAmount;
+        payment.invoicePayments[0].remainingAfterPayment = invoice.remainingAmount;
+        payment.grossAmount = newAmount;
+        payment.netAmount = newAmount - payment.totalCreditsApplied - payment.earlyPaymentDiscountTaken;
+        
+      } else if (payment.invoicePayments.length > 1) {
+        // For multi-invoice payments, distribute the change proportionally
+        const oldTotal = payment.grossAmount;
+        const ratio = newAmount / oldTotal;
+        
+        for (const ip of payment.invoicePayments) {
+          const invoice = await Invoice.findById(ip.invoiceId).session(session);
+          if (!invoice) continue;
+          
+          const oldPaymentAmount = ip.amountPaid;
+          const newPaymentAmount = Math.round(oldPaymentAmount * ratio * 100) / 100;
+          const diff = newPaymentAmount - oldPaymentAmount;
+          
+          // Validate
+          const otherPaymentsTotal = invoice.paidAmount - oldPaymentAmount;
+          const maxAllowed = invoice.totalAmount - otherPaymentsTotal;
+          
+          if (newPaymentAmount > maxAllowed) {
+            await session.abortTransaction();
+            return res.status(400).json({
+              success: false,
+              message: `Adjusted amount exceeds maximum for invoice ${invoice.invoiceNumber}`
+            });
+          }
+          
+          // Update invoice
+          invoice.paidAmount = otherPaymentsTotal + newPaymentAmount;
+          invoice.remainingAmount = invoice.totalAmount - invoice.paidAmount;
+          
+          if (invoice.remainingAmount <= 0) {
+            invoice.status = 'paid';
+          } else if (invoice.paidAmount > 0) {
+            invoice.status = 'approved';
+          }
+          
+          await invoice.save({ session });
+          
+          // Update payment record
+          ip.amountPaid = newPaymentAmount;
+          ip.remainingAfterPayment = invoice.remainingAmount;
+        }
+        
+        payment.grossAmount = newAmount;
+        payment.netAmount = newAmount - payment.totalCreditsApplied - payment.earlyPaymentDiscountTaken;
+      }
+    }
+
+    // Update other fields
+    if (method) {
+      payment.method = method;
+      if (method !== 'check') {
+        payment.checkNumber = undefined;
+        payment.checkClearanceStatus = undefined;
+      } else {
+        payment.checkClearanceStatus = payment.checkClearanceStatus || 'pending';
+      }
+    }
+    
+    if (method === 'check' && checkNumber !== undefined) {
+      payment.checkNumber = checkNumber;
+    }
+    
+    if (transactionId !== undefined) {
+      payment.transactionId = transactionId;
+    }
+    
+    if (bankReference !== undefined) {
+      payment.bankReference = bankReference;
+    }
+    
+    if (notes !== undefined) {
+      payment.notes = notes;
+    }
+
+    await payment.save({ session });
+    await session.commitTransaction();
+
+    // Populate for response
+    const populatedPayment = await VendorPayment.findById(payment._id)
+      .populate('vendorId', 'name email phone')
+      .populate('invoicePayments.invoiceId', 'invoiceNumber totalAmount');
+
+    res.status(200).json({
+      success: true,
+      message: 'Payment updated successfully',
+      data: populatedPayment
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    console.error('Error updating vendor payment:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update payment',
+      error: err.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
 // ✅ Calculate Early Payment Discount Preview
 const calculateDiscountPreview = async (req, res) => {
   try {
@@ -730,6 +948,7 @@ module.exports = {
   createVendorPayment,
   getAllVendorPayments,
   getVendorPaymentById,
+  updateVendorPayment,
   updateCheckStatus,
   voidVendorPayment,
   getVendorPaymentSummary,

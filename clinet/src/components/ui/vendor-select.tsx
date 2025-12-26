@@ -1,22 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { Check, ChevronsUpDown, Search, Loader2 } from "lucide-react"
+import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 
 interface Vendor {
@@ -83,6 +77,7 @@ export function VendorSelect({
   React.useEffect(() => {
     if (open) {
       setPage(1)
+      setSearch("")
       fetchVendors("", 1, false)
     }
   }, [open, fetchVendors])
@@ -99,7 +94,7 @@ export function VendorSelect({
     return () => clearTimeout(timer)
   }, [search, open, fetchVendors])
 
-  // Load more on scroll
+  // Load more
   const handleLoadMore = () => {
     if (!loading && hasMore) {
       const nextPage = page + 1
@@ -108,9 +103,18 @@ export function VendorSelect({
     }
   }
 
+  // Handle vendor selection - direct click handler
+  const handleSelectVendor = (vendorId: string) => {
+    console.log("VendorSelect: Selecting vendor:", vendorId)
+    onValueChange(vendorId)
+    setOpen(false)
+  }
+
   // Get selected vendor name
   const selectedVendor = vendors.find(v => v._id === value)
-  const displayValue = value === "all" ? allLabel : selectedVendor?.name || placeholder
+  const displayValue = value === "all" 
+    ? allLabel 
+    : selectedVendor?.name || (value && value !== "all" ? "Loading..." : placeholder)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -127,79 +131,85 @@ export function VendorSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput 
-            placeholder="Search vendors..." 
-            value={search}
-            onValueChange={setSearch}
-          />
-          <CommandList>
-            <CommandEmpty>
-              {loading ? (
+        <div className="flex flex-col">
+          <div className="p-2 border-b">
+            <Input
+              placeholder="Search vendors..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9"
+            />
+          </div>
+          <ScrollArea className="h-[250px]">
+            <div className="p-1">
+              {loading && vendors.length === 0 ? (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="ml-2">Loading...</span>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading...</span>
+                </div>
+              ) : vendors.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  No vendor found.
                 </div>
               ) : (
-                "No vendor found."
-              )}
-            </CommandEmpty>
-            <CommandGroup>
-              {includeAll && (
-                <CommandItem
-                  value="all"
-                  onSelect={() => {
-                    onValueChange("all")
-                    setOpen(false)
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === "all" ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  {allLabel}
-                </CommandItem>
-              )}
-              {vendors.map((vendor) => (
-                <CommandItem
-                  key={vendor._id}
-                  value={vendor._id}
-                  onSelect={() => {
-                    onValueChange(vendor._id)
-                    setOpen(false)
-                  }}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      value === vendor._id ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <div className="flex flex-col">
-                    <span>{vendor.name}</span>
-                    {vendor.type && (
-                      <span className="text-xs text-muted-foreground capitalize">{vendor.type}</span>
-                    )}
-                  </div>
-                </CommandItem>
-              ))}
-              {hasMore && (
-                <CommandItem
-                  onSelect={handleLoadMore}
-                  className="justify-center text-muted-foreground"
-                >
-                  {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Load more..."
+                <>
+                  {includeAll && (
+                    <div
+                      onClick={() => handleSelectVendor("all")}
+                      className={cn(
+                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                        value === "all" && "bg-accent"
+                      )}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          value === "all" ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      {allLabel}
+                    </div>
                   )}
-                </CommandItem>
+                  {vendors.map((vendor) => (
+                    <div
+                      key={vendor._id}
+                      onClick={() => handleSelectVendor(vendor._id)}
+                      className={cn(
+                        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                        value === vendor._id && "bg-accent"
+                      )}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          value === vendor._id ? "opacity-100" : "opacity-0"
+                        )}
+                      />
+                      <div className="flex flex-col">
+                        <span>{vendor.name}</span>
+                        {vendor.type && (
+                          <span className="text-xs text-muted-foreground capitalize">{vendor.type}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {hasMore && (
+                    <div
+                      onClick={handleLoadMore}
+                      className="flex cursor-pointer items-center justify-center rounded-sm px-2 py-2 text-sm text-muted-foreground hover:bg-accent"
+                    >
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Load more..."
+                      )}
+                    </div>
+                  )}
+                </>
               )}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+            </div>
+          </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   )

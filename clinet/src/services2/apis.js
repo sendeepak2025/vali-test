@@ -278,6 +278,7 @@ export const vendorPayment = {
   CREATE_PAYMENT: BASE_URL + "/vendor-payments/create",
   GET_ALL_PAYMENTS: BASE_URL + "/vendor-payments/getAll",
   GET_PAYMENT: BASE_URL + "/vendor-payments/get", // append /:id
+  UPDATE_PAYMENT: BASE_URL + "/vendor-payments/update", // append /:id
   UPDATE_CHECK_STATUS: BASE_URL + "/vendor-payments", // append /:id/check-status
   VOID_PAYMENT: BASE_URL + "/vendor-payments", // append /:id/void
   GET_VENDOR_SUMMARY: BASE_URL + "/vendor-payments/vendor", // append /:vendorId/summary

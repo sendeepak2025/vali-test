@@ -65,6 +65,31 @@ const invoiceSchema = new mongoose.Schema({
   discountAmount: { type: Number, default: 0 },
   totalAmount: { type: Number, required: true },
   
+  // PO Total Amount (original PO amount for comparison)
+  poTotalAmount: { type: Number, default: 0 },
+  
+  // Amount Match Type (same or different)
+  amountMatchType: { 
+    type: String, 
+    enum: ['same', 'different'],
+    default: 'same'
+  },
+  
+  // Reason for amount difference
+  amountDifferenceReason: { type: String },
+  
+  // Product received details with issues
+  productReceivedDetails: [{
+    productId: { type: mongoose.Schema.Types.Mixed },
+    productName: { type: String },
+    unitPrice: { type: Number, default: 0 },
+    orderedQty: { type: Number, default: 0 },
+    receivedQty: { type: Number, default: 0 },
+    totalPrice: { type: Number, default: 0 },
+    hasIssue: { type: Boolean, default: false },
+    issueNote: { type: String }
+  }],
+  
   // Payment tracking
   paidAmount: { type: Number, default: 0 },
   remainingAmount: { type: Number, default: 0 },

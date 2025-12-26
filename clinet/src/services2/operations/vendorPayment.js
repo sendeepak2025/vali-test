@@ -6,6 +6,7 @@ const {
   CREATE_PAYMENT,
   GET_ALL_PAYMENTS,
   GET_PAYMENT,
+  UPDATE_PAYMENT,
   UPDATE_CHECK_STATUS,
   VOID_PAYMENT,
   GET_VENDOR_SUMMARY,
@@ -70,6 +71,29 @@ export const getVendorPaymentAPI = async (id, token) => {
     console.error("GET Payment API ERROR:", error);
     toast.error(error?.response?.data?.message || "Failed to get payment!");
     return null;
+  }
+};
+
+// Update Vendor Payment
+export const updateVendorPaymentAPI = async (id, formData, token) => {
+  const toastId = toast.loading("Updating payment...");
+  try {
+    const response = await apiConnector("PUT", `${UPDATE_PAYMENT}/${id}`, formData, {
+      Authorization: `Bearer ${token}`,
+    });
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    toast.success(response?.data?.message || "Payment updated successfully!");
+    return response?.data;
+  } catch (error) {
+    console.error("UPDATE Payment API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to update payment!");
+    return null;
+  } finally {
+    toast.dismiss(toastId);
   }
 };
 

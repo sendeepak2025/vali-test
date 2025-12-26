@@ -3,6 +3,7 @@ const {
   createVendorPayment,
   getAllVendorPayments,
   getVendorPaymentById,
+  updateVendorPayment,
   updateCheckStatus,
   voidVendorPayment,
   getVendorPaymentSummary,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post('/create', auth, createVendorPayment);
 router.get('/getAll', auth, getAllVendorPayments);
 router.get('/get/:id', auth, getVendorPaymentById);
+router.put('/update/:id', auth, updateVendorPayment);
 
 // Payment actions
 router.put('/:id/check-status', auth, updateCheckStatus);
