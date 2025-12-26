@@ -76,6 +76,7 @@ import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import StoreLegalDocuments from "./pages/StoreLegalDocuments";
 import QualityIssues from "./pages/QualityIssues";
+import StoreAccount from "./pages/StoreAccount";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -616,6 +617,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <StoreChequePayment />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/store-account"
+          element={
+            <PrivateRoute>
+              <StoreAccount />
             </PrivateRoute>
           }
         />

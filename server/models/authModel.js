@@ -547,6 +547,53 @@ const authSchema = new mongoose.Schema(
       },
     },
 
+    // Store Credit Balance for tracking store credits
+    creditBalance: {
+      type: Number,
+      default: 0,
+    },
+    creditHistory: [{
+      type: {
+        type: String,
+        enum: ['credit_issued', 'credit_applied', 'adjustment', 'write_off'],
+        required: true,
+      },
+      amount: {
+        type: Number,
+        required: true,
+      },
+      reference: {
+        type: String,  // Credit memo ID, order ID, adjustment ID, etc.
+        trim: true,
+      },
+      referenceModel: {
+        type: String,  // 'CreditMemo', 'Order', 'Adjustment'
+        trim: true,
+      },
+      reason: {
+        type: String,
+        trim: true,
+      },
+      balanceBefore: {
+        type: Number,
+      },
+      balanceAfter: {
+        type: Number,
+      },
+      performedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "auth",
+      },
+      performedByName: {
+        type: String,
+        trim: true,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    }],
+
     // Store approval workflow fields
     approvalStatus: {
       type: String,

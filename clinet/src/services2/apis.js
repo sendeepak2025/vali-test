@@ -185,6 +185,21 @@ export const creditmemos = {
   CREATE_CREDIT_MEMO: BASE_URL + "/credit-memo/create",
   GET_CREDIT_MEMO_BY_ID: BASE_URL + "/credit-memo/by-order",
   UPDATE_CREDIT_MEMO_BY_ID: BASE_URL + "/credit-memo/update",
+  PROCESS_CREDIT_MEMO: BASE_URL + "/credit-memo/process", // append /:id
+  APPLY_STORE_CREDIT: BASE_URL + "/credit-memo/apply-credit",
+  GET_STORE_CREDIT_INFO: BASE_URL + "/credit-memo/store-credit", // append /:storeId
+}
+
+// Financial Adjustments
+export const adjustment = {
+  CREATE_ADJUSTMENT: BASE_URL + "/adjustments/create",
+  GET_ALL_ADJUSTMENTS: BASE_URL + "/adjustments/getAll",
+  GET_ADJUSTMENT: BASE_URL + "/adjustments/get", // append /:id
+  GET_STORE_ADJUSTMENTS: BASE_URL + "/adjustments/store", // append /:storeId
+  APPROVE_ADJUSTMENT: BASE_URL + "/adjustments", // append /:id/approve
+  REJECT_ADJUSTMENT: BASE_URL + "/adjustments", // append /:id/reject
+  VOID_ADJUSTMENT: BASE_URL + "/adjustments", // append /:id/void
+  GET_ADJUSTMENT_SUMMARY: BASE_URL + "/adjustments/summary",
 }
 export const driver = {
   CREATE_DRIVER: BASE_URL + "/drivers/create",

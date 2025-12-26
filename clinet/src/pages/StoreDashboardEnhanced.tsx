@@ -203,7 +203,7 @@ const StoreDashboardEnhanced = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -257,6 +257,20 @@ const StoreDashboardEnhanced = () => {
                 </div>
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${balanceDue > 0 ? "bg-red-100" : "bg-green-100"}`}>
                   <Wallet className="h-5 w-5" style={{ color: balanceDue > 0 ? "#dc2626" : "#16a34a" }} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-200 bg-purple-50/50 cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate("/store-account")}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-purple-600">Store Credit</p>
+                  <p className="text-2xl font-bold text-purple-600">{formatCurrency(user?.creditBalance || 0)}</p>
+                </div>
+                <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                  <CreditCard className="h-5 w-5 text-purple-600" />
                 </div>
               </div>
             </CardContent>
@@ -350,6 +364,9 @@ const StoreDashboardEnhanced = () => {
                   </Button>
                   <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("orders")}>
                     <History className="h-4 w-4 mr-3" /> View Order History
+                  </Button>
+                  <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store-account")}>
+                    <Wallet className="h-4 w-4 mr-3" /> My Account & Credits
                   </Button>
                   <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("payments")}>
                     <Receipt className="h-4 w-4 mr-3" /> View Statements

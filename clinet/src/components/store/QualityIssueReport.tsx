@@ -573,7 +573,6 @@ const QualityIssueReport: React.FC<QualityIssueReportProps> = ({ orders, onRefre
                       <SelectContent>
                         <SelectItem value="refund">Full Refund</SelectItem>
                         <SelectItem value="credit">Store Credit</SelectItem>
-                        <SelectItem value="replacement">Replacement</SelectItem>
                         <SelectItem value="adjustment">Price Adjustment</SelectItem>
                       </SelectContent>
                     </Select>

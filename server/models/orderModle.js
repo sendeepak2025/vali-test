@@ -123,6 +123,18 @@ const orderSchema = new mongoose.Schema(
     },
     creditMemos: { type: mongoose.Schema.Types.ObjectId, ref: "CreditMemo" },
 
+    // Store credit applied to this order
+    creditApplied: {
+      type: Number,
+      default: 0,
+    },
+    creditApplications: [{
+      amount: { type: Number, required: true },
+      appliedAt: { type: Date, default: Date.now },
+      appliedBy: { type: mongoose.Schema.Types.ObjectId, ref: "auth" },
+      appliedByName: { type: String },
+    }],
+
 
 
      notes: {

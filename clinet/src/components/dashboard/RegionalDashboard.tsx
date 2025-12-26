@@ -354,11 +354,11 @@ export default function RegionalDashboard() {
                             <div className="bg-white rounded-lg border p-4">
                               <h4 className="font-medium mb-3 flex items-center gap-2">
                                 <Store className="h-4 w-4 text-green-500" />
-                                Active Stores ({region.activeStores?.length || 0})
+                                All Stores ({region.allStores?.length || region.totalStores || 0})
                               </h4>
-                              {region.activeStores && region.activeStores.length > 0 ? (
+                              {region.allStores && region.allStores.length > 0 ? (
                                 <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                                  {region.activeStores.slice(0, 6).map((store, idx) => (
+                                  {region.allStores.map((store, idx) => (
                                     <div
                                       key={store.storeId || idx}
                                       className="flex items-center gap-2 text-sm"
@@ -378,14 +378,9 @@ export default function RegionalDashboard() {
                                       </div>
                                     </div>
                                   ))}
-                                  {region.activeStores.length > 6 && (
-                                    <p className="text-xs text-muted-foreground">
-                                      +{region.activeStores.length - 6} more stores
-                                    </p>
-                                  )}
                                 </div>
                               ) : (
-                                <p className="text-sm text-muted-foreground">No active stores</p>
+                                <p className="text-sm text-muted-foreground">No stores in this region</p>
                               )}
                             </div>
 

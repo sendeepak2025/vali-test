@@ -2,6 +2,7 @@
 
 const CreditMemo = require("../models/creditMemosModel");
 const Order = require("../models/orderModle");
+const Auth = require("../models/authModel");
 const mongoose = require("mongoose");
 // Generate unique CreditMemo number (simple example)
 const generateCreditMemoNumber = async () => {
@@ -9,6 +10,71 @@ const generateCreditMemoNumber = async () => {
   return `CM-${count + 1}`; // Customize format as needed
 };
 const cloudinary = require("cloudinary").v2
+
+/**
+ * Helper: Update store credit balance when credit memo is processed
+ */
+const updateStoreCreditBalance = async (customerId, amount, creditMemoId, creditMemoNumber, reason, userId, userName, session = null) => {
+  const store = await Auth.findById(customerId).session(session);
+  if (!store) {
+    throw new Error("Store/Customer not found");
+  }
+
+  const balanceBefore = store.creditBalance || 0;
+  const balanceAfter = balanceBefore + amount;
+
+  store.creditBalance = balanceAfter;
+  store.creditHistory.push({
+    type: "credit_issued",
+    amount: amount,
+    reference: creditMemoId.toString(),
+    referenceModel: "CreditMemo",
+    reason: `Credit Memo ${creditMemoNumber}: ${reason || "Credit issued"}`,
+    balanceBefore,
+    balanceAfter,
+    performedBy: userId,
+    performedByName: userName,
+    createdAt: new Date(),
+  });
+
+  await store.save({ session });
+  return { balanceBefore, balanceAfter };
+};
+
+/**
+ * Helper: Apply store credit to an order
+ */
+const applyStoreCreditToOrder = async (storeId, orderId, amount, userId, userName, session = null) => {
+  const store = await Auth.findById(storeId).session(session);
+  if (!store) {
+    throw new Error("Store not found");
+  }
+
+  const currentBalance = store.creditBalance || 0;
+  if (currentBalance < amount) {
+    throw new Error(`Insufficient credit balance. Available: ${currentBalance}, Requested: ${amount}`);
+  }
+
+  const balanceBefore = currentBalance;
+  const balanceAfter = currentBalance - amount;
+
+  store.creditBalance = balanceAfter;
+  store.creditHistory.push({
+    type: "credit_applied",
+    amount: -amount,
+    reference: orderId.toString(),
+    referenceModel: "Order",
+    reason: `Credit applied to order`,
+    balanceBefore,
+    balanceAfter,
+    performedBy: userId,
+    performedByName: userName,
+    createdAt: new Date(),
+  });
+
+  await store.save({ session });
+  return { balanceBefore, balanceAfter, amountApplied: amount };
+};
 
 // Create Credit Memo
 exports.createCreditMemo = async (req, res) => {
@@ -150,12 +216,22 @@ exports.getCreditMemoById = async (req, res) => {
 
 // Update Credit Memo status or reason etc.
 exports.updateCreditMemo = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { id } = req.params;
     const updates = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id))
       return res.status(400).json({ error: "Invalid credit memo ID" });
+
+    // Get current credit memo to check status change
+    const currentCreditMemo = await CreditMemo.findById(id).session(session);
+    if (!currentCreditMemo) {
+      await session.abortTransaction();
+      return res.status(404).json({ error: "Credit memo not found" });
+    }
 
     // Only allow specific fields to update for safety
     const allowedUpdates = ["status", "reason", "refundMethod", "items", "totalAmount"];
@@ -168,14 +244,35 @@ exports.updateCreditMemo = async (req, res) => {
 
     const updatedCreditMemo = await CreditMemo.findByIdAndUpdate(id, updateData, {
       new: true,
+      session,
     });
 
-    if (!updatedCreditMemo) return res.status(404).json({ error: "Credit memo not found" });
+    // If status changed to "processed" and refundMethod is "store_credit", update store balance
+    if (
+      updates.status === "processed" &&
+      currentCreditMemo.status !== "processed" &&
+      (updatedCreditMemo.refundMethod === "store_credit" || currentCreditMemo.refundMethod === "store_credit")
+    ) {
+      await updateStoreCreditBalance(
+        updatedCreditMemo.customerId,
+        updatedCreditMemo.totalAmount,
+        updatedCreditMemo._id,
+        updatedCreditMemo.creditMemoNumber,
+        updatedCreditMemo.reason,
+        req.user?.id || req.user?._id,
+        req.user?.name || req.user?.storeName || req.user?.email,
+        session
+      );
+    }
 
+    await session.commitTransaction();
     return res.json({ message: "Credit memo updated", creditMemo: updatedCreditMemo });
   } catch (error) {
+    await session.abortTransaction();
     console.error("Error updating credit memo:", error);
-    return res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: error.message || "Server error" });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -330,3 +427,194 @@ exports.updateCreditMemo = async (req, res) => {
 };
 
 
+
+
+/**
+ * Process a credit memo - marks as processed and updates store credit if applicable
+ */
+exports.processCreditMemo = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id } = req.params;
+    const { processNotes } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, error: "Invalid credit memo ID" });
+    }
+
+    const creditMemo = await CreditMemo.findById(id).session(session);
+    if (!creditMemo) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, error: "Credit memo not found" });
+    }
+
+    if (creditMemo.status === "processed") {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, error: "Credit memo is already processed" });
+    }
+
+    // Update credit memo status
+    creditMemo.status = "processed";
+    creditMemo.processedAt = new Date();
+    creditMemo.processedBy = req.user?.id || req.user?._id;
+    creditMemo.processNotes = processNotes;
+    creditMemo.updatedAt = new Date();
+
+    await creditMemo.save({ session });
+
+    let creditBalanceUpdate = null;
+
+    // If refund method is store_credit, update the store's credit balance
+    if (creditMemo.refundMethod === "store_credit") {
+      creditBalanceUpdate = await updateStoreCreditBalance(
+        creditMemo.customerId,
+        creditMemo.totalAmount,
+        creditMemo._id,
+        creditMemo.creditMemoNumber,
+        creditMemo.reason,
+        req.user?.id || req.user?._id,
+        req.user?.name || req.user?.storeName || req.user?.email,
+        session
+      );
+    }
+
+    await session.commitTransaction();
+
+    return res.status(200).json({
+      success: true,
+      message: "Credit memo processed successfully",
+      creditMemo,
+      creditBalanceUpdate,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error processing credit memo:", error);
+    return res.status(500).json({ success: false, error: error.message || "Server error" });
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Apply store credit to an order
+ */
+exports.applyStoreCredit = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { storeId, orderId, amount } = req.body;
+
+    if (!storeId || !orderId || !amount) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        error: "storeId, orderId, and amount are required",
+      });
+    }
+
+    if (amount <= 0) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        error: "Amount must be greater than 0",
+      });
+    }
+
+    // Verify order exists and belongs to store
+    const order = await Order.findById(orderId).session(session);
+    if (!order) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, error: "Order not found" });
+    }
+
+    if (order.store.toString() !== storeId) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, error: "Order does not belong to this store" });
+    }
+
+    // Apply credit to order
+    const result = await applyStoreCreditToOrder(
+      storeId,
+      orderId,
+      amount,
+      req.user?.id || req.user?._id,
+      req.user?.name || req.user?.storeName || req.user?.email,
+      session
+    );
+
+    // Update order with credit applied
+    const currentCreditApplied = parseFloat(order.creditApplied || 0);
+    order.creditApplied = currentCreditApplied + amount;
+    
+    // Recalculate payment status if needed
+    const totalPaid = parseFloat(order.paymentAmount || 0) + parseFloat(order.creditApplied || 0);
+    const orderTotal = order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);
+    
+    if (totalPaid >= orderTotal) {
+      order.paymentStatus = "paid";
+    } else if (totalPaid > 0) {
+      order.paymentStatus = "partial";
+    }
+
+    await order.save({ session });
+    await session.commitTransaction();
+
+    return res.status(200).json({
+      success: true,
+      message: "Store credit applied successfully",
+      data: {
+        amountApplied: amount,
+        newCreditBalance: result.balanceAfter,
+        orderPaymentStatus: order.paymentStatus,
+      },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Error applying store credit:", error);
+    return res.status(500).json({ success: false, error: error.message || "Server error" });
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
+ * Get store credit balance and history
+ */
+exports.getStoreCreditInfo = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+
+    const store = await Auth.findById(storeId).select("storeName creditBalance creditHistory");
+    if (!store) {
+      return res.status(404).json({ success: false, error: "Store not found" });
+    }
+
+    // Get pending credit memos for this store
+    const pendingCredits = await CreditMemo.find({
+      customerId: storeId,
+      status: "pending",
+      refundMethod: "store_credit",
+    }).select("creditMemoNumber totalAmount reason createdAt");
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        storeName: store.storeName,
+        creditBalance: store.creditBalance || 0,
+        creditHistory: store.creditHistory || [],
+        pendingCredits,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching store credit info:", error);
+    return res.status(500).json({ success: false, error: error.message || "Server error" });
+  }
+};
+
+// Export helper functions for use in other controllers
+exports.updateStoreCreditBalance = updateStoreCreditBalance;
+exports.applyStoreCreditToOrder = applyStoreCreditToOrder;

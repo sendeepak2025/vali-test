@@ -62,6 +62,7 @@ app.use("/api/v1/store-inventory", require("./routes/storeInventoryRoute"))
 app.use("/api/v1/notifications", require("./routes/notificationRoute"))
 app.use("/api/v1/legal", require("./routes/legalDocumentRoute"))
 app.use("/api/v1/quality-issues", require("./routes/qualityIssueRoute"))
+app.use("/api/v1/adjustments", require("./routes/adjustmentRoute"))
 
 
 

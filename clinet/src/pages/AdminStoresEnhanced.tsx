@@ -31,6 +31,8 @@ import { deleteStoreAPI, getAllStoresAnalyticsAPI, addCommunicationLogAPI, getCo
 import { format } from "date-fns"
 import StoreRegistration from "./StoreRegistration"
 import { StatementFilterPopup } from "@/components/admin/StatementPopup"
+import { AccountStatement, StoreCreditInfo, AdjustmentsManager } from "@/components/accounting"
+import { RecordPaymentModal } from "@/components/payments"
 
 interface StoreWithStats {
   _id: string
@@ -178,14 +180,9 @@ const AdminStoresEnhanced = () => {
   const [communicationLogs, setCommunicationLogs] = useState<any[]>([])
   const [loadingAction, setLoadingAction] = useState(false)
   
-  // Form states
+  // Form states for log call
   const [callNotes, setCallNotes] = useState("")
   const [callOutcome, setCallOutcome] = useState("")
-  const [paymentAmount, setPaymentAmount] = useState("")
-  const [paymentType, setPaymentType] = useState("cash")
-  const [paymentReference, setPaymentReference] = useState("")
-  const [paymentNotes, setPaymentNotes] = useState("")
-  const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<string | null>(null)
 
   // Enhanced Store Profile States
   const [editStoreOpen, setEditStoreOpen] = useState(false)
@@ -401,7 +398,7 @@ const AdminStoresEnhanced = () => {
       city: selectedStore.city || "",
       state: selectedStore.state || "",
       zipCode: selectedStore.zipCode || "",
-      priceCategory: selectedStore.priceCategory || "pricePerBox",
+      priceCategory: selectedStore.priceCategory || "aPrice",
       shippingCost: selectedStore.shippingCost || 0,
       isOrder: selectedStore.isOrder || false,
       isProduct: selectedStore.isProduct || false
@@ -516,41 +513,6 @@ const AdminStoresEnhanced = () => {
       }
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to log call" })
-    } finally {
-      setLoadingAction(false)
-    }
-  }
-
-  // Handle record payment
-  const handleRecordPayment = async () => {
-    if (!selectedStore || !paymentAmount || parseFloat(paymentAmount) <= 0) {
-      toast({ variant: "destructive", title: "Error", description: "Please enter a valid amount" })
-      return
-    }
-    
-    setLoadingAction(true)
-    try {
-      const result = await addPaymentRecordAPI(selectedStore._id, {
-        amount: parseFloat(paymentAmount),
-        type: paymentType,
-        reference: paymentReference,
-        notes: paymentNotes,
-        orderId: selectedOrderForPayment
-      })
-      
-      if (result) {
-        await fetchData(pagination.page)
-        await viewStoreDetails(selectedStore)
-        setPaymentAmount("")
-        setPaymentType("cash")
-        setPaymentReference("")
-        setPaymentNotes("")
-        setSelectedOrderForPayment(null)
-        setRecordPaymentOpen(false)
-        toast({ title: "Success", description: "Payment recorded successfully" })
-      }
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to record payment" })
     } finally {
       setLoadingAction(false)
     }
@@ -1337,13 +1299,14 @@ const AdminStoresEnhanced = () => {
             </div>
           ) : selectedStore && (
             <Tabs defaultValue="overview" className="w-full">
-              <TabsList className="grid w-full grid-cols-7 mb-4">
+              <TabsList className="grid w-full grid-cols-8 mb-4">
                 <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
                 <TabsTrigger value="analytics" className="text-xs">Analytics</TabsTrigger>
                 <TabsTrigger value="settings" className="text-xs">Settings</TabsTrigger>
                 <TabsTrigger value="cheques" className="text-xs">Cheques</TabsTrigger>
                 <TabsTrigger value="orders" className="text-xs">Orders</TabsTrigger>
                 <TabsTrigger value="payments" className="text-xs">Payments</TabsTrigger>
+                <TabsTrigger value="credits" className="text-xs">Credits</TabsTrigger>
                 <TabsTrigger value="followups" className="text-xs">Follow-ups</TabsTrigger>
               </TabsList>
 
@@ -1778,7 +1741,7 @@ const AdminStoresEnhanced = () => {
                               </div>
                               <div className="flex items-center gap-2">
                                 <p className="font-semibold text-red-600">{formatCurrency(order.total || 0)}</p>
-                                <Button variant="outline" size="sm" onClick={() => { setSelectedOrderForPayment(order._id); setPaymentAmount((order.total || 0).toString()); setRecordPaymentOpen(true) }}>Pay</Button>
+                                <Button variant="outline" size="sm" onClick={() => setRecordPaymentOpen(true)}>Pay</Button>
                               </div>
                             </div>
                           ))}
@@ -1786,6 +1749,44 @@ const AdminStoresEnhanced = () => {
                       )}
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                {/* Credits & Adjustments Tab */}
+                <TabsContent value="credits" className="space-y-4 mt-0">
+                  <Tabs defaultValue="statement" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 mb-4">
+                      <TabsTrigger value="statement" className="text-xs gap-1">
+                        <Receipt className="h-3 w-3" /> Statement
+                      </TabsTrigger>
+                      <TabsTrigger value="store-credits" className="text-xs gap-1">
+                        <CreditCard className="h-3 w-3" /> Store Credits
+                      </TabsTrigger>
+                      <TabsTrigger value="adjustments" className="text-xs gap-1">
+                        <Settings className="h-3 w-3" /> Adjustments
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="statement">
+                      <AccountStatement 
+                        storeId={selectedStore._id} 
+                        storeName={selectedStore.storeName}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="store-credits">
+                      <StoreCreditInfo 
+                        storeId={selectedStore._id} 
+                        storeName={selectedStore.storeName}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="adjustments">
+                      <AdjustmentsManager 
+                        storeId={selectedStore._id} 
+                        showCreateButton={true} 
+                      />
+                    </TabsContent>
+                  </Tabs>
                 </TabsContent>
 
                 {/* Follow-ups Tab */}
@@ -2030,76 +2031,24 @@ const AdminStoresEnhanced = () => {
       </Dialog>
 
       {/* Record Payment Modal */}
-      <Dialog open={recordPaymentOpen} onOpenChange={setRecordPaymentOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" /> Record Payment</DialogTitle>
-            <DialogDescription>
-              Record a payment from {selectedStore?.storeName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="paymentAmount">Amount</Label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
-                <Input 
-                  id="paymentAmount" 
-                  type="number" 
-                  placeholder="0.00" 
-                  value={paymentAmount} 
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="pl-7"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentType">Payment Type</Label>
-              <select 
-                id="paymentType" 
-                value={paymentType} 
-                onChange={(e) => setPaymentType(e.target.value)}
-                className="w-full border rounded-md px-3 py-2"
-              >
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentReference">Reference (Optional)</Label>
-              <Input 
-                id="paymentReference" 
-                placeholder="Transaction ID, receipt number..." 
-                value={paymentReference} 
-                onChange={(e) => setPaymentReference(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentNotes">Notes (Optional)</Label>
-              <Textarea 
-                id="paymentNotes" 
-                placeholder="Additional notes..." 
-                value={paymentNotes} 
-                onChange={(e) => setPaymentNotes(e.target.value)}
-                rows={2}
-              />
-            </div>
-            {selectedOrderForPayment && (
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-700">Payment will be applied to selected invoice</p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setRecordPaymentOpen(false); setPaymentAmount(""); setPaymentType("cash"); setPaymentReference(""); setPaymentNotes(""); setSelectedOrderForPayment(null) }}>Cancel</Button>
-            <Button onClick={handleRecordPayment} disabled={loadingAction}>
-              {loadingAction ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />} Record Payment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {selectedStore && (
+        <RecordPaymentModal
+          open={recordPaymentOpen}
+          onOpenChange={setRecordPaymentOpen}
+          customer={{
+            id: selectedStore._id,
+            storeName: selectedStore.storeName,
+            totalPaid: selectedStore.totalPaid,
+            totalSpent: selectedStore.totalSpent,
+            balanceDue: selectedStore.balanceDue,
+            orders: storeOrders
+          }}
+          onSuccess={() => {
+            fetchData(pagination.page)
+            viewStoreDetails(selectedStore)
+          }}
+        />
+      )}
 
       {/* Statement Filter Popup */}
       {selectedStore && (

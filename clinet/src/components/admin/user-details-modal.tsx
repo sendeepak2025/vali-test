@@ -53,6 +53,7 @@ import {
   ArrowDownRight,
   Copy,
   Eye,
+  Settings2,
 } from "lucide-react";
 import {
   Accordion,
@@ -93,6 +94,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { createVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo";
+import { StoreCreditInfo, AdjustmentsManager, AccountStatement } from "@/components/accounting";
 
 interface UserDetailsProps {
   isOpen: boolean;
@@ -415,7 +417,7 @@ const UserDetailsModal = ({
           <div className="overflow-y-auto max-h-[calc(95vh-280px)]">
             <Tabs defaultValue="info" className="w-full">
               <div className="sticky top-0 bg-white z-10 border-b px-6 pt-4">
-                <TabsList className={`grid w-full ${vendor ? 'grid-cols-3' : 'grid-cols-2'} mb-4`}>
+                <TabsList className={`grid w-full ${vendor ? 'grid-cols-3' : 'grid-cols-3'} mb-4`}>
                   <TabsTrigger value="info" className="gap-2">
                     {vendor ? <Building2 className="h-4 w-4" /> : <Store className="h-4 w-4" />}
                     {vendor ? "Vendor" : "Store"} Information
@@ -424,10 +426,15 @@ const UserDetailsModal = ({
                     <ShoppingBag className="h-4 w-4" />
                     Orders ({totalOrders})
                   </TabsTrigger>
-                  {vendor && (
+                  {vendor ? (
                     <TabsTrigger value="accounting" className="gap-2">
                       <Wallet className="h-4 w-4" />
                       Accounting
+                    </TabsTrigger>
+                  ) : (
+                    <TabsTrigger value="credits" className="gap-2">
+                      <Settings2 className="h-4 w-4" />
+                      Credits & Adjustments
                     </TabsTrigger>
                   )}
                 </TabsList>
@@ -1084,6 +1091,51 @@ const UserDetailsModal = ({
                       </div>
                     </CardContent>
                   </Card>
+                </div>
+              </TabsContent>
+            )}
+
+            {/* Credits & Adjustments Tab - Store Only */}
+            {!vendor && (
+              <TabsContent value="credits" className="px-6 pb-6 mt-0">
+                <div className="mt-4">
+                  <Tabs defaultValue="statement" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 mb-4">
+                      <TabsTrigger value="statement" className="gap-2">
+                        <Receipt className="h-4 w-4" />
+                        Account Statement
+                      </TabsTrigger>
+                      <TabsTrigger value="credits" className="gap-2">
+                        <CreditCard className="h-4 w-4" />
+                        Store Credits
+                      </TabsTrigger>
+                      <TabsTrigger value="adjustments" className="gap-2">
+                        <Settings2 className="h-4 w-4" />
+                        Adjustments
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="statement">
+                      <AccountStatement 
+                        storeId={userData?._id} 
+                        storeName={user?.storeName || user?.name}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="credits">
+                      <StoreCreditInfo 
+                        storeId={userData?._id} 
+                        storeName={user?.storeName || user?.name}
+                        onCreditApplied={() => {
+                          // Refresh data if needed
+                        }}
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="adjustments">
+                      <AdjustmentsManager storeId={userData?._id} showCreateButton={true} />
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </TabsContent>
             )}

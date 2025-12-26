@@ -9,7 +9,8 @@ import {
   Receipt, Calendar, ArrowUpDown, X, BarChart3, Banknote, Scale,
   PieChart, Wallet, ArrowDownLeft, ArrowUpRight, FileSpreadsheet,
   Printer, Mail, ChevronRight, CircleDollarSign, BadgeDollarSign,
-  Calculator, Landmark, History, AlertCircle, CheckCircle2, Briefcase, Trash2
+  Calculator, Landmark, History, AlertCircle, CheckCircle2, Briefcase, Trash2,
+  Settings2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,6 +44,9 @@ import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getAgingReportAPI, getVendorDashboardAPI } from "@/services2/operations/vendorReports"
 import { getAllVendorPaymentsAPI } from "@/services2/operations/vendorPayment"
 import { getAllVendorCreditMemosAPI } from "@/services2/operations/vendorCreditMemo"
+import { AdjustmentsManager } from "@/components/accounting"
+import { getAdjustmentSummaryAPI } from "@/services2/operations/adjustment"
+import { RecordPaymentModal } from "@/components/payments"
 
 // Stats Card Component
 const StatsCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = "blue", onClick, clickable = false }: any) => {
@@ -184,6 +188,32 @@ const AccountingContent = () => {
   })
   const [paymentFormLoading, setPaymentFormLoading] = useState(false)
 
+  // Adjustments state
+  const [pendingAdjustmentsCount, setPendingAdjustmentsCount] = useState(0)
+  const [totalStoreCredits, setTotalStoreCredits] = useState(0)
+
+  // Record Payment Modal state
+  const [storePaymentModalOpen, setStorePaymentModalOpen] = useState(false)
+  const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<any>(null)
+
+  // Open payment modal for a customer
+  const openStorePaymentModal = (customer: any) => {
+    setSelectedCustomerForPayment(customer)
+    setStorePaymentModalOpen(true)
+  }
+
+  // Fetch pending adjustments count
+  const fetchAdjustmentsSummary = async () => {
+    try {
+      const result = await getAdjustmentSummaryAPI({}, token)
+      if (result) {
+        setPendingAdjustmentsCount(result.pendingCount || 0)
+      }
+    } catch (error) {
+      console.error("Error fetching adjustments summary:", error)
+    }
+  }
+
   // Fetch customers (stores) with order details
   const fetchCustomers = async () => {
     setCustomerLoading(true)
@@ -203,6 +233,7 @@ const AccountingContent = () => {
               totalSpent: details?.totalSpent || 0,
               totalPaid: details?.totalPay || 0,
               balanceDue: details?.balanceDue || 0,
+              creditBalance: store.creditBalance || 0, // Include credit balance from store
               lastPayment: details?.lastPayment,
               orders: details?.orders || []
             }
@@ -213,7 +244,8 @@ const AccountingContent = () => {
               totalOrders: 0,
               totalSpent: 0,
               totalPaid: 0,
-              balanceDue: 0
+              balanceDue: 0,
+              creditBalance: store.creditBalance || 0
             }
           }
         })
@@ -227,6 +259,10 @@ const AccountingContent = () => {
         .filter(c => c.balanceDue > 0 && c.lastPayment?.payment?.paymentDate && 
           new Date(c.lastPayment.payment.paymentDate) < new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
         .reduce((sum, c) => sum + (c.balanceDue || 0), 0)
+      
+      // Calculate total store credits
+      const totalCredits = customersWithDetails.reduce((sum, c) => sum + (c.creditBalance || 0), 0)
+      setTotalStoreCredits(totalCredits)
       
       setFinancialSummary((prev: any) => ({
         ...prev,
@@ -361,6 +397,7 @@ const AccountingContent = () => {
     fetchVendorPayments()
     fetchVendorCreditMemos()
     fetchApAgingReport()
+    fetchAdjustmentsSummary()
   }, [])
 
   // Filter customers
@@ -547,7 +584,7 @@ const AccountingContent = () => {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-7 gap-2 h-auto p-1">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-8 gap-2 h-auto p-1">
           <TabsTrigger value="dashboard" className="flex items-center gap-2 py-2">
             <PieChart className="h-4 w-4" />
             <span className="hidden sm:inline">Dashboard</span>
@@ -563,6 +600,15 @@ const AccountingContent = () => {
           <TabsTrigger value="payments" className="flex items-center gap-2 py-2">
             <Banknote className="h-4 w-4" />
             <span className="hidden sm:inline">Payments</span>
+          </TabsTrigger>
+          <TabsTrigger value="adjustments" className="flex items-center gap-2 py-2 relative">
+            <Settings2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Adjustments</span>
+            {pendingAdjustmentsCount > 0 && (
+              <Badge variant="destructive" className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                {pendingAdjustmentsCount}
+              </Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2 py-2">
             <Briefcase className="h-4 w-4" />
@@ -652,6 +698,88 @@ const AccountingContent = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-2xl font-bold">{formatCurrency(financialSummary.recentPaymentsOut)}</span>
                   <Badge variant="outline" className="bg-green-50 text-green-700">Last 30 days</Badge>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions & Pending Items */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start" 
+                  onClick={() => setActiveTab("adjustments")}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Adjustment
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => navigate("/payments")}
+                >
+                  <Banknote className="h-4 w-4 mr-2" />
+                  Record Payment
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={() => setActiveTab("credits")}
+                >
+                  <Scale className="h-4 w-4 mr-2" />
+                  New Credit Memo
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Pending Approvals */}
+            <Card className={pendingAdjustmentsCount > 0 ? "border-orange-200 bg-orange-50/50" : ""}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Pending Approvals
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-3xl font-bold text-orange-600">{pendingAdjustmentsCount}</p>
+                    <p className="text-sm text-muted-foreground">Adjustments awaiting approval</p>
+                  </div>
+                  {pendingAdjustmentsCount > 0 && (
+                    <Button size="sm" onClick={() => setActiveTab("adjustments")}>
+                      Review
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Store Credits Summary */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" />
+                  Store Credits
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-3xl font-bold text-green-600">
+                      {formatCurrency(customers.reduce((sum, c) => sum + (c.creditBalance || 0), 0))}
+                    </p>
+                    <p className="text-sm text-muted-foreground">Total outstanding credits</p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("receivables")}>
+                    View
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -794,7 +922,7 @@ const AccountingContent = () => {
             </CardHeader>
             <CardContent>
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">Total Customers</p>
                   <p className="text-2xl font-bold">{filteredCustomers.length}</p>
@@ -809,6 +937,12 @@ const AccountingContent = () => {
                   <p className="text-sm text-blue-700">Total Collected</p>
                   <p className="text-2xl font-bold text-blue-700">
                     {formatCurrency(filteredCustomers.reduce((sum, c) => sum + (c.totalPaid || 0), 0))}
+                  </p>
+                </div>
+                <div className="p-4 bg-purple-50 rounded-lg">
+                  <p className="text-sm text-purple-700">Store Credits</p>
+                  <p className="text-2xl font-bold text-purple-700">
+                    {formatCurrency(filteredCustomers.reduce((sum, c) => sum + (c.creditBalance || 0), 0))}
                   </p>
                 </div>
                 <div className="p-4 bg-orange-50 rounded-lg">
@@ -826,10 +960,11 @@ const AccountingContent = () => {
                     <TableRow>
                       <TableHead>Customer</TableHead>
                       <TableHead>Contact</TableHead>
-                      <TableHead className="text-right">Total Orders</TableHead>
+                      <TableHead className="text-right">Orders</TableHead>
                       <TableHead className="text-right">Total Spent</TableHead>
-                      <TableHead className="text-right">Total Paid</TableHead>
-                      <TableHead className="text-right">Balance Due</TableHead>
+                      <TableHead className="text-right">Paid</TableHead>
+                      <TableHead className="text-right">Balance</TableHead>
+                      <TableHead className="text-right">Credit</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -837,13 +972,13 @@ const AccountingContent = () => {
                   <TableBody>
                     {customerLoading ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8">
+                        <TableCell colSpan={9} className="text-center py-8">
                           <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                         </TableCell>
                       </TableRow>
                     ) : filteredCustomers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                           No customers found
                         </TableCell>
                       </TableRow>
@@ -873,6 +1008,15 @@ const AccountingContent = () => {
                               {formatCurrency(customer.balanceDue || 0)}
                             </span>
                           </TableCell>
+                          <TableCell className="text-right">
+                            {(customer.creditBalance || 0) > 0 ? (
+                              <Badge variant="outline" className="bg-green-50 text-green-700">
+                                {formatCurrency(customer.creditBalance || 0)}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
                           <TableCell>{getBalanceStatusBadge(customer.balanceDue || 0, "receivable")}</TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
@@ -886,10 +1030,19 @@ const AccountingContent = () => {
                                   <Eye className="h-4 w-4 mr-2" />
                                   View Details
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/payments?customerId=${customer.id}`) }}>
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openStorePaymentModal(customer) }}>
                                   <Banknote className="h-4 w-4 mr-2" />
                                   Record Payment
                                 </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  viewCustomerDetails(customer.id);
+                                }}>
+                                  <Settings2 className="h-4 w-4 mr-2" />
+                                  Credits & Adjustments
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={(e) => { e.stopPropagation() }}>
                                   <Mail className="h-4 w-4 mr-2" />
                                   Send Statement
@@ -1336,6 +1489,11 @@ const AccountingContent = () => {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Adjustments Tab */}
+        <TabsContent value="adjustments" className="space-y-4">
+          <AdjustmentsManager />
         </TabsContent>
 
         {/* Expenses Tab */}
@@ -2014,6 +2172,17 @@ const AccountingContent = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Record Payment Modal */}
+      <RecordPaymentModal
+        open={storePaymentModalOpen}
+        onOpenChange={setStorePaymentModalOpen}
+        customer={selectedCustomerForPayment}
+        onSuccess={() => {
+          fetchCustomers()
+          setSelectedCustomerForPayment(null)
+        }}
+      />
     </div>
   )
 }

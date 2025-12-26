@@ -3639,9 +3639,21 @@ const getRegionalOrderTrends = async (req, res) => {
       { $unwind: "$storeDetails" },
       { $unwind: "$items" },
       {
+        // Convert productId to ObjectId if it's a string
+        $addFields: {
+          "items.productIdObj": {
+            $cond: {
+              if: { $eq: [{ $type: "$items.productId" }, "string"] },
+              then: { $toObjectId: "$items.productId" },
+              else: "$items.productId"
+            }
+          }
+        }
+      },
+      {
         $lookup: {
           from: "products",
-          localField: "items.productId",
+          localField: "items.productIdObj",
           foreignField: "_id",
           as: "productDetails"
         }
@@ -3651,7 +3663,10 @@ const getRegionalOrderTrends = async (req, res) => {
           productName: {
             $ifNull: [
               "$items.name",
-              { $ifNull: [{ $arrayElemAt: ["$productDetails.name", 0] }, "Unknown Product"] }
+              { $ifNull: [
+                "$items.productName",
+                { $ifNull: [{ $arrayElemAt: ["$productDetails.name", 0] }, "Unknown Product"] }
+              ]}
             ]
           }
         }
