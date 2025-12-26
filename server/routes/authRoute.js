@@ -1,10 +1,14 @@
 const express = require("express")
-const { registerCtrl, loginCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, getPaginatedPaymentStoresCtrl, getStoreOrdersPaginatedCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
+const { registerCtrl, loginCtrl, verifyLoginOtpCtrl, resendLoginOtpCtrl, sendStoreOrderOtpCtrl, verifyStoreOrderOtpCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, getPaginatedPaymentStoresCtrl, getStoreOrdersPaginatedCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
 const { auth, isAdmin } = require("../middleware/auth")
 const router = express.Router()
 
 
 router.post("/login", loginCtrl)
+router.post("/verify-login-otp", verifyLoginOtpCtrl)
+router.post("/resend-login-otp", resendLoginOtpCtrl)
+router.post("/send-store-order-otp", sendStoreOrderOtpCtrl)
+router.post("/verify-store-order-otp", verifyStoreOrderOtpCtrl)
 router.post("/register", registerCtrl)
 
 // Password reset routes

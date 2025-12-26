@@ -5,6 +5,10 @@ const BASE_URL = import.meta.env.VITE_APP_BASE_URL;
 
 export const endpoints = {
   LOGIN_API: BASE_URL + "/auth/login",
+  VERIFY_LOGIN_OTP_API: BASE_URL + "/auth/verify-login-otp",
+  RESEND_LOGIN_OTP_API: BASE_URL + "/auth/resend-login-otp",
+  SEND_STORE_ORDER_OTP_API: BASE_URL + "/auth/send-store-order-otp",
+  VERIFY_STORE_ORDER_OTP_API: BASE_URL + "/auth/verify-store-order-otp",
   SIGNUP_API: BASE_URL + "/auth/register",
   GET_USER_API: BASE_URL + "/auth/user",
   DELETE_STORE_API: BASE_URL + "/auth/delete-store",

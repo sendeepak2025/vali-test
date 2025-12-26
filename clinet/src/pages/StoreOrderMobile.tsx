@@ -13,16 +13,21 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
-import { Search, ShoppingCart, Plus, Minus, Check, Loader2, X, Package, Clock, Star, Phone, Mail, MapPin, User, Trash2, Home, Store, Edit2, ArrowRight, CheckCircle2, Building2, Truck, Box, Scale, Layers, TrendingUp, History, Sparkles } from "lucide-react"
+import { Search, ShoppingCart, Plus, Minus, Check, Loader2, X, Package, Clock, Star, Phone, Mail, MapPin, User, Trash2, Home, Store, Edit2, ArrowRight, CheckCircle2, Building2, Truck, Box, Scale, Layers, TrendingUp, History, Sparkles, ShieldCheck, RefreshCw } from "lucide-react"
 import { useSelector } from "react-redux"
 import { RootState } from "@/redux/store"
 import { useNavigate, useLocation } from "react-router-dom"
 import { getSinglePriceAPI } from "@/services2/operations/priceList"
-import { getUserAPI } from "@/services2/operations/auth"
+import { getUserAPI, sendStoreOrderOtp, verifyStoreOrderOtp } from "@/services2/operations/auth"
 import { createPreOrderAPI, getAllPreOrderAPI } from "@/services2/operations/preOrder"
 import { getUserLatestOrdersAPI } from "@/services2/operations/order"
 import { exportInvoiceToPDF } from "@/utils/pdf"
 import { getAllProductAPI } from "@/services2/operations/product"
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp"
 
 const DEMO_MODE = false
 const PALLET_SIZE = 48 // boxes per pallet
@@ -60,6 +65,13 @@ const StoreOrderMobile = () => {
   const [lastWeekOrder, setLastWeekOrder] = useState<any[]>([])
   const [userPreOrders, setUserPreOrders] = useState<any[]>([])
   const [preOrdersLoading, setPreOrdersLoading] = useState(false)
+  
+  // OTP states for email verification
+  const [showEmailOtp, setShowEmailOtp] = useState(false)
+  const [emailOtp, setEmailOtp] = useState("")
+  const [otpEmail, setOtpEmail] = useState("")
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false)
+  const [isResendingOtp, setIsResendingOtp] = useState(false)
   
   const [billingAddress, setBillingAddress] = useState({ name: "", email: "", phone: "", address: "", street: "", city: "", postalCode: "", state: "", country: "USA" })
   const [shippingAddress, setShippingAddress] = useState({ name: "", email: "", phone: "", address: "", street: "", city: "", postalCode: "", state: "", country: "USA" })
@@ -170,52 +182,104 @@ const StoreOrderMobile = () => {
     const searchBy = type || searchType
     if (!searchVal) { toast({ variant: "destructive", title: "Required", description: `Please enter your ${searchBy}` }); return }
     
+    // For email, send OTP first
+    if (searchBy === "email") {
+      setStoreLoading(true)
+      try {
+        const result = await sendStoreOrderOtp(searchVal)
+        if (result.success) {
+          setOtpEmail(searchVal)
+          setShowEmailOtp(true)
+          setEmailOtp("")
+        }
+      } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to send OTP." })
+      } finally {
+        setStoreLoading(false)
+      }
+      return
+    }
+    
+    // For phone, proceed directly
     setStoreLoading(true)
     try {
-      const query = searchBy === "email" ? { email: searchVal } : { phone: searchVal }
+      const query = { phone: searchVal }
       const response = await getUserAPI(query)
       if (!response) { toast({ variant: "destructive", title: "Not Found", description: "Store not found." }); return }
       
-      setStoreInfo(response)
-      setPriceCategory(response.priceCategory === "price" || !response.priceCategory ? "aPrice" : response.priceCategory)
-      const addr = { 
-        name: response.ownerName || response.storeName || "", 
-        email: response.email || "", 
-        phone: response.phone || "", 
-        address: response.address || "", 
-        street: response.address || "",
-        city: response.city || "", 
-        postalCode: response.zipCode || "", 
-        state: response.state || "",
-        country: "USA"
-      }
-      setBillingAddress(addr); setShippingAddress(addr)
-      
-      // Fetch last week's order
-      try {
-        const ordersRes = await getUserLatestOrdersAPI(response._id, 1)
-        if (ordersRes?.orders && ordersRes.orders.length > 0) {
-          const lastOrder = ordersRes.orders[0]
-          setLastWeekOrder(lastOrder.items || [])
-          // Pre-fill quantities from last order
-          const prefilledQty: Record<string, QuantityType> = {}
-          lastOrder.items?.forEach((item: any) => {
-            prefilledQty[item.productId || item.product] = { 
-              box: item.pricingType === "box" ? item.quantity : 0,
-              unit: item.pricingType === "unit" ? item.quantity : 0
-            }
-          })
-          // Don't auto-fill, just store for reference
-        }
-      } catch (e) { console.log("No recent orders") }
-
-      // Fetch user preorders
-      await fetchUserPreOrders(response._id)
-      
-      setCurrentStep("address")
-      toast({ title: "Welcome!", description: `Hello, ${response.storeName}` })
+      await processStoreInfo(response)
     } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to find store." }) }
     finally { setStoreLoading(false) }
+  }
+
+  // Verify OTP and get store info
+  const handleVerifyEmailOtp = async () => {
+    if (emailOtp.length !== 6) {
+      toast({ variant: "destructive", title: "Invalid OTP", description: "Please enter a 6-digit OTP" })
+      return
+    }
+
+    setIsVerifyingOtp(true)
+    try {
+      const result = await verifyStoreOrderOtp(otpEmail, emailOtp)
+      if (result.success && result.user) {
+        setShowEmailOtp(false)
+        await processStoreInfo(result.user)
+      } else {
+        setEmailOtp("")
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "OTP verification failed." })
+      setEmailOtp("")
+    } finally {
+      setIsVerifyingOtp(false)
+    }
+  }
+
+  // Resend OTP
+  const handleResendOtp = async () => {
+    setIsResendingOtp(true)
+    try {
+      await sendStoreOrderOtp(otpEmail)
+      setEmailOtp("")
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to resend OTP." })
+    } finally {
+      setIsResendingOtp(false)
+    }
+  }
+
+  // Process store info after verification
+  const processStoreInfo = async (response: any) => {
+    setStoreInfo(response)
+    setPriceCategory(response.priceCategory === "price" || !response.priceCategory ? "aPrice" : response.priceCategory)
+    const addr = { 
+      name: response.ownerName || response.storeName || "", 
+      email: response.email || "", 
+      phone: response.phone || "", 
+      address: response.address || "", 
+      street: response.address || "",
+      city: response.city || "", 
+      postalCode: response.zipCode || "", 
+      state: response.state || "",
+      country: "USA"
+    }
+    setBillingAddress(addr); setShippingAddress(addr)
+    
+    // Fetch last week's order
+    try {
+      const ordersRes = await getUserLatestOrdersAPI(response._id, 1)
+      if (ordersRes?.orders && ordersRes.orders.length > 0) {
+        const lastOrder = ordersRes.orders[0]
+        setLastWeekOrder(lastOrder.items || [])
+      }
+    } catch (e) { console.log("No recent orders") }
+
+    // Fetch user preorders
+    await fetchUserPreOrders(response._id)
+    
+    setCurrentStep("address")
+    toast({ title: "Welcome!", description: `Hello, ${response.storeName}` })
   }
 
   // Fetch user preorders - only current week and not confirmed
@@ -509,22 +573,63 @@ const StoreOrderMobile = () => {
             <h1 className="text-2xl font-bold text-gray-800">{isNextWeek ? "Next Week Order" : "Place Your Order"}</h1>
             <p className="text-gray-600 mt-2">{template?.name}</p>
           </div>
-          <Card className="shadow-xl"><CardContent className="p-6">
-            <h2 className="text-lg font-semibold mb-4 text-center">Find Your Store</h2>
-            <div className="flex gap-2 mb-4">
-              <Button variant={searchType === "phone" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("phone")}><Phone className="h-4 w-4 mr-2" /> Phone</Button>
-              <Button variant={searchType === "email" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("email")}><Mail className="h-4 w-4 mr-2" /> Email</Button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <Label className="text-sm text-gray-600 mb-1 block">{searchType === "phone" ? "Phone Number" : "Email Address"}</Label>
-                <Input type={searchType === "phone" ? "tel" : "email"} placeholder={searchType === "phone" ? "Enter phone number" : "Enter email address"} value={searchValue} onChange={(e) => setSearchValue(e.target.value)} className="text-lg py-6" onKeyDown={(e) => e.key === "Enter" && handleFindStore()} />
+          
+          {!showEmailOtp ? (
+            <Card className="shadow-xl"><CardContent className="p-6">
+              <h2 className="text-lg font-semibold mb-4 text-center">Find Your Store</h2>
+              <div className="flex gap-2 mb-4">
+                <Button variant={searchType === "phone" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("phone")}><Phone className="h-4 w-4 mr-2" /> Phone</Button>
+                <Button variant={searchType === "email" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("email")}><Mail className="h-4 w-4 mr-2" /> Email</Button>
               </div>
-              <Button className="w-full py-6 text-lg" onClick={() => handleFindStore()} disabled={storeLoading || !searchValue}>
-                {storeLoading ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Finding...</> : <><Search className="h-5 w-5 mr-2" /> Find My Store</>}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm text-gray-600 mb-1 block">{searchType === "phone" ? "Phone Number" : "Email Address"}</Label>
+                  <Input type={searchType === "phone" ? "tel" : "email"} placeholder={searchType === "phone" ? "Enter phone number" : "Enter email address"} value={searchValue} onChange={(e) => setSearchValue(e.target.value)} className="text-lg py-6" onKeyDown={(e) => e.key === "Enter" && handleFindStore()} />
+                </div>
+                <Button className="w-full py-6 text-lg" onClick={() => handleFindStore()} disabled={storeLoading || !searchValue}>
+                  {storeLoading ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> {searchType === "email" ? "Sending OTP..." : "Finding..."}</> : <><Search className="h-5 w-5 mr-2" /> Find My Store</>}
+                </Button>
+              </div>
+            </CardContent></Card>
+          ) : (
+            <Card className="shadow-xl"><CardContent className="p-6">
+              <div className="text-center mb-6">
+                <ShieldCheck className="h-12 w-12 text-green-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold">Verify Your Email</h3>
+                <p className="text-sm text-gray-600 mt-2">We've sent a 6-digit code to</p>
+                <p className="text-sm font-medium text-blue-600">{otpEmail}</p>
+              </div>
+
+              <div className="flex justify-center mb-6">
+                <InputOTP maxLength={6} value={emailOtp} onChange={(value) => setEmailOtp(value)}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                    <InputOTPSlot index={4} />
+                    <InputOTPSlot index={5} />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+
+              <Button className="w-full py-6 text-lg mb-4" onClick={handleVerifyEmailOtp} disabled={isVerifyingOtp || emailOtp.length !== 6}>
+                {isVerifyingOtp ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Verifying...</> : <><ShieldCheck className="h-5 w-5 mr-2" /> Verify OTP</>}
               </Button>
-            </div>
-          </CardContent></Card>
+
+              <div className="flex items-center justify-between text-sm">
+                <Button variant="ghost" size="sm" onClick={() => { setShowEmailOtp(false); setEmailOtp(""); setOtpEmail("") }} className="text-gray-600">
+                  ← Back
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleResendOtp} disabled={isResendingOtp} className="text-blue-600">
+                  <RefreshCw className={`mr-1 h-3 w-3 ${isResendingOtp ? 'animate-spin' : ''}`} /> Resend OTP
+                </Button>
+              </div>
+
+              <p className="text-xs text-center text-gray-500 mt-4">OTP expires in 5 minutes</p>
+            </CardContent></Card>
+          )}
+          
           <p className="text-center text-sm text-gray-500 mt-6">Don't have an account? <a href="/store-registration" className="text-blue-600 font-medium">Register here</a></p>
         </div>
       </div>

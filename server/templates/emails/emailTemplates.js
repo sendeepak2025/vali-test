@@ -330,6 +330,76 @@ const emailTemplates = {
       <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/auth" class="button">Login to Account</a>
     </div>
   `, 'Password Changed Successfully'),
+
+  /**
+   * Login OTP verification email
+   */
+  LOGIN_OTP: (data) => baseTemplate(`
+    <div class="header">
+      <h1>🔐 Login Verification Code</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.name || 'User'}</strong>,</p>
+      <p>Your one-time verification code for logging into Vali Produce is:</p>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <div style="display: inline-block; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px 40px; border-radius: 10px;">
+          ${data.otp}
+        </div>
+      </div>
+      
+      <div class="warning-box">
+        <p><strong>⏰ This code expires in 5 minutes</strong></p>
+        <p style="font-size: 13px; margin-top: 5px;">For security reasons, this code can only be used once.</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Security Tips:</strong></p>
+        <ul style="font-size: 13px; margin: 10px 0;">
+          <li>Never share this code with anyone</li>
+          <li>Vali Produce staff will never ask for this code</li>
+          <li>If you didn't request this code, please ignore this email</li>
+        </ul>
+      </div>
+      
+      <p>If you didn't attempt to log in, please secure your account by changing your password immediately.</p>
+    </div>
+  `, 'Login Verification Code'),
+
+  /**
+   * Store Order OTP verification email
+   */
+  STORE_ORDER_OTP: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #22c55e, #16a34a);">
+      <h1>🛒 Order Verification Code</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.name || 'Store Owner'}</strong>,</p>
+      <p>Your one-time verification code for placing an order on Vali Produce is:</p>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <div style="display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; font-size: 32px; font-weight: bold; letter-spacing: 8px; padding: 20px 40px; border-radius: 10px;">
+          ${data.otp}
+        </div>
+      </div>
+      
+      <div class="warning-box">
+        <p><strong>⏰ This code expires in 5 minutes</strong></p>
+        <p style="font-size: 13px; margin-top: 5px;">For security reasons, this code can only be used once.</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Security Tips:</strong></p>
+        <ul style="font-size: 13px; margin: 10px 0;">
+          <li>Never share this code with anyone</li>
+          <li>Vali Produce staff will never ask for this code</li>
+          <li>If you didn't request this code, please ignore this email</li>
+        </ul>
+      </div>
+      
+      <p>If you didn't attempt to place an order, please contact our support team immediately.</p>
+    </div>
+  `, 'Order Verification Code'),
 };
 
 module.exports = emailTemplates;

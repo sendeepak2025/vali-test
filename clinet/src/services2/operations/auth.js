@@ -5,6 +5,8 @@ import { endpoints, storeApproval } from "../apis";
 import Swal from "sweetalert2";
 const {
   LOGIN_API,
+  VERIFY_LOGIN_OTP_API,
+  RESEND_LOGIN_OTP_API,
   SIGNUP_API,
   CREATE_MEMBER_API,
   GET_ALL_MEMBER_API,
@@ -45,9 +47,71 @@ export async function login(email, password, navigate, dispatch) {
       password,
     });
     Swal.close();
+    
     if (!response?.data?.success) {
       await Swal.fire({
         title: "Login Failed",
+        text: response.data.message,
+        icon: "error",
+      });
+      throw new Error(response.data.message);
+    }
+
+    // Check if OTP is required
+    if (response?.data?.requireOtp) {
+      return {
+        requireOtp: true,
+        email: response.data.email,
+        message: response.data.message,
+      };
+    }
+
+    Swal.fire({
+      title: `Login Successfully!`,
+      text: `Have a nice day!`,
+      icon: "success",
+      confirmButtonText: "OK",
+      confirmButtonColor: "#3B82F6",
+      allowOutsideClick: true,
+    });
+    dispatch(setToken(response?.data?.token));
+    dispatch(setUser(response.data.user));
+    return { success: true };
+  } catch (error) {
+    console.log("LOGIN API ERROR............", error);
+    Swal.fire({
+      title: "Login Failed",
+      text:
+        error.response?.data?.message ||
+        "Something went wrong, please try again later",
+      icon: "error",
+    });
+    return { success: false };
+  }
+}
+
+export async function verifyLoginOtp(email, otp, navigate, dispatch) {
+  Swal.fire({
+    title: "Verifying OTP",
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    allowEnterKey: false,
+    showConfirmButton: false,
+    didOpen: () => {
+      Swal.showLoading();
+    },
+  });
+
+  try {
+    const response = await apiConnector("POST", VERIFY_LOGIN_OTP_API, {
+      email,
+      otp,
+    });
+    Swal.close();
+    
+    if (!response?.data?.success) {
+      await Swal.fire({
+        title: "Verification Failed",
         text: response.data.message,
         icon: "error",
       });
@@ -64,16 +128,98 @@ export async function login(email, password, navigate, dispatch) {
     });
     dispatch(setToken(response?.data?.token));
     dispatch(setUser(response.data.user));
-    // navigate("/admin/dashboard");
+    return { success: true };
   } catch (error) {
-    console.log("LOGIN API ERROR............", error);
+    console.log("VERIFY OTP API ERROR............", error);
     Swal.fire({
-      title: "Login Failed",
+      title: "Verification Failed",
       text:
         error.response?.data?.message ||
-        "Something went wrong, please try again later",
+        "Invalid or expired OTP. Please try again.",
       icon: "error",
     });
+    return { success: false };
+  }
+}
+
+export async function resendLoginOtp(email) {
+  const toastId = toast.loading("Resending OTP...");
+  
+  try {
+    const response = await apiConnector("POST", RESEND_LOGIN_OTP_API, {
+      email,
+    });
+    
+    if (!response?.data?.success) {
+      throw new Error(response.data.message);
+    }
+
+    toast.success("OTP resent to your email!");
+    return { success: true };
+  } catch (error) {
+    console.log("RESEND OTP API ERROR............", error);
+    toast.error(
+      error.response?.data?.message ||
+      "Failed to resend OTP. Please try again."
+    );
+    return { success: false };
+  } finally {
+    toast.dismiss(toastId);
+  }
+}
+
+// Send OTP for store order (email verification)
+export async function sendStoreOrderOtp(email) {
+  const toastId = toast.loading("Sending OTP...");
+  
+  try {
+    const response = await apiConnector("POST", endpoints.SEND_STORE_ORDER_OTP_API, {
+      email,
+    });
+    
+    if (!response?.data?.success) {
+      throw new Error(response.data.message);
+    }
+
+    toast.success("OTP sent to your email!");
+    return { success: true, email: response.data.email };
+  } catch (error) {
+    console.log("SEND STORE ORDER OTP API ERROR............", error);
+    toast.error(
+      error.response?.data?.message ||
+      "Store not found or failed to send OTP."
+    );
+    return { success: false };
+  } finally {
+    toast.dismiss(toastId);
+  }
+}
+
+// Verify OTP for store order and get store info
+export async function verifyStoreOrderOtp(email, otp) {
+  const toastId = toast.loading("Verifying OTP...");
+  
+  try {
+    const response = await apiConnector("POST", endpoints.VERIFY_STORE_ORDER_OTP_API, {
+      email,
+      otp,
+    });
+    
+    if (!response?.data?.success) {
+      throw new Error(response.data.message);
+    }
+
+    toast.success("Verified successfully!");
+    return { success: true, user: response.data.user };
+  } catch (error) {
+    console.log("VERIFY STORE ORDER OTP API ERROR............", error);
+    toast.error(
+      error.response?.data?.message ||
+      "Invalid or expired OTP."
+    );
+    return { success: false };
+  } finally {
+    toast.dismiss(toastId);
   }
 }
 

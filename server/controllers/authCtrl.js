@@ -203,6 +203,11 @@ const registerCtrl = async (req, res) => {
   }
 };
 
+// Generate 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 const loginCtrl = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -245,54 +250,32 @@ const loginCtrl = async (req, res) => {
         });
       }
 
-      const token = jwt.sign(
-        { email: user.email, id: user._id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "2d" }
-      );
-
-      // Update last login and add activity log
+      // Generate 6-digit OTP
+      const otp = generateOTP();
+      const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+console.log("Current OTP", otp)
+      // Save OTP to user
       await authModel.findByIdAndUpdate(user._id, {
-        token,
-        lastLogin: new Date(),
-        $push: {
-          activityLogs: {
-            action: "login",
-            description: "User logged in",
-            createdAt: new Date(),
-            ipAddress: req.ip || req.connection?.remoteAddress,
-            userAgent: req.headers?.['user-agent'],
-          }
-        }
+        loginOtp: otp,
+        loginOtpExpires: otpExpires,
       });
 
-      user.token = token;
-      user.password = undefined;
-      const options = {
-        expires: new Date(Date.now() + 2 * 1000), // 2 seconds
-        httpOnly: true,
-      };
-
-      // Determine access level for store users
-      let accessLevel = "full";
-      let isPending = false;
+      // Send OTP via email
+      const mailSender = require("../utils/mailSender");
+      const emailTemplates = require("../templates/emails/emailTemplates");
       
-      if (user.role === "store") {
-        if (user.approvalStatus === "pending") {
-          accessLevel = "limited";
-          isPending = true;
-        } else if (user.approvalStatus === "approved") {
-          accessLevel = "full";
-        }
-      }
+      const htmlContent = emailTemplates.LOGIN_OTP({
+        name: user.storeName || user.ownerName || user.name || "User",
+        otp: otp,
+      });
 
-      res.cookie("token", token, options).status(200).json({
+      await mailSender(user.email, "Login Verification Code - Vali Produce", htmlContent);
+
+      return res.status(200).json({
         success: true,
-        token,
-        user,
-        message: `User Login Success`,
-        accessLevel,
-        isPending,
+        message: "OTP sent to your email",
+        requireOtp: true,
+        email: user.email,
       });
     } else {
       return res.status(401).json({
@@ -305,6 +288,263 @@ const loginCtrl = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Login Failure Please Try Again`,
+    });
+  }
+};
+
+// Verify OTP and complete login
+const verifyLoginOtpCtrl = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    const user = await authModel.findOne({ 
+      email,
+      loginOtp: otp,
+      loginOtpExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    // Clear OTP after successful verification
+    await authModel.findByIdAndUpdate(user._id, {
+      loginOtp: null,
+      loginOtpExpires: null,
+    });
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { email: user.email, id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "2d" }
+    );
+
+    // Update last login and add activity log
+    await authModel.findByIdAndUpdate(user._id, {
+      token,
+      lastLogin: new Date(),
+      $push: {
+        activityLogs: {
+          action: "login",
+          description: "User logged in with OTP verification",
+          createdAt: new Date(),
+          ipAddress: req.ip || req.connection?.remoteAddress,
+          userAgent: req.headers?.['user-agent'],
+        }
+      }
+    });
+
+    user.token = token;
+    user.password = undefined;
+    const options = {
+      expires: new Date(Date.now() + 2 * 1000), // 2 seconds
+      httpOnly: true,
+    };
+
+    // Determine access level for store users
+    let accessLevel = "full";
+    let isPending = false;
+    
+    if (user.role === "store") {
+      if (user.approvalStatus === "pending") {
+        accessLevel = "limited";
+        isPending = true;
+      } else if (user.approvalStatus === "approved") {
+        accessLevel = "full";
+      }
+    }
+
+    res.cookie("token", token, options).status(200).json({
+      success: true,
+      token,
+      user,
+      message: `Login Successful`,
+      accessLevel,
+      isPending,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: `OTP Verification Failed. Please Try Again`,
+    });
+  }
+};
+
+// Resend OTP
+const resendLoginOtpCtrl = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const user = await authModel.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Generate new 6-digit OTP
+    const otp = generateOTP();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // Save OTP to user
+    await authModel.findByIdAndUpdate(user._id, {
+      loginOtp: otp,
+      loginOtpExpires: otpExpires,
+    });
+
+    console.log("Current OTP", otp)
+    // Send OTP via email
+    const mailSender = require("../utils/mailSender");
+    const emailTemplates = require("../templates/emails/emailTemplates");
+    
+    const htmlContent = emailTemplates.LOGIN_OTP({
+      name: user.storeName || user.ownerName || user.name || "User",
+      otp: otp,
+    });
+
+    await mailSender(user.email, "Login Verification Code - Vali Produce", htmlContent);
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP resent to your email",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to resend OTP. Please try again.",
+    });
+  }
+};
+
+// Send OTP for store order verification (email-based)
+const sendStoreOrderOtpCtrl = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const user = await authModel.findOne({ email, role: "store" });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Store not found with this email",
+      });
+    }
+
+    const otp = generateOTP();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
+
+    await authModel.findByIdAndUpdate(user._id, {
+      loginOtp: otp,
+      loginOtpExpires: otpExpires,
+    });
+
+    const mailSender = require("../utils/mailSender");
+    const emailTemplates = require("../templates/emails/emailTemplates");
+    
+    const htmlContent = emailTemplates.STORE_ORDER_OTP({
+      name: user.storeName || user.ownerName || "Store Owner",
+      otp: otp,
+    });
+
+    await mailSender(user.email, "Order Verification Code - Vali Produce", htmlContent);
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent to your email",
+      email: user.email,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP. Please try again.",
+    });
+  }
+};
+
+// Verify OTP for store order and return store info
+const verifyStoreOrderOtpCtrl = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    const user = await authModel.findOne({ 
+      email,
+      role: "store",
+      loginOtp: otp,
+      loginOtpExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired OTP",
+      });
+    }
+
+    await authModel.findByIdAndUpdate(user._id, {
+      loginOtp: null,
+      loginOtpExpires: null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP verified successfully",
+      user: {
+        _id: user._id,
+        email: user.email,
+        phone: user.phone,
+        storeName: user.storeName,
+        ownerName: user.ownerName,
+        address: user.address,
+        city: user.city,
+        state: user.state,
+        zipCode: user.zipCode,
+        priceCategory: user.priceCategory,
+        shippingCost: user.shippingCost,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "OTP verification failed. Please try again.",
     });
   }
 };
@@ -2411,6 +2651,10 @@ const resetPasswordCtrl = async (req, res) => {
 module.exports = {
   registerCtrl,
   loginCtrl,
+  verifyLoginOtpCtrl,
+  resendLoginOtpCtrl,
+  sendStoreOrderOtpCtrl,
+  verifyStoreOrderOtpCtrl,
   getUserByEmailCtrl,
   updatePermitionCtrl,
   addMemberCtrl,

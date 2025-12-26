@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Store, Mail, KeyRound, LogIn, UserPlus, EyeOff, Eye } from "lucide-react";
-import { signUp, login } from "@/services2/operations/auth";
+import { Store, Mail, KeyRound, LogIn, UserPlus, EyeOff, Eye, ShieldCheck, RefreshCw } from "lucide-react";
+import { signUp, login, verifyLoginOtp, resendLoginOtp } from "@/services2/operations/auth";
 import ForgotPasswordModal from "@/components/store/ForgotPasswordModal";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,11 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDispatch } from "react-redux";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 const loginSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address" }),
@@ -55,10 +60,17 @@ const Auth = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("login");
-const [showLoginPass, setShowLoginPass] = useState(false);
-const [showSignupPass, setShowSignupPass] = useState(false);
-const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [showLoginPass, setShowLoginPass] = useState(false);
+  const [showSignupPass, setShowSignupPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  
+  // OTP states
+  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
 
   const dispatch = useDispatch();
   const loginForm = useForm<LoginFormValues>({
@@ -83,10 +95,59 @@ const [showConfirmPass, setShowConfirmPass] = useState(false);
 
   const onLogin = async (values: LoginFormValues) => {
     try {
-      await login(values.email, values.password, navigate, dispatch);
+      const result = await login(values.email, values.password, navigate, dispatch);
+      
+      // Check if OTP verification is required
+      if (result?.requireOtp) {
+        setOtpEmail(result.email);
+        setShowOtpInput(true);
+        setOtp("");
+      }
     } catch (error: any) {
       console.error("Login error:", error);
     }
+  };
+
+  const onVerifyOtp = async () => {
+    if (otp.length !== 6) {
+      toast({
+        title: "Invalid OTP",
+        description: "Please enter a 6-digit OTP",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      const result = await verifyLoginOtp(otpEmail, otp, navigate, dispatch);
+      if (!result?.success) {
+        setOtp("");
+      }
+    } catch (error: any) {
+      console.error("OTP verification error:", error);
+      setOtp("");
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const onResendOtp = async () => {
+    setIsResendingOtp(true);
+    try {
+      await resendLoginOtp(otpEmail);
+      setOtp("");
+    } catch (error: any) {
+      console.error("Resend OTP error:", error);
+    } finally {
+      setIsResendingOtp(false);
+    }
+  };
+
+  const onBackToLogin = () => {
+    setShowOtpInput(false);
+    setOtpEmail("");
+    setOtp("");
   };
 
   const onSignup = async (values: SignupFormValues) => {
@@ -127,103 +188,169 @@ if(res){
             </TabsList>
 
             <TabsContent value="login">
-              <Form {...loginForm}>
-                <form
-                  onSubmit={loginForm.handleSubmit(onLogin)}
-                  className="space-y-4 p-6"
-                >
-                  <FormField
-                    control={loginForm.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <div className="flex">
-                            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-                              <Mail className="h-4 w-4" />
-                            </span>
-                            <Input
-                              placeholder="email@example.com"
-                              className="rounded-l-none"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              {!showOtpInput ? (
+                <Form {...loginForm}>
+                  <form
+                    onSubmit={loginForm.handleSubmit(onLogin)}
+                    className="space-y-4 p-6"
+                  >
+                    <FormField
+                      control={loginForm.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <div className="flex">
+                              <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+                                <Mail className="h-4 w-4" />
+                              </span>
+                              <Input
+                                placeholder="email@example.com"
+                                className="rounded-l-none"
+                                {...field}
+                              />
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
-               <FormField
-  control={loginForm.control}
-  name="password"
-  render={({ field }) => (
-    <FormItem>
-      <FormLabel>Password</FormLabel>
-      <FormControl>
-        <div className="flex relative">
-          <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
-            <KeyRound className="h-4 w-4" />
-          </span>
+                 <FormField
+    control={loginForm.control}
+    name="password"
+    render={({ field }) => (
+      <FormItem>
+        <FormLabel>Password</FormLabel>
+        <FormControl>
+          <div className="flex relative">
+            <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500">
+              <KeyRound className="h-4 w-4" />
+            </span>
 
-          <Input
-            type={showLoginPass ? "text" : "password"}
-            placeholder="••••••••"
-            className="rounded-l-none pr-10"
-            {...field}
-          />
+            <Input
+              type={showLoginPass ? "text" : "password"}
+              placeholder="••••••••"
+              className="rounded-l-none pr-10"
+              {...field}
+            />
 
-          <span
-            className="absolute right-3 top-3 cursor-pointer text-gray-500"
-            onClick={() => setShowLoginPass(!showLoginPass)}
-          >
-            {showLoginPass ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
-          </span>
-        </div>
-      </FormControl>
-      <FormMessage />
-    </FormItem>
-  )}
-/>
+            <span
+              className="absolute right-3 top-3 cursor-pointer text-gray-500"
+              onClick={() => setShowLoginPass(!showLoginPass)}
+            >
+              {showLoginPass ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </span>
+          </div>
+        </FormControl>
+        <FormMessage />
+      </FormItem>
+    )}
+  />
 
+
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={isLoginSubmitting}
+                      isLoading={isLoginSubmitting}
+                    >
+                      <LogIn className="mr-2 h-4 w-4" /> Log In
+                    </Button>
+
+                    <div className="text-center mt-2">
+                      <Button
+                        variant="link"
+                        onClick={() => navigate("/store-portal")}
+                        className="text-primary text-sm"
+                      >
+                        Go to Store Portal
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              ) : (
+                <div className="space-y-6 p-6">
+                  <div className="text-center">
+                    <ShieldCheck className="h-12 w-12 text-primary mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold">Verify Your Identity</h3>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      We've sent a 6-digit verification code to
+                    </p>
+                    <p className="text-sm font-medium text-primary">{otpEmail}</p>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <InputOTP
+                      maxLength={6}
+                      value={otp}
+                      onChange={(value) => setOtp(value)}
+                    >
+                      <InputOTPGroup>
+                        <InputOTPSlot index={0} />
+                        <InputOTPSlot index={1} />
+                        <InputOTPSlot index={2} />
+                        <InputOTPSlot index={3} />
+                        <InputOTPSlot index={4} />
+                        <InputOTPSlot index={5} />
+                      </InputOTPGroup>
+                    </InputOTP>
+                  </div>
 
                   <Button
-                    type="submit"
+                    onClick={onVerifyOtp}
                     className="w-full"
-                    disabled={isLoginSubmitting}
-                    isLoading={isLoginSubmitting}
+                    disabled={isVerifyingOtp || otp.length !== 6}
+                    isLoading={isVerifyingOtp}
                   >
-                    <LogIn className="mr-2 h-4 w-4" /> Log In
+                    <ShieldCheck className="mr-2 h-4 w-4" /> Verify OTP
                   </Button>
 
-                  <div className="text-center mt-2">
+                  <div className="flex items-center justify-between text-sm">
                     <Button
-                      variant="link"
-                      onClick={() => navigate("/store-portal")}
-                      className="text-primary text-sm"
+                      variant="ghost"
+                      size="sm"
+                      onClick={onBackToLogin}
+                      className="text-muted-foreground"
                     >
-                      Go to Store Portal
+                      ← Back to Login
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onResendOtp}
+                      disabled={isResendingOtp}
+                      className="text-primary"
+                    >
+                      <RefreshCw className={`mr-1 h-3 w-3 ${isResendingOtp ? 'animate-spin' : ''}`} />
+                      Resend OTP
                     </Button>
                   </div>
-                </form>
-              </Form>
 
-              <CardFooter className="flex flex-col">
-                <div className="mt-2 text-center text-sm">
-                  <button 
-                    type="button"
-                    onClick={() => setShowForgotPassword(true)}
-                    className="text-primary underline hover:text-primary/80"
-                  >
-                    Forgot password?
-                  </button>
+                  <p className="text-xs text-center text-muted-foreground">
+                    OTP expires in 5 minutes. Check your spam folder if you don't see the email.
+                  </p>
                 </div>
-              </CardFooter>
+              )}
+
+              {!showOtpInput && (
+                <CardFooter className="flex flex-col">
+                  <div className="mt-2 text-center text-sm">
+                    <button 
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-primary underline hover:text-primary/80"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                </CardFooter>
+              )}
             </TabsContent>
 
             <TabsContent value="signup">

@@ -631,6 +631,13 @@ const authSchema = new mongoose.Schema(
     resetPasswordExpires: {
       type: Date,
     },
+    // OTP fields for login verification
+    loginOtp: {
+      type: String,
+    },
+    loginOtpExpires: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );
