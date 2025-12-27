@@ -1,15 +1,14 @@
 "use client";
 
 import type React from "react";
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useState, useCallback } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
   Package,
   Users,
   ShoppingCart,
   X,
-  Briefcase,
   Zap,
   ChevronRight,
   ChevronLeft,
@@ -21,114 +20,113 @@ import {
   CreditCard,
   UserCheck,
   AlertTriangle,
+  LogOut,
 } from "lucide-react";
 import type { RootState } from "@/redux/store";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
+import { logout } from "@/redux/authSlice";
 
 interface SidebarProps {
   isOpen: boolean;
   onClose?: () => void;
 }
 
-// Define navigation items for each role
-
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   const [collapsed, setCollapsed] = useState(false);
-  const [hovering, setHovering] = useState(false);
   const user = useSelector((state: RootState) => state.auth?.user ?? null);
 
-  // Get user role from Redux state
-  const userRole = user?.role || "member"; // Default to member if role is not available
+  const userRole = user?.role || "member";
+
+  const handleLogout = useCallback(() => {
+    dispatch(logout());
+    navigate("/login");
+  }, [dispatch, navigate]);
 
   const adminNavigation = [
     {
       name: "Dashboard",
       path: "/admin/dashboard",
-      icon: <LucideLayoutDashboard size={18} />,
+      icon: <LucideLayoutDashboard size={20} />,
     },
     {
       name: "Inventory",
       path: "/admin/inventory",
-      icon: <Package size={18} />,
+      icon: <Package size={20} />,
     },
     {
       name: "Members",
       path: "/admin/members",
-      icon: <Users size={18} />,
+      icon: <Users size={20} />,
     },
     {
       name: "Store",
       path: "/admin/store",
-      icon: <Store size={18} />,
+      icon: <Store size={20} />,
     },
     {
       name: "Store Approval",
       path: "/admin/store-approval",
-      icon: <UserCheck size={18} />,
+      icon: <UserCheck size={20} />,
     },
     {
       name: "Orders",
       path: "/admin/orders",
-      icon: <ShoppingCart size={18} />,
+      icon: <ShoppingCart size={20} />,
     },
     {
       name: "Pre Orders",
       path: "/admin/pre-orders",
-      icon: <ShoppingCart size={18} />,
+      icon: <ShoppingCart size={20} />,
     },
-    // {
-    //   name: "CRM",
-    //   path: "/admin/crm",
-    //   icon: <Briefcase size={18} />,
-    // },
     {
       name: "Vendors",
       path: "/vendors",
-      icon: <User2Icon size={18} />,
+      icon: <User2Icon size={20} />,
     },
     {
       name: "Accounting",
       path: "/accounting",
-      icon: <CreditCard size={18} />, // 18px size
+      icon: <CreditCard size={20} />,
     },
     {
       name: "Store Cheque Payment",
       path: "/store-cheque-payment",
-      icon: <CreditCard size={18} />, // 18px size
+      icon: <CreditCard size={20} />,
     },
     {
       name: "Map",
       path: "/map",
-      icon: <LocateIcon size={18} />,
+      icon: <LocateIcon size={20} />,
     },
     {
       name: "Quality Issues",
       path: "/admin/quality-issues",
-      icon: <AlertTriangle size={18} />,
+      icon: <AlertTriangle size={20} />,
     },
   ];
 
   const memberNavigation = [
-    // Conditionally add "Orders" only if user is member and isOrder is true
     ...(user?.role === "member" && user?.isOrder
       ? [
           {
             name: "Orders",
             path: "/admin/orders",
-            icon: <ShoppingCart size={18} />,
+            icon: <ShoppingCart size={20} />,
           },
         ]
       : []),
     {
       name: "Products",
       path: "/admin/inventory",
-      icon: <Package size={18} />,
+      icon: <Package size={20} />,
     },
     {
       name: "Vendors",
       path: "/vendors",
-      icon: <User2Icon size={18} />,
+      icon: <User2Icon size={20} />,
     },
   ];
 
@@ -136,21 +134,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     {
       name: "Products",
       path: "/store/products",
-      icon: <Package size={18} />,
+      icon: <Package size={20} />,
     },
     {
       name: "My Orders",
       path: "/store/orders",
-      icon: <ShoppingCart size={18} />,
+      icon: <ShoppingCart size={20} />,
     },
     {
       name: "Settings",
       path: "/store/settings",
-      icon: <Settings size={18} />,
+      icon: <Settings size={20} />,
     },
   ];
 
-  // Select navigation items based on user role
   const getNavigationForRole = () => {
     switch (userRole) {
       case "admin":
@@ -160,36 +157,22 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       case "store":
         return storeNavigation;
       default:
-        return memberNavigation; // Default to member navigation
+        return memberNavigation;
     }
   };
 
   const navigationPaths = getNavigationForRole();
 
-  const handleMouseEnter = () => {
-    if (collapsed) {
-      setHovering(true);
-    }
-  };
-
-  const handleMouseLeave = () => {
-    if (collapsed) {
-      setHovering(false);
-    }
-  };
-
-  const toggleCollapsed = () => {
-    setCollapsed(!collapsed);
-    if (collapsed) {
-      setHovering(false);
-    }
-  };
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => !prev);
+  }, []);
 
   return (
     <>
+      {/* Mobile overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300"
           onClick={onClose}
           aria-hidden="true"
         />
@@ -197,141 +180,208 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col bg-sidebar text-sidebar-foreground border-r border-border/40 transition-all duration-300 ease-in-out shadow-lg md:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex flex-col bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-slate-100 border-r border-slate-700/50 transition-all duration-300 ease-in-out",
           isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-          collapsed && !hovering ? "md:w-[60px]" : "w-[280px] sm:w-64"
+          collapsed ? "md:w-[72px]" : "w-[280px]"
         )}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
       >
-        <div className="flex h-16 items-center justify-between border-b border-border/40 px-6">
+        {/* Header */}
+        <div className={cn(
+          "flex h-16 items-center border-b border-slate-700/50 transition-all duration-300",
+          !collapsed ? "px-5 justify-between" : "px-0 justify-center"
+        )}>
           <Link
             to="/"
-            className={cn(
-              "flex items-center space-x-2",
-              collapsed && !hovering && "md:justify-center md:w-full md:px-0"
-            )}
+            className="flex items-center gap-2 group"
           >
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-shadow">
+              <span className="font-bold text-white text-lg">V</span>
+            </div>
             <span
               className={cn(
-                "font-bold text-xl tracking-tight truncate",
-                collapsed && !hovering && "md:hidden"
+                "font-bold text-xl tracking-tight text-white transition-all duration-300",
+                collapsed && "hidden"
               )}
             >
               Vali
             </span>
-            {collapsed && !hovering && (
-              <span className="font-bold text-xl tracking-tight hidden md:block">
-                V
-              </span>
-            )}
           </Link>
-          <div className="flex items-center">
-            <button
-              onClick={toggleCollapsed}
-              className="rounded-full p-1 text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground hidden md:block mr-2"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed && !hovering ? (
-                <ChevronRight size={18} />
-              ) : (
-                <ChevronLeft size={18} />
-              )}
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded-full p-1 text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground md:hidden"
-              aria-label="Close sidebar"
-            >
-              <X size={18} />
-            </button>
-          </div>
+          
+          {/* Toggle button - Desktop */}
+          <button
+            onClick={toggleCollapsed}
+            className={cn(
+              "hidden md:flex items-center justify-center w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all duration-200 border border-slate-700/50",
+              collapsed && "absolute -right-3 top-6 shadow-lg"
+            )}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <ChevronRight size={16} />
+            ) : (
+              <ChevronLeft size={16} />
+            )}
+          </button>
+
+          {/* Close button - Mobile */}
+          <button
+            onClick={onClose}
+            className="md:hidden flex items-center justify-center w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            aria-label="Close sidebar"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div className="flex-1 overflow-auto py-4 px-3 hide-scrollbar">
+
+        {/* Navigation */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden py-4 px-3 custom-scrollbar">
           <nav className="flex flex-col gap-1">
-            {/* Display role-specific navigation items */}
-            {navigationPaths.map((route) => (
-              <Link
-                key={route.path}
-                to={route.path}
-                className={cn(
-                  "nav-link group flex items-center gap-3 rounded-md px-3 py-2.5 transition-all duration-200",
-                  location.pathname === route.path
-                    ? "text-sidebar-primary bg-sidebar-accent font-medium"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent/50",
-                  collapsed && !hovering && "md:justify-center md:px-2"
-                )}
-                onClick={onClose}
-              >
-                <span className="text-current">{route.icon}</span>
-                <span
+            {navigationPaths.map((route) => {
+              const isActive = location.pathname === route.path;
+              return (
+                <Link
+                  key={route.path}
+                  to={route.path}
                   className={cn(
-                    "truncate",
-                    collapsed && !hovering && "md:hidden"
+                    "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200",
+                    isActive
+                      ? "bg-blue-500/10 text-blue-400"
+                      : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200",
+                    collapsed && "justify-center px-0"
                   )}
+                  onClick={onClose}
+                  title={collapsed ? route.name : undefined}
                 >
-                  {route.name}
-                </span>
-              </Link>
-            ))}
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-blue-500 rounded-r-full" />
+                  )}
+                  
+                  <span className={cn(
+                    "flex-shrink-0 transition-colors",
+                    isActive ? "text-blue-400" : "text-slate-500 group-hover:text-slate-300"
+                  )}>
+                    {route.icon}
+                  </span>
+                  
+                  <span
+                    className={cn(
+                      "truncate font-medium text-sm transition-all duration-300",
+                      collapsed && "hidden"
+                    )}
+                  >
+                    {route.name}
+                  </span>
+
+                  {/* Tooltip for collapsed state */}
+                  {collapsed && (
+                    <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 shadow-lg border border-slate-700">
+                      {route.name}
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
           </nav>
         </div>
 
-        {/* Only show Pro Version section for non-admin users */}
-        {userRole !== "admin" && (
-          <div
-            className={cn(
-              "p-4 border-t border-border/40",
-              collapsed && !hovering && "md:px-2"
-            )}
-          >
+        {/* Pro Version section - only for non-admin */}
+        {userRole !== "admin" && !collapsed && (
+          <div className="p-4 border-t border-slate-700/50">
             <Link to="/store" className="block">
-              <div
-                className={cn(
-                  "rounded-md bg-primary/10 p-3 relative overflow-hidden hover:bg-primary/20 transition-colors",
-                  collapsed && !hovering && "md:p-2"
-                )}
-              >
-                <div className="flex items-center mb-2">
-                  <Zap size={16} className="text-primary mr-1.5" />
-                  <div
-                    className={cn(
-                      "text-sm font-medium text-sidebar-primary truncate",
-                      collapsed && !hovering && "md:hidden"
-                    )}
-                  >
-                    Pro Version
+              <div className="rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 p-4 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-200 group">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                    <Zap size={16} className="text-white" />
                   </div>
+                  <span className="font-semibold text-white">Pro Version</span>
                 </div>
-                <p
-                  className={cn(
-                    "text-xs text-sidebar-foreground/80",
-                    collapsed && !hovering && "md:hidden"
-                  )}
-                >
+                <p className="text-xs text-slate-400 mb-3">
                   Upgrade to access advanced AI features and analytics.
                 </p>
-                <div
-                  className={cn(
-                    "mt-2 text-xs font-medium text-sidebar-primary flex items-center",
-                    collapsed && !hovering && "md:hidden"
-                  )}
-                >
-                  Learn More <span className="ml-1">→</span>
+                <div className="text-xs font-medium text-blue-400 flex items-center group-hover:text-blue-300 transition-colors">
+                  Learn More 
+                  <ChevronRight size={14} className="ml-1 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
             </Link>
           </div>
         )}
+
+        {/* Collapsed Pro indicator */}
+        {userRole !== "admin" && collapsed && (
+          <div className="p-3 border-t border-slate-700/50">
+            <Link 
+              to="/store" 
+              className="flex justify-center group"
+              title="Pro Version"
+            >
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center group-hover:shadow-lg group-hover:shadow-blue-500/20 transition-shadow">
+                <Zap size={18} className="text-white" />
+              </div>
+            </Link>
+          </div>
+        )}
+
+        {/* Logout Button */}
+        <div className={cn(
+          "border-t border-slate-700/50 p-3",
+          collapsed ? "px-3" : "px-4"
+        )}>
+          <button
+            onClick={handleLogout}
+            className={cn(
+              "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 w-full transition-all duration-200 text-slate-400 hover:bg-red-500/10 hover:text-red-400",
+              collapsed && "justify-center px-0"
+            )}
+            title={collapsed ? "Logout" : undefined}
+          >
+            <span className="flex-shrink-0 text-slate-500 group-hover:text-red-400 transition-colors">
+              <LogOut size={20} />
+            </span>
+            <span
+              className={cn(
+                "truncate font-medium text-sm transition-all duration-300",
+                collapsed && "hidden"
+              )}
+            >
+              Logout
+            </span>
+
+            {/* Tooltip for collapsed state */}
+            {collapsed && (
+              <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-sm rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 whitespace-nowrap z-50 shadow-lg border border-slate-700">
+                Logout
+              </div>
+            )}
+          </button>
+        </div>
       </aside>
 
+      {/* Spacer for main content */}
       <div
-        className={`  transition-all duration-300 ${
-          collapsed && !hovering ? "md:w-[90px]" : "w-[300px] "
-        }`}
-      >
-        {/* Main Content Goes Here */}
-      </div>
+        className={cn(
+          "hidden md:block flex-shrink-0 transition-all duration-300",
+          collapsed ? "w-[72px]" : "w-[280px]"
+        )}
+      />
+
+      {/* Custom scrollbar styles */}
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgb(51 65 85 / 0.5);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgb(71 85 105 / 0.7);
+        }
+      `}</style>
     </>
   );
 };
