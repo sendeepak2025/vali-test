@@ -282,7 +282,8 @@ const AccountingContent = () => {
   const fetchVendors = async () => {
     setVendorLoading(true)
     try {
-      const response = await getAllVendorsAPI()
+      // Fetch all vendors without pagination limit
+      const response = await getAllVendorsAPI({ limit: 1000 })
       const vendorList = response?.data || []
       
       // Fetch details for each vendor
