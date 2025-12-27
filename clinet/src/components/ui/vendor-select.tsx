@@ -73,6 +73,28 @@ export function VendorSelect({
     }
   }, [])
 
+  // State to store selected vendor name for display
+  const [selectedVendorName, setSelectedVendorName] = React.useState<string>("")
+
+  // Fetch selected vendor details when value changes (for edit mode)
+  React.useEffect(() => {
+    const fetchSelectedVendor = async () => {
+      if (value && value !== "all" && !vendors.find(v => v._id === value)) {
+        try {
+          const response = await getAllVendorsAPI({ search: "", page: 1, limit: 100 })
+          const allVendors = response?.data || []
+          const found = allVendors.find((v: Vendor) => v._id === value)
+          if (found) {
+            setSelectedVendorName(found.name)
+          }
+        } catch (error) {
+          console.error("Error fetching selected vendor:", error)
+        }
+      }
+    }
+    fetchSelectedVendor()
+  }, [value])
+
   // Initial fetch when popover opens
   React.useEffect(() => {
     if (open) {
@@ -114,7 +136,7 @@ export function VendorSelect({
   const selectedVendor = vendors.find(v => v._id === value)
   const displayValue = value === "all" 
     ? allLabel 
-    : selectedVendor?.name || (value && value !== "all" ? "Loading..." : placeholder)
+    : selectedVendor?.name || selectedVendorName || placeholder
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

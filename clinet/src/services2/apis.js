@@ -206,6 +206,17 @@ export const adjustment = {
   VOID_ADJUSTMENT: BASE_URL + "/adjustments", // append /:id/void
   GET_ADJUSTMENT_SUMMARY: BASE_URL + "/adjustments/summary",
 }
+
+// Office Expenses
+export const expense = {
+  CREATE_EXPENSE: BASE_URL + "/expenses/create",
+  GET_ALL_EXPENSES: BASE_URL + "/expenses/getAll",
+  GET_EXPENSE: BASE_URL + "/expenses/get", // append /:id
+  UPDATE_EXPENSE: BASE_URL + "/expenses/update", // append /:id
+  DELETE_EXPENSE: BASE_URL + "/expenses/delete", // append /:id
+  GET_EXPENSE_SUMMARY: BASE_URL + "/expenses/summary",
+}
+
 export const driver = {
   CREATE_DRIVER: BASE_URL + "/drivers/create",
   UPDATE_DRIVER: BASE_URL + "/drivers/update",

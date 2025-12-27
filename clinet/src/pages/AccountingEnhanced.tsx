@@ -44,9 +44,18 @@ import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getAgingReportAPI, getVendorDashboardAPI } from "@/services2/operations/vendorReports"
 import { getAllVendorPaymentsAPI } from "@/services2/operations/vendorPayment"
 import { getAllVendorCreditMemosAPI } from "@/services2/operations/vendorCreditMemo"
+import { getVendorAccountingSummaryAPI } from "@/services2/operations/purchaseOrder"
 import { AdjustmentsManager } from "@/components/accounting"
 import { getAdjustmentSummaryAPI } from "@/services2/operations/adjustment"
 import { RecordPaymentModal } from "@/components/payments"
+import { VendorSelect } from "@/components/ui/vendor-select"
+import { 
+  createExpenseAPI, 
+  getAllExpensesAPI, 
+  updateExpenseAPI, 
+  deleteExpenseAPI,
+  getExpenseSummaryAPI
+} from "@/services2/operations/expense"
 
 // Stats Card Component
 const StatsCard = ({ title, value, subtitle, icon: Icon, trend, trendValue, color = "blue", onClick, clickable = false }: any) => {
@@ -172,10 +181,19 @@ const AccountingContent = () => {
     paymentMethod: "cash",
     reference: "",
     notes: "",
-    vendor: ""
+    vendorId: "",
+    linkedPurchaseOrderId: ""
   })
   const [expenseFormLoading, setExpenseFormLoading] = useState(false)
   const [editingExpense, setEditingExpense] = useState<any>(null)
+  const [expenseSummary, setExpenseSummary] = useState<any>({
+    totals: { totalAmount: 0, totalCount: 0 },
+    currentMonth: { total: 0, count: 0 },
+    categoryBreakdown: []
+  })
+  const [deleteExpenseConfirm, setDeleteExpenseConfirm] = useState<any>(null)
+  const [vendorInvoices, setVendorInvoices] = useState<any[]>([])
+  const [vendorInvoicesLoading, setVendorInvoicesLoading] = useState(false)
 
   // Record Payment Modal
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false)
@@ -213,6 +231,140 @@ const AccountingContent = () => {
       }
     } catch (error) {
       console.error("Error fetching adjustments summary:", error)
+    }
+  }
+
+  // Fetch expenses from API
+  const fetchExpenses = async () => {
+    setExpenseLoading(true)
+    try {
+      const [expensesResult, summaryResult] = await Promise.all([
+        getAllExpensesAPI({ limit: 100, sortBy: "date", sortOrder: "desc" }, token),
+        getExpenseSummaryAPI({}, token)
+      ])
+      
+      if (expensesResult?.data) {
+        setExpenses(expensesResult.data)
+      }
+      
+      if (summaryResult?.data) {
+        setExpenseSummary(summaryResult.data)
+        // Update financial summary with expenses
+        setFinancialSummary((prev: any) => ({
+          ...prev,
+          totalExpenses: summaryResult.data.totals?.totalAmount || 0,
+          currentMonthExpenses: summaryResult.data.currentMonth?.total || 0
+        }))
+      }
+    } catch (error) {
+      console.error("Error fetching expenses:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to fetch expenses" })
+    } finally {
+      setExpenseLoading(false)
+    }
+  }
+
+  // Handle expense save (create or update)
+  const handleSaveExpense = async () => {
+    if (!expenseForm.description || !expenseForm.amount || !expenseForm.date) {
+      toast({ variant: "destructive", title: "Error", description: "Please fill in all required fields" })
+      return
+    }
+
+    setExpenseFormLoading(true)
+    try {
+      const expenseData = {
+        description: expenseForm.description,
+        amount: parseFloat(expenseForm.amount),
+        category: expenseForm.category,
+        date: expenseForm.date,
+        paymentMethod: expenseForm.paymentMethod,
+        vendorId: expenseForm.vendorId || undefined,
+        linkedPurchaseOrderId: expenseForm.linkedPurchaseOrderId || undefined,
+        reference: expenseForm.reference || undefined,
+        notes: expenseForm.notes || undefined
+      }
+
+      let result
+      if (editingExpense) {
+        result = await updateExpenseAPI(editingExpense._id || editingExpense.id, expenseData, token)
+      } else {
+        result = await createExpenseAPI(expenseData, token)
+      }
+
+      if (result?.success) {
+        toast({ title: "Success", description: editingExpense ? "Expense updated successfully" : "Expense created successfully" })
+        setAddExpenseOpen(false)
+        setEditingExpense(null)
+        setVendorInvoices([])
+        setExpenseForm({
+          description: "",
+          amount: "",
+          category: "office_supplies",
+          date: new Date().toISOString().split('T')[0],
+          paymentMethod: "cash",
+          reference: "",
+          notes: "",
+          vendorId: "",
+          linkedPurchaseOrderId: ""
+        })
+        fetchExpenses() // Refresh expenses from API
+      }
+    } catch (error) {
+      console.error("Error saving expense:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to save expense" })
+    } finally {
+      setExpenseFormLoading(false)
+    }
+  }
+
+  // Handle expense delete
+  const handleDeleteExpense = async (expense: any) => {
+    try {
+      const result = await deleteExpenseAPI(expense._id || expense.id, token)
+      if (result?.success) {
+        toast({ title: "Success", description: "Expense deleted successfully" })
+        setDeleteExpenseConfirm(null)
+        fetchExpenses() // Refresh expenses from API
+      }
+    } catch (error) {
+      console.error("Error deleting expense:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete expense" })
+    }
+  }
+
+  // Fetch vendor purchase orders when vendor is selected
+  const fetchVendorInvoices = async (vendorId: string) => {
+    if (!vendorId) {
+      setVendorInvoices([])
+      return
+    }
+    
+    setVendorInvoicesLoading(true)
+    try {
+      const result = await getVendorAccountingSummaryAPI(vendorId, token)
+      console.log("Vendor accounting result:", result) // Debug log
+      if (result?.orders && result.orders.length > 0) {
+        // Map orders to invoice format for dropdown
+        const mappedOrders = result.orders.map((order: any) => ({
+          _id: order._id,
+          purchaseOrderNumber: order.purchaseOrderNumber,
+          total: order.totalAmount,
+          remainingBalance: order.remainingBalance,
+          paymentStatus: order.paymentStatus,
+          purchaseDate: order.purchaseDate
+        }))
+        console.log("Mapped vendor invoices:", mappedOrders) // Debug log
+        setVendorInvoices(mappedOrders)
+      } else {
+        console.log("No orders found for vendor") // Debug log
+        setVendorInvoices([])
+      }
+    } catch (error) {
+      console.error("Error fetching vendor invoices:", error)
+      setVendorInvoices([])
+    } finally {
+      setVendorInvoicesLoading(false)
     }
   }
 
@@ -433,6 +585,7 @@ const AccountingContent = () => {
     fetchVendorCreditMemos()
     fetchApAgingReport()
     fetchAdjustmentsSummary()
+    fetchExpenses()
   }, [])
 
   // Filter customers
@@ -756,7 +909,7 @@ const AccountingContent = () => {
         {/* Dashboard Tab */}
         <TabsContent value="dashboard" className="space-y-6">
           {/* Financial Overview Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <StatsCard
               title="Total Receivables"
               value={formatCurrency(financialSummary.totalReceivables)}
@@ -776,11 +929,20 @@ const AccountingContent = () => {
               onClick={() => setActiveTab("payables")}
             />
             <StatsCard
+              title="Office Expenses"
+              value={formatCurrency(expenseSummary.totals?.totalAmount || 0)}
+              subtitle={`This month: ${formatCurrency(expenseSummary.currentMonth?.total || 0)}`}
+              icon={Briefcase}
+              color="purple"
+              clickable
+              onClick={() => setActiveTab("expenses")}
+            />
+            <StatsCard
               title="Net Position"
-              value={formatCurrency(financialSummary.netPosition)}
-              subtitle={financialSummary.netPosition >= 0 ? "Positive cash flow" : "Negative cash flow"}
+              value={formatCurrency(financialSummary.totalReceivables - financialSummary.totalPayables - (expenseSummary.totals?.totalAmount || 0))}
+              subtitle={financialSummary.totalReceivables - financialSummary.totalPayables - (expenseSummary.totals?.totalAmount || 0) >= 0 ? "Positive" : "Negative"}
               icon={Wallet}
-              color={financialSummary.netPosition >= 0 ? "blue" : "orange"}
+              color={financialSummary.totalReceivables - financialSummary.totalPayables - (expenseSummary.totals?.totalAmount || 0) >= 0 ? "blue" : "orange"}
             />
             <StatsCard
               title="Overdue Receivables"
@@ -1788,14 +1950,18 @@ const AccountingContent = () => {
                       <SelectItem value="software">Software & Subscriptions</SelectItem>
                       <SelectItem value="maintenance">Maintenance</SelectItem>
                       <SelectItem value="insurance">Insurance</SelectItem>
+                      <SelectItem value="marketing">Marketing</SelectItem>
+                      <SelectItem value="professional_services">Professional Services</SelectItem>
+                      <SelectItem value="shipping">Shipping</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="icon" disabled={expenseLoading}>
+                  <Button variant="outline" size="icon" onClick={fetchExpenses} disabled={expenseLoading}>
                     <RefreshCw className={`h-4 w-4 ${expenseLoading ? "animate-spin" : ""}`} />
                   </Button>
                   <Button onClick={() => {
                     setEditingExpense(null)
+                    setVendorInvoices([])
                     setExpenseForm({
                       description: "",
                       amount: "",
@@ -1804,7 +1970,8 @@ const AccountingContent = () => {
                       paymentMethod: "cash",
                       reference: "",
                       notes: "",
-                      vendor: ""
+                      vendorId: "",
+                      linkedPurchaseOrderId: ""
                     })
                     setAddExpenseOpen(true)
                   }}>
@@ -1819,30 +1986,24 @@ const AccountingContent = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div className="p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">Total Expenses</p>
-                  <p className="text-2xl font-bold">{expenses.length}</p>
+                  <p className="text-2xl font-bold">{expenseSummary.totals?.totalCount || expenses.length}</p>
                 </div>
                 <div className="p-4 bg-purple-50 rounded-lg">
                   <p className="text-sm text-purple-700">Total Amount</p>
                   <p className="text-2xl font-bold text-purple-700">
-                    {formatCurrency(expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0))}
+                    {formatCurrency(expenseSummary.totals?.totalAmount || 0)}
                   </p>
                 </div>
                 <div className="p-4 bg-blue-50 rounded-lg">
                   <p className="text-sm text-blue-700">This Month</p>
                   <p className="text-2xl font-bold text-blue-700">
-                    {formatCurrency(expenses
-                      .filter(e => {
-                        const expDate = new Date(e.date)
-                        const now = new Date()
-                        return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear()
-                      })
-                      .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0))}
+                    {formatCurrency(expenseSummary.currentMonth?.total || 0)}
                   </p>
                 </div>
                 <div className="p-4 bg-green-50 rounded-lg">
                   <p className="text-sm text-green-700">Categories</p>
                   <p className="text-2xl font-bold text-green-700">
-                    {new Set(expenses.map(e => e.category)).size}
+                    {expenseSummary.categoryBreakdown?.length || new Set(expenses.map(e => e.category)).size}
                   </p>
                 </div>
               </div>
@@ -1888,13 +2049,13 @@ const AccountingContent = () => {
                         .filter(e => {
                           const matchesSearch = !expenseSearch || 
                             e.description?.toLowerCase().includes(expenseSearch.toLowerCase()) ||
-                            e.vendor?.toLowerCase().includes(expenseSearch.toLowerCase())
+                            e.vendor?.toLowerCase().includes(expenseSearch.toLowerCase()) ||
+                            e.expenseNumber?.toLowerCase().includes(expenseSearch.toLowerCase())
                           const matchesCategory = expenseCategoryFilter === "all" || e.category === expenseCategoryFilter
                           return matchesSearch && matchesCategory
                         })
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                         .map((expense, index) => (
-                          <TableRow key={expense.id || index}>
+                          <TableRow key={expense._id || expense.id || index}>
                             <TableCell>
                               {expense.date ? new Date(expense.date).toLocaleDateString("en-US", {
                                 timeZone: "UTC",
@@ -1906,6 +2067,14 @@ const AccountingContent = () => {
                             <TableCell>
                               <div>
                                 <p className="font-medium">{expense.description || "-"}</p>
+                                {expense.expenseNumber && (
+                                  <p className="text-xs text-muted-foreground">{expense.expenseNumber}</p>
+                                )}
+                                {expense.linkedPurchaseOrderId && (
+                                  <p className="text-xs text-blue-600">
+                                    Linked: {expense.linkedPurchaseOrderId?.purchaseOrderNumber || expense.linkedPurchaseOrderId}
+                                  </p>
+                                )}
                                 {expense.notes && (
                                   <p className="text-xs text-muted-foreground truncate max-w-[200px]">{expense.notes}</p>
                                 )}
@@ -1916,7 +2085,14 @@ const AccountingContent = () => {
                                 {expense.category?.replace(/_/g, " ") || "-"}
                               </Badge>
                             </TableCell>
-                            <TableCell>{expense.vendor || "-"}</TableCell>
+                            <TableCell>
+                              <div>
+                                <p>{expense.vendorId?.name || expense.vendor || "-"}</p>
+                                {expense.vendorId && (
+                                  <p className="text-xs text-muted-foreground">System Vendor</p>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <Badge variant="outline" className={
                                 expense.paymentMethod === "cash" ? "bg-green-50 text-green-700" :
@@ -1941,16 +2117,24 @@ const AccountingContent = () => {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => {
                                     setEditingExpense(expense)
+                                    const vendorId = expense.vendorId?._id || expense.vendorId || ""
+                                    // Get reference from linkedPurchaseOrderId if populated, otherwise from reference field
+                                    const poReference = expense.linkedPurchaseOrderId?.purchaseOrderNumber || expense.reference || ""
                                     setExpenseForm({
                                       description: expense.description || "",
                                       amount: expense.amount?.toString() || "",
                                       category: expense.category || "office_supplies",
                                       date: expense.date?.split('T')[0] || new Date().toISOString().split('T')[0],
                                       paymentMethod: expense.paymentMethod || "cash",
-                                      reference: expense.reference || "",
+                                      reference: poReference,
                                       notes: expense.notes || "",
-                                      vendor: expense.vendor || ""
+                                      vendorId: vendorId,
+                                      linkedPurchaseOrderId: expense.linkedPurchaseOrderId?._id || expense.linkedPurchaseOrderId || ""
                                     })
+                                    // Fetch vendor invoices if vendor is selected
+                                    if (vendorId) {
+                                      fetchVendorInvoices(vendorId)
+                                    }
                                     setAddExpenseOpen(true)
                                   }}>
                                     <Edit className="h-4 w-4 mr-2" />
@@ -1958,10 +2142,7 @@ const AccountingContent = () => {
                                   </DropdownMenuItem>
                                   <DropdownMenuItem 
                                     className="text-red-600"
-                                    onClick={() => {
-                                      setExpenses(expenses.filter((_, i) => i !== index))
-                                      toast({ title: "Success", description: "Expense deleted" })
-                                    }}
+                                    onClick={() => setDeleteExpenseConfirm(expense)}
                                   >
                                     <Trash2 className="h-4 w-4 mr-2" />
                                     Delete
@@ -2174,7 +2355,7 @@ const AccountingContent = () => {
               <CardDescription>Overview of your financial position</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 {/* Receivables Summary */}
                 <div className="space-y-4">
                   <h4 className="font-medium flex items-center gap-2">
@@ -2219,6 +2400,28 @@ const AccountingContent = () => {
                   </div>
                 </div>
 
+                {/* Expenses Summary */}
+                <div className="space-y-4">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-purple-600" />
+                    Office Expenses
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Expenses</span>
+                      <span className="font-medium">{formatCurrency(expenseSummary.totals?.totalAmount || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">This Month</span>
+                      <span className="font-medium text-purple-600">{formatCurrency(expenseSummary.currentMonth?.total || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Records</span>
+                      <span className="font-medium">{expenseSummary.totals?.totalCount || 0}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Net Position */}
                 <div className="space-y-4">
                   <h4 className="font-medium flex items-center gap-2">
@@ -2234,10 +2437,14 @@ const AccountingContent = () => {
                       <span className="text-muted-foreground">Payables</span>
                       <span className="font-medium text-red-600">-{formatCurrency(financialSummary.totalPayables)}</span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Expenses</span>
+                      <span className="font-medium text-purple-600">-{formatCurrency(expenseSummary.totals?.totalAmount || 0)}</span>
+                    </div>
                     <div className="flex justify-between border-t pt-2">
                       <span className="font-medium">Net Position</span>
-                      <span className={`font-bold ${financialSummary.netPosition >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {formatCurrency(financialSummary.netPosition)}
+                      <span className={`font-bold ${(financialSummary.totalReceivables - financialSummary.totalPayables - (expenseSummary.totals?.totalAmount || 0)) >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {formatCurrency(financialSummary.totalReceivables - financialSummary.totalPayables - (expenseSummary.totals?.totalAmount || 0))}
                       </span>
                     </div>
                   </div>
@@ -2353,20 +2560,87 @@ const AccountingContent = () => {
               
               <div>
                 <Label>Vendor/Payee</Label>
-                <Input
-                  placeholder="e.g., Staples, Amazon"
-                  value={expenseForm.vendor}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, vendor: e.target.value })}
+                <VendorSelect
+                  value={expenseForm.vendorId}
+                  onValueChange={(value) => {
+                    setExpenseForm({ 
+                      ...expenseForm, 
+                      vendorId: value,
+                      reference: "",
+                      linkedPurchaseOrderId: "" // Reset linked PO when vendor changes
+                    })
+                    if (value) {
+                      fetchVendorInvoices(value)
+                    } else {
+                      setVendorInvoices([])
+                    }
+                  }}
+                  placeholder="Search and select vendor..."
+                  className="w-full"
                 />
               </div>
               
               <div>
-                <Label>Reference #</Label>
-                <Input
-                  placeholder="Receipt/Invoice #"
-                  value={expenseForm.reference}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, reference: e.target.value })}
-                />
+                <Label>Reference # (Invoice/PO)</Label>
+                {expenseForm.vendorId ? (
+                  <Select 
+                    value={expenseForm.linkedPurchaseOrderId || "none"} 
+                    onValueChange={(value) => {
+                      if (value === "none") {
+                        setExpenseForm({ ...expenseForm, reference: "", linkedPurchaseOrderId: "" })
+                      } else {
+                        const selectedInvoice = vendorInvoices.find(inv => inv._id === value)
+                        setExpenseForm({ 
+                          ...expenseForm, 
+                          reference: selectedInvoice?.purchaseOrderNumber || "",
+                          linkedPurchaseOrderId: value,
+                          amount: selectedInvoice?.total?.toString() || expenseForm.amount
+                        })
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue>
+                        {vendorInvoicesLoading 
+                          ? "Loading invoices..." 
+                          : (() => {
+                              // First check if we have a linked PO
+                              if (expenseForm.linkedPurchaseOrderId && expenseForm.linkedPurchaseOrderId !== "none") {
+                                // Try to find in loaded invoices
+                                const found = vendorInvoices.find(inv => inv._id === expenseForm.linkedPurchaseOrderId)
+                                if (found) return found.purchaseOrderNumber
+                                // Fallback to saved reference
+                                if (expenseForm.reference) return expenseForm.reference
+                                return "Loading..."
+                              }
+                              // No linked PO - check if we have a reference
+                              if (expenseForm.reference) return expenseForm.reference
+                              return "Select invoice/PO"
+                            })()
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No linked invoice</SelectItem>
+                      {vendorInvoices.length === 0 && !vendorInvoicesLoading && (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          No purchase orders found for this vendor
+                        </div>
+                      )}
+                      {vendorInvoices.map((invoice: any) => (
+                        <SelectItem key={invoice._id} value={invoice._id}>
+                          {invoice.purchaseOrderNumber} - {formatCurrency(invoice.total)} ({invoice.paymentStatus})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="Enter reference # manually"
+                    value={expenseForm.reference}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, reference: e.target.value })}
+                  />
+                )}
               </div>
               
               <div className="col-span-2">
@@ -2382,43 +2656,14 @@ const AccountingContent = () => {
           </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAddExpenseOpen(false)}>
+            <Button variant="outline" onClick={() => {
+              setAddExpenseOpen(false)
+              setVendorInvoices([])
+            }}>
               Cancel
             </Button>
             <Button 
-              onClick={() => {
-                if (!expenseForm.description || !expenseForm.amount || !expenseForm.date) {
-                  toast({ variant: "destructive", title: "Error", description: "Please fill in all required fields" })
-                  return
-                }
-                
-                const newExpense = {
-                  id: editingExpense?.id || Date.now().toString(),
-                  ...expenseForm,
-                  createdAt: editingExpense?.createdAt || new Date().toISOString()
-                }
-                
-                if (editingExpense) {
-                  setExpenses(expenses.map(e => e.id === editingExpense.id ? newExpense : e))
-                  toast({ title: "Success", description: "Expense updated successfully" })
-                } else {
-                  setExpenses([newExpense, ...expenses])
-                  toast({ title: "Success", description: "Expense added successfully" })
-                }
-                
-                setAddExpenseOpen(false)
-                setEditingExpense(null)
-                setExpenseForm({
-                  description: "",
-                  amount: "",
-                  category: "office_supplies",
-                  date: new Date().toISOString().split('T')[0],
-                  paymentMethod: "cash",
-                  reference: "",
-                  notes: "",
-                  vendor: ""
-                })
-              }}
+              onClick={handleSaveExpense}
               disabled={expenseFormLoading}
             >
               {expenseFormLoading ? (
@@ -2432,6 +2677,30 @@ const AccountingContent = () => {
                   {editingExpense ? "Update Expense" : "Add Expense"}
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Expense Confirmation Modal */}
+      <Dialog open={!!deleteExpenseConfirm} onOpenChange={() => setDeleteExpenseConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Expense</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this expense? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteExpenseConfirm(null)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => handleDeleteExpense(deleteExpenseConfirm)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
