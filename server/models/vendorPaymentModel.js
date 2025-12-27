@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./counterModel');
 
 const AppliedCreditSchema = new mongoose.Schema({
   creditMemoId: { 
@@ -138,24 +139,35 @@ VendorPaymentSchema.pre('save', function(next) {
   next();
 });
 
-// Static method to generate unique payment number
+// Static method to generate unique payment number using counter
 VendorPaymentSchema.statics.generatePaymentNumber = async function() {
-  const today = new Date();
-  const year = today.getFullYear().toString().slice(-2);
-  const month = (today.getMonth() + 1).toString().padStart(2, '0');
-  const prefix = `VP${year}${month}`;
+  // Initialize counter with seq: 0 if it doesn't exist, then increment
+  const counter = await Counter.findOneAndUpdate(
+    { _id: 'vendorPaymentNumber' },
+    { $inc: { seq: 1 } },
+    { 
+      new: true, 
+      upsert: true,
+      setDefaultsOnInsert: false
+    }
+  );
   
-  const lastPayment = await this.findOne({
-    paymentNumber: new RegExp(`^${prefix}`)
-  }).sort({ paymentNumber: -1 });
+  // If counter was just created, it will have seq: 1 (0 + 1 = 1)
+  // If counter had default 100, first increment gives 101, we need to handle this
+  let sequence = counter.seq;
   
-  let sequence = 1;
-  if (lastPayment) {
-    const lastSequence = parseInt(lastPayment.paymentNumber.slice(-4));
-    sequence = lastSequence + 1;
+  // Handle legacy counter with default 100
+  if (sequence > 100 && sequence <= 102) {
+    // Reset counter to start from 1
+    const resetCounter = await Counter.findOneAndUpdate(
+      { _id: 'vendorPaymentNumber' },
+      { seq: 1 },
+      { new: true }
+    );
+    sequence = resetCounter.seq;
   }
   
-  return `${prefix}${sequence.toString().padStart(4, '0')}`;
+  return `PY-${sequence.toString().padStart(3, '0')}`;
 };
 
 // Instance method to check if payment can be voided

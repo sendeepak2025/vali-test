@@ -351,7 +351,7 @@ export default function AdjustmentsManager({ storeId, showCreateButton = true }:
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Adjustment #</TableHead>
+                {/* <TableHead>Adjustment #</TableHead> */}
                 <TableHead>Store</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Amount</TableHead>
@@ -375,7 +375,7 @@ export default function AdjustmentsManager({ storeId, showCreateButton = true }:
               ) : (
                 filteredAdjustments.map((adj) => (
                   <TableRow key={adj._id}>
-                    <TableCell className="font-medium">{adj.adjustmentNumber}</TableCell>
+                    {/* <TableCell className="font-medium">{adj.adjustmentNumber}</TableCell> */}
                     <TableCell>{adj.storeId?.storeName || "N/A"}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={`bg-${getTypeColor(adj.type)}-50 text-${getTypeColor(adj.type)}-700`}>
@@ -446,7 +446,7 @@ export default function AdjustmentsManager({ storeId, showCreateButton = true }:
 
       {/* Create Adjustment Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+<DialogContent className="sm:max-w-[450px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Adjustment</DialogTitle>
             <DialogDescription>Create a financial adjustment for a store account.</DialogDescription>
@@ -612,7 +612,7 @@ export default function AdjustmentsManager({ storeId, showCreateButton = true }:
 
       {/* View Details Dialog */}
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent className="max-w-lg">
+<DialogContent className="sm:max-w-[550px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Adjustment Details</DialogTitle>
           </DialogHeader>
@@ -674,7 +674,7 @@ export default function AdjustmentsManager({ storeId, showCreateButton = true }:
               {selectedAdjustment.auditLog?.length > 0 && (
                 <div>
                   <Label className="text-muted-foreground">Audit Trail</Label>
-                  <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
+                  <div className="mt-2 space-y-2 ">
                     {selectedAdjustment.auditLog.map((log: any, idx: number) => (
                       <div key={idx} className="text-xs bg-gray-50 p-2 rounded">
                         <span className="font-medium">{log.action}</span> by {log.performedByName || "System"} 

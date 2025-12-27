@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import {
   Search, Plus, Filter, RefreshCw, Download, MoreVertical, Eye, Edit, Trash2,
@@ -8,7 +8,7 @@ import {
   TrendingUp, TrendingDown, CreditCard, Building2, Phone, Mail, ChevronDown,
   Receipt, FileCheck, ShoppingCart, Calendar, ArrowUpDown, X, BarChart3,
   Banknote, Scale, MessageSquareWarning, PieChart, Settings, Percent, Ban,
-  Pause, Activity
+  Pause, Activity, History
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -215,6 +215,12 @@ const VendorManagementContent = () => {
   const [selectedInvoiceForMatching, setSelectedInvoiceForMatching] = useState<any>(null)
   const [matchingComparison, setMatchingComparison] = useState<any>(null)
   const [matchingLoading, setMatchingLoading] = useState(false)
+
+  // Invoice Payment History Modal state
+  const [paymentHistoryModalOpen, setPaymentHistoryModalOpen] = useState(false)
+  const [selectedInvoiceForHistory, setSelectedInvoiceForHistory] = useState<any>(null)
+  const [invoicePaymentHistory, setInvoicePaymentHistory] = useState<any[]>([])
+  const [paymentHistoryLoading, setPaymentHistoryLoading] = useState(false)
 
   // Credit Memos state
   const [creditMemos, setCreditMemos] = useState<any[]>([])
@@ -1197,6 +1203,39 @@ const VendorManagementContent = () => {
       console.error("Error fetching matching comparison:", error)
     } finally {
       setMatchingLoading(false)
+    }
+  }
+
+  // Open payment history modal for invoice
+  const openPaymentHistoryModal = async (invoice: any) => {
+    setSelectedInvoiceForHistory(invoice)
+    setPaymentHistoryModalOpen(true)
+    setPaymentHistoryLoading(true)
+    try {
+      // Fetch all payments that include this invoice
+      const allPayments = await getAllVendorPaymentsAPI({}, token)
+      const invoicePayments = (allPayments?.payments || []).filter((payment: any) => 
+        payment.invoicePayments?.some((ip: any) => 
+          (ip.invoiceId?._id || ip.invoiceId) === invoice._id
+        ) && payment.status !== 'voided'
+      ).map((payment: any) => {
+        const invoicePayment = payment.invoicePayments?.find((ip: any) => 
+          (ip.invoiceId?._id || ip.invoiceId) === invoice._id
+        )
+        return {
+          ...payment,
+          amountPaidForInvoice: invoicePayment?.amountPaid || 0,
+          remainingAfterPayment: invoicePayment?.remainingAfterPayment || 0
+        }
+      }).sort((a: any, b: any) => 
+        new Date(b.paymentDate || b.createdAt).getTime() - new Date(a.paymentDate || a.createdAt).getTime()
+      )
+      setInvoicePaymentHistory(invoicePayments)
+    } catch (error) {
+      console.error("Error fetching payment history:", error)
+      setInvoicePaymentHistory([])
+    } finally {
+      setPaymentHistoryLoading(false)
     }
   }
 
@@ -2778,6 +2817,10 @@ const VendorManagementContent = () => {
                                 <FileCheck className="h-4 w-4 mr-2" />
                                 Three-Way Match
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => openPaymentHistoryModal(invoice)}>
+                                <History className="h-4 w-4 mr-2" />
+                                Payment History
+                              </DropdownMenuItem>
                               {invoice.status === 'pending' && (
                                 <DropdownMenuItem onClick={() => handleApproveInvoice(invoice._id)}>
                                   <CheckCircle className="h-4 w-4 mr-2" />
@@ -2863,7 +2906,7 @@ const VendorManagementContent = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {/* <TableHead>Payment #</TableHead> */}
+                    <TableHead>Payment ID</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Method</TableHead>
@@ -2884,7 +2927,7 @@ const VendorManagementContent = () => {
                   ) : (
                     filteredPayments.map((payment) => (
                       <TableRow key={payment._id}>
-                        {/* <TableCell className="font-medium">{payment.paymentNumber}</TableCell> */}
+                        <TableCell className="font-medium text-primary">{payment.paymentNumber || "-"}</TableCell>
                         <TableCell>{payment.vendorId?.name || "-"}</TableCell>
                         <TableCell>
                           {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString("en-US", {
@@ -5030,6 +5073,193 @@ const VendorManagementContent = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Invoice Payment History Modal */}
+      <Dialog open={paymentHistoryModalOpen} onOpenChange={setPaymentHistoryModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Payment History
+            </DialogTitle>
+            <DialogDescription>
+              {selectedInvoiceForHistory?.invoiceNumber || "Loading..."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {paymentHistoryLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="space-y-6 py-4">
+              {/* Invoice Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Invoice Total</p>
+                  <p className="font-bold text-lg">{formatCurrency(selectedInvoiceForHistory?.totalAmount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Paid</p>
+                  <p className="font-bold text-lg text-green-600">{formatCurrency(selectedInvoiceForHistory?.paidAmount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Remaining</p>
+                  <p className="font-bold text-lg text-orange-600">{formatCurrency(selectedInvoiceForHistory?.remainingAmount || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <Badge variant={selectedInvoiceForHistory?.status === 'paid' ? 'default' : 'outline'} className="mt-1">
+                    {selectedInvoiceForHistory?.status || '-'}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Payment History List */}
+              <div className="space-y-2">
+                <h4 className="font-semibold flex items-center gap-2">
+                  <Receipt className="h-4 w-4" />
+                  All Payments ({invoicePaymentHistory.length})
+                </h4>
+                
+                {invoicePaymentHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                    <DollarSign className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                    <p>No payments recorded for this invoice</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {invoicePaymentHistory.map((payment: any, idx: number) => (
+                      <div 
+                        key={payment._id || idx} 
+                        className="p-4 border rounded-lg hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-semibold">{payment.paymentNumber}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {payment.method}
+                              </Badge>
+                              {payment.method === 'check' && payment.checkNumber && (
+                                <span className="text-xs text-muted-foreground">
+                                  Check #{payment.checkNumber}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-muted-foreground">Date:</span>
+                                <span>
+                                  {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString("en-US", {
+                                    timeZone: "UTC",
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "numeric"
+                                  }) : "-"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Building2 className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-muted-foreground">Vendor:</span>
+                                <span>{payment.vendorId?.name || "-"}</span>
+                              </div>
+                              {payment.method === 'check' && (
+                                <div className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3 text-muted-foreground" />
+                                  <span className="text-muted-foreground">Check Status:</span>
+                                  <Badge 
+                                    variant="outline" 
+                                    className={`text-xs ${
+                                      payment.checkClearanceStatus === 'cleared' ? 'bg-green-50 text-green-700' :
+                                      payment.checkClearanceStatus === 'bounced' ? 'bg-red-50 text-red-700' :
+                                      'bg-yellow-50 text-yellow-700'
+                                    }`}
+                                  >
+                                    {payment.checkClearanceStatus || 'pending'}
+                                  </Badge>
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-muted-foreground">Status:</span>
+                                <Badge 
+                                  variant="outline" 
+                                  className={`text-xs ${
+                                    payment.status === 'completed' ? 'bg-green-50 text-green-700' :
+                                    payment.status === 'voided' ? 'bg-red-50 text-red-700' :
+                                    'bg-yellow-50 text-yellow-700'
+                                  }`}
+                                >
+                                  {payment.status || 'completed'}
+                                </Badge>
+                              </div>
+                            </div>
+                            {payment.notes && (
+                              <p className="text-xs text-muted-foreground mt-2 italic">
+                                Note: {payment.notes}
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground">Amount Paid</p>
+                            <p className="text-xl font-bold text-green-600">
+                              {formatCurrency(payment.amountPaidForInvoice || 0)}
+                            </p>
+                            {payment.grossAmount !== payment.amountPaidForInvoice && (
+                              <p className="text-xs text-muted-foreground">
+                                Total Payment: {formatCurrency(payment.grossAmount || payment.netAmount || 0)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Total Summary */}
+              {invoicePaymentHistory.length > 0 && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-green-800">Total Payments Made</span>
+                    <span className="text-xl font-bold text-green-700">
+                      {formatCurrency(invoicePaymentHistory.reduce((sum: number, p: any) => sum + (p.amountPaidForInvoice || 0), 0))}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentHistoryModalOpen(false)}>
+              Close
+            </Button>
+            {selectedInvoiceForHistory && selectedInvoiceForHistory.status !== 'paid' && selectedInvoiceForHistory.remainingAmount > 0 && (
+              <Button onClick={() => {
+                setPaymentHistoryModalOpen(false)
+                setPaymentForm({
+                  vendorId: selectedInvoiceForHistory.vendorId?._id || selectedInvoiceForHistory.vendorId,
+                  invoiceIds: [selectedInvoiceForHistory._id],
+                  amount: String(selectedInvoiceForHistory.remainingAmount || 0),
+                  method: "check",
+                  checkNumber: "",
+                  referenceNumber: "",
+                  appliedCredits: [],
+                  notes: `Payment for invoice ${selectedInvoiceForHistory.invoiceNumber}`
+                })
+                setPaymentCreateModalOpen(true)
+              }}>
+                <DollarSign className="h-4 w-4 mr-2" />
+                Record Payment
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Credit Memo Create Modal */}
       <Dialog open={creditMemoCreateModalOpen} onOpenChange={setCreditMemoCreateModalOpen}>
         <DialogContent className="sm:max-w-lg">
@@ -5869,20 +6099,67 @@ const VendorManagementContent = () => {
                       </TableHeader>
                       <TableBody>
                         {selectedPaymentDetails.invoicePayments.map((ip: any, idx: number) => (
-                          <TableRow key={idx}>
-                            <TableCell className="font-medium">
-                              {ip.invoiceId?.invoiceNumber || ip.invoiceNumber || "-"}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(ip.invoiceId?.totalAmount || ip.invoiceAmount || 0)}
-                            </TableCell>
-                            <TableCell className="text-right text-green-600 font-medium">
-                              {formatCurrency(ip.amountPaid || 0)}
-                            </TableCell>
-                            <TableCell className="text-right text-orange-600">
-                              {formatCurrency(ip.remainingAfterPayment || 0)}
-                            </TableCell>
-                          </TableRow>
+                          <React.Fragment key={idx}>
+                            <TableRow>
+                              <TableCell className="font-medium">
+                                {ip.invoiceId?.invoiceNumber || ip.invoiceNumber || "-"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency(ip.invoiceId?.totalAmount || ip.invoiceAmount || 0)}
+                              </TableCell>
+                              <TableCell className="text-right text-green-600 font-medium">
+                                {formatCurrency(ip.amountPaid || 0)}
+                              </TableCell>
+                              <TableCell className="text-right text-orange-600">
+                                {formatCurrency(ip.remainingAfterPayment || 0)}
+                              </TableCell>
+                            </TableRow>
+                            {/* Show all previous payments for this invoice */}
+                            {ip.allPayments && ip.allPayments.length > 1 && (
+                              <TableRow className="bg-muted/30">
+                                <TableCell colSpan={4} className="py-2">
+                                  <div className="pl-4">
+                                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                                      Payment History ({ip.allPayments.length} payments)
+                                    </p>
+                                    <div className="space-y-1">
+                                      {ip.allPayments.map((payment: any, pIdx: number) => (
+                                        <div 
+                                          key={pIdx} 
+                                          className={`flex items-center justify-between text-xs py-1 px-2 rounded ${
+                                            payment.isCurrentPayment 
+                                              ? 'bg-blue-50 border border-blue-200' 
+                                              : 'bg-gray-50'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium">{payment.paymentNumber}</span>
+                                            <span className="text-muted-foreground">
+                                              {payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString("en-US", {
+                                                timeZone: "UTC",
+                                                month: "short",
+                                                day: "numeric",
+                                                year: "numeric"
+                                              }) : "-"}
+                                            </span>
+                                            <Badge variant="outline" className="text-xs h-5">
+                                              {payment.method}
+                                            </Badge>
+                                            {payment.isCurrentPayment && (
+                                              <Badge className="text-xs h-5 bg-blue-600">Current</Badge>
+                                            )}
+                                          </div>
+                                          <span className="font-medium text-green-600">
+                                            {formatCurrency(payment.amountPaid || 0)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
                         ))}
                       </TableBody>
                     </Table>

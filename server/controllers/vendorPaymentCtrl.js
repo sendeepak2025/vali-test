@@ -415,7 +415,7 @@ const getVendorPaymentById = async (req, res) => {
 
     const payment = await VendorPayment.findById(id)
       .populate('vendorId', 'name email phone paymentTerms')
-      .populate('invoicePayments.invoiceId', 'invoiceNumber totalAmount invoiceDate dueDate')
+      .populate('invoicePayments.invoiceId', 'invoiceNumber totalAmount invoiceDate dueDate paymentIds')
       .populate('appliedCredits.creditMemoId', 'memoNumber amount type')
       .populate('createdBy', 'name email');
 
@@ -426,10 +426,58 @@ const getVendorPaymentById = async (req, res) => {
       });
     }
 
+    // Fetch all previous payments for each invoice to show complete payment history
+    const paymentData = payment.toObject();
+    
+    if (paymentData.invoicePayments && paymentData.invoicePayments.length > 0) {
+      // Get all invoice IDs from this payment
+      const invoiceIds = paymentData.invoicePayments
+        .map(ip => ip.invoiceId?._id || ip.invoiceId)
+        .filter(Boolean);
+      
+      // Fetch all payments that include any of these invoices
+      const allRelatedPayments = await VendorPayment.find({
+        'invoicePayments.invoiceId': { $in: invoiceIds },
+        status: { $ne: 'voided' }
+      })
+        .select('paymentNumber paymentDate invoicePayments grossAmount netAmount method status')
+        .sort({ paymentDate: -1 });
+      
+      // Build payment history for each invoice
+      const invoicePaymentHistory = {};
+      
+      for (const relatedPayment of allRelatedPayments) {
+        for (const ip of relatedPayment.invoicePayments) {
+          const invoiceIdStr = ip.invoiceId.toString();
+          if (!invoicePaymentHistory[invoiceIdStr]) {
+            invoicePaymentHistory[invoiceIdStr] = [];
+          }
+          invoicePaymentHistory[invoiceIdStr].push({
+            paymentId: relatedPayment._id,
+            paymentNumber: relatedPayment.paymentNumber,
+            paymentDate: relatedPayment.paymentDate,
+            amountPaid: ip.amountPaid,
+            method: relatedPayment.method,
+            status: relatedPayment.status,
+            isCurrentPayment: relatedPayment._id.toString() === id
+          });
+        }
+      }
+      
+      // Attach payment history to each invoice in invoicePayments
+      paymentData.invoicePayments = paymentData.invoicePayments.map(ip => {
+        const invoiceIdStr = (ip.invoiceId?._id || ip.invoiceId)?.toString();
+        return {
+          ...ip,
+          allPayments: invoicePaymentHistory[invoiceIdStr] || []
+        };
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Payment fetched successfully',
-      data: payment
+      data: paymentData
     });
   } catch (err) {
     console.error('Error fetching payment:', err);
