@@ -83,7 +83,7 @@ const ChequeModal = ({ isOpen, onClose, storeId, cheque ,fetchCheques}) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50">
+    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white p-6 rounded-lg w-full max-w-md relative">
         <h2 className="text-lg font-bold mb-4">{isEdit ? "Edit Cheque" : "Add Cheque"}</h2>
 

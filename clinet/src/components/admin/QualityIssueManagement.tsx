@@ -8,13 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import {
-  AlertTriangle, CheckCircle2, XCircle, Clock, DollarSign,
-  Search, RefreshCw, Loader2, Eye, Store, ChevronDown,
-  ThumbsUp, ThumbsDown, Image, X, MessageSquare
+  AlertTriangle, CheckCircle2, XCircle, DollarSign,
+  Search, RefreshCw, Loader2, Eye, Store,
+  ThumbsUp, Image
 } from 'lucide-react';
 
 interface QualityIssue {
@@ -49,9 +49,10 @@ const QualityIssueManagement: React.FC = () => {
   const token = useSelector((state: RootState) => state.auth?.token);
 
   const [issues, setIssues] = useState<QualityIssue[]>([]);
+  const [allIssues, setAllIssues] = useState<QualityIssue[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('pending');
+  const [statusFilter, setStatusFilter] = useState('all');
   
   // Quick action states
   const [selectedIssue, setSelectedIssue] = useState<QualityIssue | null>(null);
@@ -67,20 +68,28 @@ const QualityIssueManagement: React.FC = () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter !== 'all') params.append('status', statusFilter);
       if (searchTerm) params.append('search', searchTerm);
       const res = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/quality-issues/admin?${params}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        setIssues(data.issues || []);
+        setAllIssues(data.issues || []);
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchIssues(); }, [token, statusFilter]);
+  // Filter issues based on status tab
+  useEffect(() => {
+    if (statusFilter === 'all') {
+      setIssues(allIssues);
+    } else {
+      setIssues(allIssues.filter(issue => issue.status === statusFilter));
+    }
+  }, [statusFilter, allIssues]);
+
+  useEffect(() => { fetchIssues(); }, [token]);
   useEffect(() => {
     const t = setTimeout(fetchIssues, 400);
     return () => clearTimeout(t);
@@ -162,8 +171,10 @@ const QualityIssueManagement: React.FC = () => {
     setProcessing(null);
   };
 
-  const pendingCount = issues.filter(i => i.status === 'pending').length;
-  const totalRequested = issues.filter(i => i.status === 'pending').reduce((s, i) => s + (i.requestedAmount || 0), 0);
+  const pendingCount = allIssues.filter(i => i.status === 'pending').length;
+  const approvedCount = allIssues.filter(i => i.status === 'approved' || i.status === 'partially_approved').length;
+  const rejectedCount = allIssues.filter(i => i.status === 'rejected').length;
+  const totalRequested = allIssues.filter(i => i.status === 'pending').reduce((s, i) => s + (i.requestedAmount || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -183,20 +194,36 @@ const QualityIssueManagement: React.FC = () => {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8 w-48" />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">🟡 Pending</SelectItem>
-              <SelectItem value="approved">🟢 Approved</SelectItem>
-              <SelectItem value="rejected">🔴 Rejected</SelectItem>
-              <SelectItem value="all">All</SelectItem>
-            </SelectContent>
-          </Select>
           <Button variant="ghost" size="icon" onClick={fetchIssues}>
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
         </div>
       </div>
+
+      {/* Status Tabs */}
+      <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="all" className="flex items-center gap-2">
+            All
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{allIssues.length}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-yellow-500" />
+            Pending
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{pendingCount}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="approved" className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            Approved
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{approvedCount}</Badge>
+          </TabsTrigger>
+          <TabsTrigger value="rejected" className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            Rejected
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{rejectedCount}</Badge>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Issues List */}
       {loading ? (
