@@ -38,7 +38,7 @@ import Sidebar from "@/components/layout/Sidebar"
 import UserDetailsModal from "@/components/admin/user-details-modal"
 import { useSelector } from "react-redux"
 import type { RootState } from "@/redux/store"
-import { getAllMembersAPI, userWithOrderDetails } from "@/services2/operations/auth"
+import { getAllMembersAPI, userWithOrderDetails, getAllStorePaymentsAPI } from "@/services2/operations/auth"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getAgingReportAPI, getVendorDashboardAPI } from "@/services2/operations/vendorReports"
@@ -138,9 +138,11 @@ const AccountingContent = () => {
 
   // Payments state
   const [paymentsIn, setPaymentsIn] = useState<any[]>([])
+  const [paymentsInSummary, setPaymentsInSummary] = useState<any>({})
   const [paymentsOut, setPaymentsOut] = useState<any[]>([])
   const [paymentSearch, setPaymentSearch] = useState("")
   const [paymentTypeFilter, setPaymentTypeFilter] = useState("all")
+  const [paymentDirectionFilter, setPaymentDirectionFilter] = useState("all")
   const [paymentDateFilter, setPaymentDateFilter] = useState("all")
   const [paymentLoading, setPaymentLoading] = useState(false)
 
@@ -340,18 +342,18 @@ const AccountingContent = () => {
     }
   }
 
-  // Fetch vendor payments
+  // Fetch vendor payments (outgoing - AP)
   const fetchVendorPayments = async () => {
     setPaymentLoading(true)
     try {
       const data = await getAllVendorPaymentsAPI({}, token)
       setPaymentsOut(data?.payments || [])
       
-      // Calculate recent payments out
+      // Calculate recent payments out (vendor payments use netAmount or grossAmount)
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       const recentPaymentsOut = (data?.payments || [])
-        .filter((p: any) => new Date(p.createdAt) >= thirtyDaysAgo)
-        .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+        .filter((p: any) => new Date(p.paymentDate || p.createdAt) >= thirtyDaysAgo)
+        .reduce((sum: number, p: any) => sum + (p.netAmount || p.grossAmount || p.amount || 0), 0)
       
       setFinancialSummary((prev: any) => ({
         ...prev,
@@ -359,6 +361,38 @@ const AccountingContent = () => {
       }))
     } catch (error) {
       console.error("Error fetching vendor payments:", error)
+    } finally {
+      setPaymentLoading(false)
+    }
+  }
+
+  // Fetch store payments (incoming - AR)
+  const fetchStorePayments = async () => {
+    try {
+      const data = await getAllStorePaymentsAPI({})
+      setPaymentsIn(data?.payments || [])
+      setPaymentsInSummary(data?.summary || {})
+      
+      // Calculate recent payments in
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      const recentPaymentsIn = (data?.payments || [])
+        .filter((p: any) => new Date(p.createdAt || p.date) >= thirtyDaysAgo)
+        .reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+      
+      setFinancialSummary((prev: any) => ({
+        ...prev,
+        recentPaymentsIn
+      }))
+    } catch (error) {
+      console.error("Error fetching store payments:", error)
+    }
+  }
+
+  // Fetch all payments (both incoming and outgoing)
+  const fetchAllPayments = async () => {
+    setPaymentLoading(true)
+    try {
+      await Promise.all([fetchVendorPayments(), fetchStorePayments()])
     } finally {
       setPaymentLoading(false)
     }
@@ -395,7 +429,7 @@ const AccountingContent = () => {
     fetchCustomers()
     fetchVendors()
     fetchVendorDashboard()
-    fetchVendorPayments()
+    fetchAllPayments()
     fetchVendorCreditMemos()
     fetchApAgingReport()
     fetchAdjustmentsSummary()
@@ -449,11 +483,62 @@ const AccountingContent = () => {
     }
   }
 
+  // Transform vendor data for details modal
+  const transformVendorWithOrders = (data: any) => {
+    return {
+      _id: data._id,
+      totalOrders: data.totalOrders,
+      totalSpent: data.totalSpent,
+      balanceDue: data.balanceDue,
+      totalPay: data.totalPay,
+      totalCreditApplied: data.totalCreditApplied || 0,
+      paymentTerms: data.paymentTerms,
+      orders: data.purchaseOrders?.map((order: any) => ({
+        _id: order._id,
+        purchaseOrderNumber: order.purchaseOrderNumber,
+        purchaseDate: order.purchaseDate,
+        deliveryDate: order.deliveryDate,
+        dueDate: order.dueDate,
+        totalAmount: order.totalAmount,
+        total: order.totalAmount,
+        paymentStatus: order.paymentStatus,
+        paymentDetails: order.paymentDetails,
+        paymentAmount: order.paymentAmount,
+        totalCreditApplied: order.totalCreditApplied || 0,
+        creditAdjustments: order.creditAdjustments || [],
+        notes: order.notes,
+        status: order.status,
+        createdAt: order.createdAt,
+        items: order.items?.map((item: any) => ({
+          productId: item.productId,
+          product: item.productId,
+          name: item.productName,
+          price: item.totalPrice,
+          quantity: item.quantity,
+          total: item.totalPrice,
+          unitPrice: item.unitPrice,
+        })) || [],
+      })) || [],
+      user: {
+        _id: data._id,
+        email: data.email || "",
+        phone: data.phone || "",
+        storeName: data.name || "",
+        ownerName: data.contactName || "",
+        address: data.address || "",
+        businessDescription: data.productsSupplied || "",
+        role: "vendor",
+        createdAt: data.createdAt,
+      },
+    }
+  }
+
   // View vendor details
   const viewVendorDetails = async (vendorId: string) => {
     try {
       const details = await vendorWithOrderDetails(vendorId)
-      setSelectedVendor(details)
+      const transformed = transformVendorWithOrders(details)
+      setSelectedVendor(transformed)
       setVendorDetailsOpen(true)
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to fetch vendor details" })
@@ -544,6 +629,44 @@ const AccountingContent = () => {
     toast({ title: "Success", description: "AP report exported successfully" })
   }
 
+  // Export Payments report
+  const exportPaymentsReport = () => {
+    // Combine all payments
+    const allPayments = [
+      ...paymentsIn.map(p => ({ ...p, direction: "Incoming (AR)" })),
+      ...paymentsOut.map(p => ({ ...p, direction: "Outgoing (AP)" }))
+    ].sort((a, b) => {
+      const dateA = new Date(a.paymentDate || a.createdAt || a.date)
+      const dateB = new Date(b.paymentDate || b.createdAt || b.date)
+      return dateB.getTime() - dateA.getTime()
+    })
+
+    const data = allPayments.map(p => ({
+      type: p.direction,
+      date: (p.paymentDate || p.createdAt || p.date) 
+        ? new Date(p.paymentDate || p.createdAt || p.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+        : "",
+      entity: p.direction === "Incoming (AR)" 
+        ? (p.storeName || "Unknown Store")
+        : (p.vendorId?.name || "Unknown Vendor"),
+      entityType: p.direction === "Incoming (AR)" ? "Store" : "Vendor",
+      method: p.method || p.type || "cash",
+      amount: (p.direction === "Incoming (AR)" 
+        ? (p.amount || 0)
+        : (p.netAmount || p.grossAmount || p.amount || 0)
+      ).toFixed(2),
+      status: p.status || p.checkClearanceStatus || "completed",
+      reference: p.reference || p.checkNumber || p.referenceNumber || ""
+    }))
+
+    exportToCSV(
+      data, 
+      `payments_report_${new Date().toISOString().split('T')[0]}`, 
+      ["type", "date", "entity", "entityType", "method", "amount", "status", "reference"]
+    )
+    toast({ title: "Success", description: "Payments report exported successfully" })
+  }
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -556,7 +679,7 @@ const AccountingContent = () => {
           <Button variant="outline" onClick={() => {
             fetchCustomers()
             fetchVendors()
-            fetchVendorPayments()
+            fetchAllPayments()
           }}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
@@ -577,6 +700,11 @@ const AccountingContent = () => {
               <DropdownMenuItem onClick={exportAPReport}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 AP Report (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={exportPaymentsReport}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Payments Report (CSV)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -693,12 +821,23 @@ const AccountingContent = () => {
             </Card>
             <Card>
               <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Recent Payments In</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-green-600">{formatCurrency(financialSummary.recentPaymentsIn || 0)}</span>
+                  <Badge variant="outline" className="bg-green-50 text-green-700">Last 30 days</Badge>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Recent Payments Out</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl font-bold">{formatCurrency(financialSummary.recentPaymentsOut)}</span>
-                  <Badge variant="outline" className="bg-green-50 text-green-700">Last 30 days</Badge>
+                  <span className="text-2xl font-bold text-red-600">{formatCurrency(financialSummary.recentPaymentsOut || 0)}</span>
+                  <Badge variant="outline" className="bg-red-50 text-red-700">Last 30 days</Badge>
                 </div>
               </CardContent>
             </Card>
@@ -723,10 +862,10 @@ const AccountingContent = () => {
                 <Button 
                   variant="outline" 
                   className="w-full justify-start"
-                  onClick={() => navigate("/payments")}
+                  onClick={() => setActiveTab("payments")}
                 >
                   <Banknote className="h-4 w-4 mr-2" />
-                  Record Payment
+                  View Payments
                 </Button>
                 <Button 
                   variant="outline" 
@@ -1044,10 +1183,10 @@ const AccountingContent = () => {
                                   Credits & Adjustments
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation() }}>
+                                {/* <DropdownMenuItem onClick={(e) => { e.stopPropagation() }}>
                                   <Mail className="h-4 w-4 mr-2" />
                                   Send Statement
-                                </DropdownMenuItem>
+                                </DropdownMenuItem> */}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -1244,42 +1383,89 @@ const AccountingContent = () => {
                       className="pl-9 w-[200px]"
                     />
                   </div>
-                  <Select value={paymentTypeFilter} onValueChange={setPaymentTypeFilter}>
+                  <Select value={paymentDirectionFilter} onValueChange={setPaymentDirectionFilter}>
                     <SelectTrigger className="w-[150px]">
-                      <SelectValue placeholder="Type" />
+                      <SelectValue placeholder="Direction" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Payments</SelectItem>
+                      <SelectItem value="incoming">Incoming (AR)</SelectItem>
                       <SelectItem value="outgoing">Outgoing (AP)</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="icon" onClick={fetchVendorPayments} disabled={paymentLoading}>
+                  <Select value={paymentTypeFilter} onValueChange={setPaymentTypeFilter}>
+                    <SelectTrigger className="w-[130px]">
+                      <SelectValue placeholder="Method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Methods</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="check">Check</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="ach">ACH</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="icon" onClick={fetchAllPayments} disabled={paymentLoading}>
                     <RefreshCw className={`h-4 w-4 ${paymentLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button variant="outline" onClick={exportPaymentsReport}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Export
                   </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                <div className="p-4 bg-green-50 rounded-lg">
-                  <p className="text-sm text-green-700">Total Payments Out</p>
-                  <p className="text-2xl font-bold text-green-700">
-                    {formatCurrency(paymentsOut.reduce((sum, p) => sum + (p.amount || 0), 0))}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ArrowDownLeft className="h-4 w-4 text-green-600" />
+                    <p className="text-sm text-green-700 dark:text-green-400">Payments In (AR)</p>
+                  </div>
+                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">
+                    {formatCurrency(paymentsInSummary?.totalAmount || paymentsIn.reduce((sum, p) => sum + (p.amount || 0), 0))}
                   </p>
-                  <p className="text-xs text-green-600 mt-1">{paymentsOut.length} payments</p>
+                  <p className="text-xs text-green-600 dark:text-green-500 mt-1">{paymentsIn.length} payments from stores</p>
                 </div>
-                <div className="p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-blue-700">Cleared Payments</p>
-                  <p className="text-2xl font-bold text-blue-700">
-                    {formatCurrency(paymentsOut.filter(p => p.status === "completed" || p.checkStatus === "cleared").reduce((sum, p) => sum + (p.amount || 0), 0))}
+                <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ArrowUpRight className="h-4 w-4 text-red-600" />
+                    <p className="text-sm text-red-700 dark:text-red-400">Payments Out (AP)</p>
+                  </div>
+                  <p className="text-2xl font-bold text-red-700 dark:text-red-400">
+                    {formatCurrency(paymentsOut.reduce((sum, p) => sum + (p.netAmount || p.grossAmount || p.amount || 0), 0))}
                   </p>
+                  <p className="text-xs text-red-600 dark:text-red-500 mt-1">{paymentsOut.length} payments to vendors</p>
                 </div>
-                <div className="p-4 bg-yellow-50 rounded-lg">
-                  <p className="text-sm text-yellow-700">Pending Payments</p>
-                  <p className="text-2xl font-bold text-yellow-700">
-                    {formatCurrency(paymentsOut.filter(p => p.status === "pending" || p.checkStatus === "pending").reduce((sum, p) => sum + (p.amount || 0), 0))}
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Wallet className="h-4 w-4 text-blue-600" />
+                    <p className="text-sm text-blue-700 dark:text-blue-400">Net Cash Flow</p>
+                  </div>
+                  <p className={`text-2xl font-bold ${
+                    (paymentsIn.reduce((sum, p) => sum + (p.amount || 0), 0) - paymentsOut.reduce((sum, p) => sum + (p.netAmount || p.grossAmount || p.amount || 0), 0)) >= 0 
+                      ? "text-blue-700 dark:text-blue-400" 
+                      : "text-orange-700 dark:text-orange-400"
+                  }`}>
+                    {formatCurrency(
+                      paymentsIn.reduce((sum, p) => sum + (p.amount || 0), 0) - 
+                      paymentsOut.reduce((sum, p) => sum + (p.netAmount || p.grossAmount || p.amount || 0), 0)
+                    )}
                   </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-500 mt-1">Incoming - Outgoing</p>
+                </div>
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Receipt className="h-4 w-4 text-purple-600" />
+                    <p className="text-sm text-purple-700 dark:text-purple-400">Total Transactions</p>
+                  </div>
+                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">
+                    {paymentsIn.length + paymentsOut.length}
+                  </p>
+                  <p className="text-xs text-purple-600 dark:text-purple-500 mt-1">All payment records</p>
                 </div>
               </div>
 
@@ -1288,57 +1474,125 @@ const AccountingContent = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Payment #</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead>Vendor</TableHead>
+                      <TableHead>Entity</TableHead>
                       <TableHead>Method</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Reference</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paymentLoading ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8">
+                        <TableCell colSpan={6} className="text-center py-8">
                           <RefreshCw className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                         </TableCell>
                       </TableRow>
-                    ) : paymentsOut.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          No payments found
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      paymentsOut
-                        .filter(p => !paymentSearch || 
-                          p.paymentNumber?.toLowerCase().includes(paymentSearch.toLowerCase()) ||
-                          p.vendorId?.name?.toLowerCase().includes(paymentSearch.toLowerCase())
-                        )
-                        .map((payment) => (
-                          <TableRow key={payment._id}>
-                            <TableCell className="font-medium">{payment.paymentNumber || "-"}</TableCell>
-                            <TableCell>
-                              {payment.createdAt ? new Date(payment.createdAt).toLocaleDateString("en-US", {
-                                timeZone: "UTC",
-                                year: "numeric",
-                                month: "short",
-                                day: "numeric"
-                              }) : "-"}
-                            </TableCell>
-                            <TableCell>{payment.vendorId?.name || "-"}</TableCell>
-                            <TableCell>{getPaymentMethodBadge(payment.method)}</TableCell>
-                            <TableCell className="text-right font-bold text-red-600">
-                              -{formatCurrency(payment.amount || 0)}
-                            </TableCell>
-                            <TableCell>{getPaymentStatusBadge(payment.status || payment.checkStatus || "pending")}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {payment.checkNumber || payment.referenceNumber || "-"}
+                    ) : (() => {
+                      // Combine and filter payments
+                      const allPayments = [
+                        ...paymentsIn.map(p => ({ ...p, direction: "incoming" as const })),
+                        ...paymentsOut.map(p => ({ ...p, direction: "outgoing" as const }))
+                      ]
+                        .filter(p => {
+                          // Direction filter
+                          if (paymentDirectionFilter !== "all" && p.direction !== paymentDirectionFilter) return false
+                          
+                          // Method filter
+                          if (paymentTypeFilter !== "all") {
+                            const method = p.method || p.type || ""
+                            if (method.toLowerCase() !== paymentTypeFilter.toLowerCase()) return false
+                          }
+                          
+                          // Search filter
+                          if (paymentSearch) {
+                            const search = paymentSearch.toLowerCase()
+                            const matchesNumber = (p.paymentNumber || "").toLowerCase().includes(search)
+                            const matchesEntity = (p.direction === "incoming" 
+                              ? (p.storeName || "").toLowerCase().includes(search)
+                              : (p.vendorId?.name || "").toLowerCase().includes(search))
+                            const matchesRef = (p.reference || p.checkNumber || p.referenceNumber || "").toLowerCase().includes(search)
+                            if (!matchesNumber && !matchesEntity && !matchesRef) return false
+                          }
+                          
+                          return true
+                        })
+                        .sort((a, b) => {
+                          const dateA = new Date(a.paymentDate || a.createdAt || a.date)
+                          const dateB = new Date(b.paymentDate || b.createdAt || b.date)
+                          return dateB.getTime() - dateA.getTime()
+                        })
+
+                      if (allPayments.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                              No payments found
                             </TableCell>
                           </TableRow>
-                        ))
-                    )}
+                        )
+                      }
+
+                      return allPayments.map((payment) => (
+                        <TableRow key={payment._id} className="hover:bg-muted/50">
+                          <TableCell>
+                            {payment.direction === "incoming" ? (
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                <ArrowDownLeft className="h-3 w-3 mr-1" />
+                                IN
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                                <ArrowUpRight className="h-3 w-3 mr-1" />
+                                OUT
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {(payment.paymentDate || payment.createdAt || payment.date) ? new Date(payment.paymentDate || payment.createdAt || payment.date).toLocaleDateString("en-US", {
+                              timeZone: "UTC",
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric"
+                            }) : "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                                payment.direction === "incoming" 
+                                  ? "bg-blue-100 text-blue-600" 
+                                  : "bg-purple-100 text-purple-600"
+                              }`}>
+                                <Building2 className="h-3.5 w-3.5" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">
+                                  {payment.direction === "incoming" 
+                                    ? (payment.storeName || "Unknown Store")
+                                    : (payment.vendorId?.name || "Unknown Vendor")
+                                  }
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {payment.direction === "incoming" ? "Store" : "Vendor"}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getPaymentMethodBadge(payment.method || payment.type || "cash")}</TableCell>
+                          <TableCell className={`text-right font-bold ${
+                            payment.direction === "incoming" ? "text-green-600" : "text-red-600"
+                          }`}>
+                            {payment.direction === "incoming" ? "+" : "-"}{formatCurrency(
+                              payment.direction === "incoming" 
+                                ? (payment.amount || 0)
+                                : (payment.netAmount || payment.grossAmount || payment.amount || 0)
+                            )}
+                          </TableCell>
+                          <TableCell>{getPaymentStatusBadge(payment.status || payment.checkClearanceStatus || "completed")}</TableCell>
+                        </TableRow>
+                      ))
+                    })()}
                   </TableBody>
                 </Table>
               </div>
@@ -2000,6 +2254,15 @@ const AccountingContent = () => {
         onClose={() => setCustomerDetailsOpen(false)}
         userData={selectedCustomer}
         fetchUserDetailsOrder={viewCustomerDetails}
+      />
+
+      {/* Vendor Details Modal */}
+      <UserDetailsModal
+        isOpen={vendorDetailsOpen}
+        onClose={() => setVendorDetailsOpen(false)}
+        userData={selectedVendor}
+        fetchUserDetailsOrder={viewVendorDetails}
+        vendor={true}
       />
 
       {/* Add/Edit Expense Modal */}

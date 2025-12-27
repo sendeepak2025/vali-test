@@ -921,6 +921,29 @@ export const getPaymentRecordsAPI = async (storeId) => {
   }
 };
 
+// Get all store payments across all stores (for accounting)
+export const getAllStorePaymentsAPI = async (params = {}) => {
+  try {
+    const queryParams = new URLSearchParams();
+    if (params.status) queryParams.append("status", params.status);
+    if (params.type) queryParams.append("type", params.type);
+    if (params.startDate) queryParams.append("startDate", params.startDate);
+    if (params.endDate) queryParams.append("endDate", params.endDate);
+    
+    const url = `${endpoints.GET_ALL_STORE_PAYMENTS_API}${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+    const response = await apiConnector("GET", url);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data;
+  } catch (error) {
+    console.error("GET ALL STORE PAYMENTS API ERROR:", error);
+    return { payments: [], summary: {} };
+  }
+};
+
 // Send payment reminder email
 export const sendPaymentReminderAPI = async (storeId) => {
   const toastId = toast.loading("Sending reminder...");

@@ -37,6 +37,7 @@ export const endpoints = {
   GET_COMMUNICATION_LOGS_API: BASE_URL + "/auth/store",
   ADD_PAYMENT_RECORD_API: BASE_URL + "/auth/store",
   GET_PAYMENT_RECORDS_API: BASE_URL + "/auth/store",
+  GET_ALL_STORE_PAYMENTS_API: BASE_URL + "/auth/all-store-payments",
   SEND_PAYMENT_REMINDER_API: BASE_URL + "/auth/store",
   SEND_STATEMENT_EMAIL_API: BASE_URL + "/auth/store",
   GET_STATEMENT_DATA_API: BASE_URL + "/auth/store",

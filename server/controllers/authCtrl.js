@@ -1757,6 +1757,105 @@ const addPaymentRecordCtrl = async (req, res) => {
   }
 };
 
+// Get all store payments across all stores (for accounting dashboard)
+const getAllStorePaymentsCtrl = async (req, res) => {
+  try {
+    const { status, type, startDate, endDate } = req.query;
+    
+    // Find all stores that have payment records or cheques
+    const stores = await authModel.find({ 
+      role: "store",
+      $or: [
+        { "paymentRecords.0": { $exists: true } },
+        { "cheques.0": { $exists: true } }
+      ]
+    }).select("storeName ownerName paymentRecords cheques");
+
+    let allPayments = [];
+    
+    stores.forEach(store => {
+      // Add payment records
+      store.paymentRecords?.forEach(payment => {
+        const paymentDate = new Date(payment.createdAt);
+        
+        // Apply date filters
+        if (startDate && paymentDate < new Date(startDate)) return;
+        if (endDate && paymentDate > new Date(endDate)) return;
+        
+        // Apply type filter
+        if (type && type !== "all" && payment.type !== type) return;
+        
+        allPayments.push({
+          ...payment.toObject(),
+          source: "payment",
+          storeId: store._id,
+          storeName: store.storeName,
+          ownerName: store.ownerName,
+          paymentNumber: `SP${payment._id.toString().slice(-8).toUpperCase()}`,
+        });
+      });
+      
+      // Add cheques
+      store.cheques?.forEach(cheque => {
+        const chequeDate = new Date(cheque.date || cheque.createdAt);
+        
+        // Apply date filters
+        if (startDate && chequeDate < new Date(startDate)) return;
+        if (endDate && chequeDate > new Date(endDate)) return;
+        
+        // Apply status filter for cheques
+        if (status && status !== "all" && cheque.status !== status) return;
+        
+        // Apply type filter (cheques are type "cheque")
+        if (type && type !== "all" && type !== "cheque") return;
+        
+        allPayments.push({
+          ...cheque.toObject(),
+          source: "cheque",
+          type: "cheque",
+          storeId: store._id,
+          storeName: store.storeName,
+          ownerName: store.ownerName,
+          paymentNumber: cheque.chequeNumber || `CHQ${cheque._id.toString().slice(-8).toUpperCase()}`,
+        });
+      });
+    });
+
+    // Sort by date descending
+    allPayments.sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.date);
+      const dateB = new Date(b.createdAt || b.date);
+      return dateB - dateA;
+    });
+
+    // Calculate summary
+    const summary = {
+      total: allPayments.length,
+      totalAmount: allPayments.reduce((sum, p) => sum + (p.amount || 0), 0),
+      byType: {
+        cash: allPayments.filter(p => p.type === "cash").reduce((sum, p) => sum + (p.amount || 0), 0),
+        card: allPayments.filter(p => p.type === "card").reduce((sum, p) => sum + (p.amount || 0), 0),
+        bank_transfer: allPayments.filter(p => p.type === "bank_transfer").reduce((sum, p) => sum + (p.amount || 0), 0),
+        cheque: allPayments.filter(p => p.type === "cheque").reduce((sum, p) => sum + (p.amount || 0), 0),
+      },
+      byStatus: {
+        pending: allPayments.filter(p => p.status === "pending").reduce((sum, p) => sum + (p.amount || 0), 0),
+        cleared: allPayments.filter(p => p.status === "cleared" || !p.status).reduce((sum, p) => sum + (p.amount || 0), 0),
+        bounced: allPayments.filter(p => p.status === "bounced").reduce((sum, p) => sum + (p.amount || 0), 0),
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      payments: allPayments,
+      summary
+    });
+  } catch (error) {
+    console.error("Error fetching all store payments:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+};
+
 // Get payment records for a store
 const getPaymentRecordsCtrl = async (req, res) => {
   try {
@@ -2688,6 +2787,7 @@ module.exports = {
   getCommunicationLogsCtrl,
   addPaymentRecordCtrl,
   getPaymentRecordsCtrl,
+  getAllStorePaymentsCtrl,
   sendPaymentReminderCtrl,
   sendStatementEmailCtrl,
   getStatementDataCtrl,
