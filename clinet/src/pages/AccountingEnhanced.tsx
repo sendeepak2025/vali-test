@@ -614,10 +614,10 @@ const AccountingContent = () => {
             <Briefcase className="h-4 w-4" />
             <span className="hidden sm:inline">Expenses</span>
           </TabsTrigger>
-          <TabsTrigger value="credits" className="flex items-center gap-2 py-2">
+          {/* <TabsTrigger value="credits" className="flex items-center gap-2 py-2">
             <Scale className="h-4 w-4" />
             <span className="hidden sm:inline">Credits</span>
-          </TabsTrigger>
+          </TabsTrigger> */}
           <TabsTrigger value="reports" className="flex items-center gap-2 py-2">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Reports</span>
@@ -1204,10 +1204,10 @@ const AccountingContent = () => {
                                   <Banknote className="h-4 w-4 mr-2" />
                                   Record Payment
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/vendors-enhanced?tab=credits&action=create&vendorId=${vendor.id}`) }}>
+                                {/* <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/vendors-enhanced?tab=credits&action=create&vendorId=${vendor.id}`) }}>
                                   <Scale className="h-4 w-4 mr-2" />
                                   Create Credit Memo
-                                </DropdownMenuItem>
+                                </DropdownMenuItem> */}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -1726,7 +1726,7 @@ const AccountingContent = () => {
 
         {/* Reports Tab */}
         <TabsContent value="reports" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1  gap-6">
             {/* AR Aging Report */}
             <Card>
               <CardHeader>

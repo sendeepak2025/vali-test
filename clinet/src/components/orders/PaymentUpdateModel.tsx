@@ -218,7 +218,7 @@ export function PaymentStatusPopup({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[450px]">
+<DialogContent className="sm:max-w-[450px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-500" />

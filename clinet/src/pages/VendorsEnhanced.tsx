@@ -37,7 +37,7 @@ import { getAllVendorsAPI, deleteVendorAPI, updateVendorPaymentTermsAPI, updateV
 import { getAllInvoicesAPI, createInvoiceAPI, approveInvoiceAPI, disputeInvoiceAPI, matchInvoiceAPI, getMatchingComparisonAPI } from "@/services2/operations/vendorInvoice"
 import { getAllVendorCreditMemosAPI, createVendorCreditMemoAPI, approveVendorCreditMemoAPI, applyVendorCreditMemoAPI, voidVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo"
 import { getAllVendorPaymentsAPI, createVendorPaymentAPI, updateCheckStatusAPI, voidVendorPaymentAPI, getVendorPaymentAPI, updateVendorPaymentAPI } from "@/services2/operations/vendorPayment"
-import { getAllVendorDisputesAPI, createVendorDisputeAPI, updateDisputeStatusAPI, addDisputeCommunicationAPI, resolveVendorDisputeAPI } from "@/services2/operations/vendorDispute"
+import { getAllVendorDisputesAPI, createVendorDisputeAPI, updateDisputeStatusAPI, addDisputeCommunicationAPI, resolveVendorDisputeAPI, escalateVendorDisputeAPI } from "@/services2/operations/vendorDispute"
 import { getAllPurchaseOrdersAPI } from "@/services2/operations/purchaseOrder"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getVendorDashboardAPI, getAgingReportAPI, getVendorStatementAPI, getVendorPerformanceAPI, getVendorComparisonAPI } from "@/services2/operations/vendorReports"
@@ -329,7 +329,9 @@ const VendorManagementContent = () => {
     linkedPurchaseOrder: "",
     linkedInvoice: "",
     description: "",
-    holdInvoices: false
+    holdInvoices: false,
+    priority: "medium" as string,
+    disputedAmount: ""
   })
   const [disputeCreateLoading, setDisputeCreateLoading] = useState(false)
 
@@ -1341,10 +1343,10 @@ const VendorManagementContent = () => {
   const getCreditMemoStatusBadge = (status: string) => {
     const variants: Record<string, { variant: any; label: string }> = {
       draft: { variant: "outline", label: "Draft" },
-      pending_approval: { variant: "warning", label: "Pending Approval" },
-      approved: { variant: "success", label: "Approved" },
+      pending_approval: { variant: "secondary", label: "Pending Approval" },
+      approved: { variant: "default", label: "Approved" },
       partially_applied: { variant: "secondary", label: "Partially Applied" },
-      applied: { variant: "success", label: "Applied" },
+      applied: { variant: "default", label: "Applied" },
       voided: { variant: "destructive", label: "Voided" }
     }
     const config = variants[status] || variants.draft
@@ -1354,7 +1356,7 @@ const VendorManagementContent = () => {
   // Get credit memo type badge
   const getCreditMemoTypeBadge = (type: string) => {
     if (type === "credit") {
-      return <Badge variant="success" className="bg-green-100 text-green-700">Credit</Badge>
+      return <Badge variant="secondary" className="bg-green-100 text-green-700">Credit</Badge>
     }
     return <Badge variant="destructive" className="bg-red-100 text-red-700">Debit</Badge>
   }
@@ -1647,7 +1649,9 @@ const VendorManagementContent = () => {
       linkedPurchaseOrder: "",
       linkedInvoice: "",
       description: "",
-      holdInvoices: false
+      holdInvoices: false,
+      priority: "medium",
+      disputedAmount: ""
     })
     setDisputeCreateModalOpen(true)
   }
@@ -1664,7 +1668,27 @@ const VendorManagementContent = () => {
     }
     setDisputeCreateLoading(true)
     try {
-      const result = await createVendorDisputeAPI(disputeForm, token)
+      // Map frontend field names to backend expected field names
+      const disputeData: any = {
+        vendorId: disputeForm.vendorId,
+        type: disputeForm.type,
+        description: disputeForm.description,
+        priority: disputeForm.priority,
+        putInvoicesOnHold: disputeForm.holdInvoices
+      }
+      
+      // Only include optional fields if they have values
+      if (disputeForm.linkedPurchaseOrder) {
+        disputeData.linkedPurchaseOrderId = disputeForm.linkedPurchaseOrder
+      }
+      if (disputeForm.linkedInvoice) {
+        disputeData.linkedInvoiceId = disputeForm.linkedInvoice
+      }
+      if (disputeForm.disputedAmount && parseFloat(disputeForm.disputedAmount) > 0) {
+        disputeData.disputedAmount = parseFloat(disputeForm.disputedAmount)
+      }
+      
+      const result = await createVendorDisputeAPI(disputeData, token)
       if (result) {
         setDisputeCreateModalOpen(false)
         fetchDisputes()
@@ -1727,9 +1751,10 @@ const VendorManagementContent = () => {
     }
     setResolveLoading(true)
     try {
+      // Map frontend field names to backend expected field names
       const data: any = {
-        resolution: resolveForm.resolution,
-        resolutionNotes: resolveForm.resolutionNotes
+        resolutionType: resolveForm.resolution,
+        notes: resolveForm.resolutionNotes || `Resolved with: ${resolveForm.resolution}`
       }
       if (resolveForm.creditMemoAmount) {
         data.creditMemoAmount = parseFloat(resolveForm.creditMemoAmount)
@@ -1759,6 +1784,19 @@ const VendorManagementContent = () => {
       }
     } catch (error) {
       console.error("Error updating dispute status:", error)
+    }
+  }
+
+  // Handle escalate dispute
+  const handleEscalateDispute = async (dispute: any, reason: string) => {
+    try {
+      const result = await escalateVendorDisputeAPI(dispute._id, { escalationReason: reason }, token)
+      if (result) {
+        fetchDisputes()
+        fetchDashboard()
+      }
+    } catch (error) {
+      console.error("Error escalating dispute:", error)
     }
   }
 
@@ -1808,14 +1846,13 @@ const VendorManagementContent = () => {
     { value: "other", label: "Other" }
   ]
 
-  // Resolution options
+  // Resolution options - must match backend enum: 'credit_issued', 'replacement', 'price_adjustment', 'no_action', 'other'
   const resolutionOptions = [
     { value: "credit_issued", label: "Credit Memo Issued" },
-    { value: "price_adjusted", label: "Price Adjusted" },
-    { value: "replacement_sent", label: "Replacement Sent" },
-    { value: "vendor_accepted", label: "Vendor Accepted Claim" },
-    { value: "claim_withdrawn", label: "Claim Withdrawn" },
-    { value: "no_action", label: "No Action Required" }
+    { value: "price_adjustment", label: "Price Adjustment" },
+    { value: "replacement", label: "Replacement Sent" },
+    { value: "no_action", label: "No Action Required" },
+    { value: "other", label: "Other" }
   ]
 
   // Filter invoices
@@ -1912,7 +1949,7 @@ const VendorManagementContent = () => {
           onClick={() => setActiveTab("payments")}
         />
         <StatsCard
-          title="Pending Payment"
+          title="Pending Payment"FUpdate Payment Status
           value={formatCurrency(dashboardData?.purchases?.pendingPayment || 0)}
           subtitle="Outstanding balance"
           icon={AlertTriangle}
@@ -1945,10 +1982,10 @@ const VendorManagementContent = () => {
             <Banknote className="h-4 w-4" />
             Payments
           </TabsTrigger>
-          <TabsTrigger value="credits" className="flex items-center gap-2">
+          {/* <TabsTrigger value="credits" className="flex items-center gap-2">
             <Scale className="h-4 w-4" />
             Vendor Credits
-          </TabsTrigger>
+          </TabsTrigger> */}
           <TabsTrigger value="disputes" className="flex items-center gap-2">
             <MessageSquareWarning className="h-4 w-4" />
             Disputes
@@ -3234,18 +3271,19 @@ const VendorManagementContent = () => {
                           <TableCell>{getDisputeStatusBadge(dispute.status)}</TableCell>
                           <TableCell>
                             <div className="flex flex-col gap-1 text-xs">
-                              <span className="text-muted-foreground">
-   {dispute?.linkedPurchaseOrder
-        ? (dispute.linkedPurchaseOrder?.purchaseOrderNumber ||
-           dispute.linkedPurchaseOrder)
-        : "None"}
-</span>
-
-                              {dispute.linkedInvoice && (
-                                <span className="text-muted-foreground">INV: {dispute.linkedInvoice?.invoiceNumber || dispute.linkedInvoice}</span>
-                              )}
-                              {!dispute.linkedPurchaseOrder && !dispute.linkedInvoice && (
-                                <span className="text-muted-foreground"></span>
+                              {dispute.linkedPurchaseOrder?.purchaseOrderNumber ? (
+                                <span className="text-muted-foreground">
+                                  PO: {dispute.linkedPurchaseOrder.purchaseOrderNumber}
+                                </span>
+                              ) : null}
+                              {dispute.linkedInvoice?.invoiceNumber ? (
+                                <span className="text-muted-foreground">
+                                  INV: {dispute.linkedInvoice.invoiceNumber}
+                                </span>
+                              ) : null}
+                              {!dispute.linkedPurchaseOrder?.purchaseOrderNumber && 
+                               !dispute.linkedInvoice?.invoiceNumber && (
+                                <span className="text-muted-foreground">None</span>
                               )}
                             </div>
                           </TableCell>
@@ -3273,7 +3311,11 @@ const VendorManagementContent = () => {
                                       <Clock className="h-4 w-4 mr-2" />
                                       Pending Vendor
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleUpdateDisputeStatus(dispute._id, 'escalated'); }}>
+                                    <DropdownMenuItem onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      const reason = prompt("Enter escalation reason:");
+                                      if (reason) handleEscalateDispute(dispute, reason);
+                                    }}>
                                       <AlertTriangle className="h-4 w-4 mr-2" />
                                       Escalate
                                     </DropdownMenuItem>
@@ -4061,44 +4103,54 @@ const VendorManagementContent = () => {
 
             <div className="space-y-2">
               <Label>Link Purchase Orders</Label>
-              <Select 
-                value={undefined}
-                onValueChange={(value) => {
-                  if (value && !invoiceForm.linkedPurchaseOrders.includes(value)) {
-                    const newLinkedPOs = [...invoiceForm.linkedPurchaseOrders, value]
-                    const productDetails = updateProductReceivedDetails(newLinkedPOs)
-                    const poTotal = purchaseOrders
-                      .filter(po => newLinkedPOs.includes(po._id))
-                      .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
-                    setInvoiceForm(prev => ({ 
-                      ...prev, 
-                      linkedPurchaseOrders: newLinkedPOs,
-                      productReceivedDetails: productDetails,
-                      invoiceSettledAmount: poTotal
-                    }))
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select PO to link" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    const linkedPOIds = getLinkedPOIds()
-                    return purchaseOrders
-                      .filter(po => 
-                        (invoiceForm.vendorId ? po.vendor?._id === invoiceForm.vendorId || po.vendorId === invoiceForm.vendorId : true) &&
-                        !invoiceForm.linkedPurchaseOrders.includes(po._id) &&
-                        !linkedPOIds.has(po._id)
-                      )
-                      .map((po) => (
+              {(() => {
+                const linkedPOIds = getLinkedPOIds()
+                const availablePOs = purchaseOrders.filter(po => 
+                  (invoiceForm.vendorId ? po.vendor?._id === invoiceForm.vendorId || po.vendorId === invoiceForm.vendorId : true) &&
+                  !invoiceForm.linkedPurchaseOrders.includes(po._id) &&
+                  !linkedPOIds.has(po._id)
+                )
+                
+                if (invoiceForm.vendorId && availablePOs.length === 0 && invoiceForm.linkedPurchaseOrders.length === 0) {
+                  return (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm text-amber-700">No purchase orders available for this vendor</p>
+                    </div>
+                  )
+                }
+                
+                return (
+                  <Select 
+                    value={undefined}
+                    onValueChange={(value) => {
+                      if (value && !invoiceForm.linkedPurchaseOrders.includes(value)) {
+                        const newLinkedPOs = [...invoiceForm.linkedPurchaseOrders, value]
+                        const productDetails = updateProductReceivedDetails(newLinkedPOs)
+                        const poTotal = purchaseOrders
+                          .filter(po => newLinkedPOs.includes(po._id))
+                          .reduce((sum, po) => sum + (po.totalAmount || 0), 0)
+                        setInvoiceForm(prev => ({ 
+                          ...prev, 
+                          linkedPurchaseOrders: newLinkedPOs,
+                          productReceivedDetails: productDetails,
+                          invoiceSettledAmount: poTotal
+                        }))
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={invoiceForm.vendorId ? "Select PO to link" : "Select vendor first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availablePOs.map((po) => (
                         <SelectItem key={po._id} value={po._id}>
                           {po.purchaseOrderNumber} - {formatCurrency(po.totalAmount)}
                         </SelectItem>
-                      ))
-                  })()}
-                </SelectContent>
-              </Select>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              })()}
               {invoiceForm.linkedPurchaseOrders.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-2">
                   {invoiceForm.linkedPurchaseOrders.map((poId) => {
@@ -5907,7 +5959,7 @@ const VendorManagementContent = () => {
 
       {/* Dispute Create Modal */}
       <Dialog open={disputeCreateModalOpen} onOpenChange={setDisputeCreateModalOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquareWarning className="h-5 w-5" />
@@ -5917,7 +5969,7 @@ const VendorManagementContent = () => {
               Open a dispute with a vendor for pricing, quality, or other issues
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1 pr-2">
             <div className="space-y-2">
               <Label>Vendor *</Label>
               <VendorSelect
@@ -5993,21 +6045,74 @@ const VendorManagementContent = () => {
                 placeholder="Describe the issue in detail..."
                 value={disputeForm.description}
                 onChange={(e) => setDisputeForm(prev => ({ ...prev, description: e.target.value }))}
-                rows={4}
+                rows={3}
               />
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select 
+                  value={disputeForm.priority || "medium"} 
+                  onValueChange={(value) => setDisputeForm(prev => ({ ...prev, priority: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Disputed Amount (Optional)</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={disputeForm.disputedAmount}
+                    onChange={(e) => setDisputeForm(prev => ({ ...prev, disputedAmount: e.target.value }))}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div 
+              className={`flex items-center space-x-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                disputeForm.holdInvoices 
+                  ? 'bg-orange-50 border-orange-300' 
+                  : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setDisputeForm(prev => ({ ...prev, holdInvoices: !prev.holdInvoices }))}
+            >
               <input
                 type="checkbox"
                 id="holdInvoices"
                 checked={disputeForm.holdInvoices}
                 onChange={(e) => setDisputeForm(prev => ({ ...prev, holdInvoices: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300"
+                className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
               />
-              <Label htmlFor="holdInvoices" className="text-sm font-normal cursor-pointer">
-                Hold linked invoices from payment until resolved
-              </Label>
+              <div className="flex-1">
+                <Label htmlFor="holdInvoices" className="text-sm font-medium cursor-pointer">
+                  Hold linked invoices from payment until resolved
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {disputeForm.holdInvoices 
+                    ? "✓ Invoices will be held from payment" 
+                    : "Invoices can still be paid during dispute"}
+                </p>
+              </div>
+              {disputeForm.holdInvoices && (
+                <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                  Active
+                </Badge>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -6036,7 +6141,7 @@ const VendorManagementContent = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
                   <p className="text-sm text-muted-foreground">Vendor</p>
-                  <p className="font-medium">{selectedDispute.vendor?.name || "N/A"}</p>
+                  <p className="font-medium">{selectedDispute.vendor?.name || selectedDispute.vendorId?.name || "N/A"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -6050,19 +6155,47 @@ const VendorManagementContent = () => {
                   <p className="text-sm text-muted-foreground">Created</p>
                   <p className="font-medium">{new Date(selectedDispute.createdAt).toLocaleDateString()}</p>
                 </div>
-                {selectedDispute.linkedPurchaseOrder && (
+                {selectedDispute.linkedPurchaseOrder?.purchaseOrderNumber && (
                   <div>
                     <p className="text-sm text-muted-foreground">Linked PO</p>
-                    <p className="font-medium">{selectedDispute.linkedPurchaseOrder?.purchaseOrderNumber || selectedDispute.linkedPurchaseOrder}</p>
+                    <p className="font-medium">{selectedDispute.linkedPurchaseOrder.purchaseOrderNumber}</p>
                   </div>
                 )}
-                {selectedDispute.linkedInvoice && (
+                {selectedDispute.linkedInvoice?.invoiceNumber && (
                   <div>
                     <p className="text-sm text-muted-foreground">Linked Invoice</p>
-                    <p className="font-medium">{selectedDispute.linkedInvoice?.invoiceNumber || selectedDispute.linkedInvoice}</p>
+                    <p className="font-medium">{selectedDispute.linkedInvoice.invoiceNumber}</p>
+                  </div>
+                )}
+                {selectedDispute.disputedAmount > 0 && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Disputed Amount</p>
+                    <p className="font-medium">{formatCurrency(selectedDispute.disputedAmount)}</p>
+                  </div>
+                )}
+                {selectedDispute.priority && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Priority</p>
+                    <p className="font-medium capitalize">{selectedDispute.priority}</p>
                   </div>
                 )}
               </div>
+
+              {/* Invoice Hold Status */}
+              {selectedDispute.putInvoicesOnHold && (
+                <div className="flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="p-2 bg-orange-100 rounded-full">
+                    <Pause className="h-4 w-4 text-orange-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-orange-800">Invoices On Hold</p>
+                    <p className="text-xs text-orange-600">Linked invoices are held from payment until this dispute is resolved</p>
+                  </div>
+                  <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                    Active
+                  </Badge>
+                </div>
+              )}
 
               {/* Description */}
               <div>
@@ -6079,13 +6212,19 @@ const VendorManagementContent = () => {
                     <CheckCircle className="h-4 w-4" />
                     Resolution
                   </h4>
-                  <p className="text-sm text-green-700 capitalize">{selectedDispute.resolution.replace(/_/g, ' ')}</p>
-                  {selectedDispute.resolutionNotes && (
-                    <p className="text-sm text-green-600 mt-2">{selectedDispute.resolutionNotes}</p>
+                  <p className="text-sm text-green-700 capitalize">
+                    {typeof selectedDispute.resolution === 'string' 
+                      ? selectedDispute.resolution.replace(/_/g, ' ')
+                      : selectedDispute.resolution?.resolutionType?.replace(/_/g, ' ') || 'Resolved'}
+                  </p>
+                  {(selectedDispute.resolutionNotes || selectedDispute.resolution?.notes) && (
+                    <p className="text-sm text-green-600 mt-2">
+                      {selectedDispute.resolutionNotes || selectedDispute.resolution?.notes}
+                    </p>
                   )}
-                  {selectedDispute.resolvedAt && (
+                  {(selectedDispute.resolvedAt || selectedDispute.resolution?.resolvedAt) && (
                     <p className="text-xs text-green-600 mt-2">
-                      Resolved on {new Date(selectedDispute.resolvedAt).toLocaleDateString()}
+                      Resolved on {new Date(selectedDispute.resolvedAt || selectedDispute.resolution?.resolvedAt).toLocaleDateString()}
                     </p>
                   )}
                 </div>

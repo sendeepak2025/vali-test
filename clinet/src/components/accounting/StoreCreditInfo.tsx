@@ -137,11 +137,11 @@ export default function StoreCreditInfo({ storeId, storeName, onCreditApplied }:
                 <p className="text-sm text-muted-foreground">Available Credit</p>
               </div>
             </div>
-            {(creditInfo?.creditBalance || 0) > 0 && (
+            {/* {(creditInfo?.creditBalance || 0) > 0 && (
               <Button onClick={() => setApplyOpen(true)}>
                 Apply to Order
               </Button>
-            )}
+            )} */}
           </div>
 
           {/* Pending Credits */}

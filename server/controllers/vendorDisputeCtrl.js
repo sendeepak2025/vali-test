@@ -202,6 +202,24 @@ const getAllDisputes = async (req, res) => {
       },
       { $unwind: { path: '$vendor', preserveNullAndEmptyArrays: true } },
       {
+        $lookup: {
+          from: 'purchaseorders',
+          localField: 'linkedPurchaseOrderId',
+          foreignField: '_id',
+          as: 'linkedPurchaseOrder'
+        }
+      },
+      { $unwind: { path: '$linkedPurchaseOrder', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'linkedInvoiceId',
+          foreignField: '_id',
+          as: 'linkedInvoice'
+        }
+      },
+      { $unwind: { path: '$linkedInvoice', preserveNullAndEmptyArrays: true } },
+      {
         $match: {
           ...matchStage,
           ...(search ? {

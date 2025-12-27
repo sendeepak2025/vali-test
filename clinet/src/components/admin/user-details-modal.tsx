@@ -941,7 +941,7 @@ const UserDetailsModal = ({
                                           Overdue
                                         </Badge>
                                       )}
-                                      <Button
+                                      {/* <Button
                                         size="sm"
                                         variant="outline"
                                         className="text-blue-600 hover:bg-blue-50"
@@ -949,7 +949,7 @@ const UserDetailsModal = ({
                                       >
                                         <CreditCard className="h-3 w-3 mr-1" />
                                         Credit
-                                      </Button>
+                                      </Button> */}
                                       <Button
                                         size="sm"
                                         variant="outline"
@@ -992,12 +992,12 @@ const UserDetailsModal = ({
                           <span className="text-muted-foreground">Total Paid</span>
                           <span className="font-semibold text-green-600">{formatCurrency(totalPay)}</span>
                         </div>
-                        <div className="flex justify-between items-center py-2 border-b">
+                        {/* <div className="flex justify-between items-center py-2 border-b">
                           <span className="text-muted-foreground">Vendor Credits Applied</span>
                           <span className="font-semibold text-blue-600">
                             {formatCurrency((userData as any)?.totalCreditApplied || 0)}
                           </span>
-                        </div>
+                        </div> */}
                         <div className="flex justify-between items-center py-2">
                           <span className="font-medium">Outstanding Balance</span>
                           <span className={`text-xl font-bold ${balanceDue > 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -1009,7 +1009,7 @@ const UserDetailsModal = ({
                   </Card>
 
                   {/* Vendor Credits Actions */}
-                  <Card>
+                  {/* <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base flex items-center gap-2">
                         <CreditCard className="h-4 w-4 text-primary" />
@@ -1019,7 +1019,6 @@ const UserDetailsModal = ({
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Request Credit - Main Action */}
                         <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
                           <div className="flex items-center gap-3 mb-3">
                             <div className="p-2 bg-blue-100 rounded-lg">
@@ -1041,7 +1040,6 @@ const UserDetailsModal = ({
                           </Button>
                         </div>
 
-                        {/* Apply Credit to Order */}
                         <div className="p-4 bg-green-50 rounded-lg border border-green-100">
                           <div className="flex items-center gap-3 mb-3">
                             <div className="p-2 bg-green-100 rounded-lg">
@@ -1065,7 +1063,6 @@ const UserDetailsModal = ({
                           </Button>
                         </div>
 
-                        {/* View All Credits */}
                         <div className="p-4 bg-purple-50 rounded-lg border border-purple-100 md:col-span-2">
                           <div className="flex items-center gap-3 mb-3">
                             <div className="p-2 bg-purple-100 rounded-lg">
@@ -1090,7 +1087,7 @@ const UserDetailsModal = ({
                         </div>
                       </div>
                     </CardContent>
-                  </Card>
+                  </Card> */}
                 </div>
               </TabsContent>
             )}
