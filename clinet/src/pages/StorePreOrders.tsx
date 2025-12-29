@@ -13,18 +13,23 @@ const StorePreOrders = () => {
 
   const navigate = useNavigate();
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
-  const storeId = useSelector((state: RootState) => state.auth?.user?._id ?? null);
 
 const fetchOrders = async (page = 1, searchQuery = "") => {
-  if (!storeId) return;
+  if (!token) {
+    console.log("Missing token");
+    return;
+  }
   setLoading(true);
   try {
     const queryParams = new URLSearchParams();
     queryParams.append("page", page.toString());
-    queryParams.append("storeId", storeId); // current user's _id as storeId
     if (searchQuery) queryParams.append("search", searchQuery);
 
+    console.log("Fetching preorders with params:", queryParams.toString());
+
     const data = await getAllPreOrderAPI(token, queryParams.toString());
+
+    console.log("Received preorders:", data.preOrders?.length);
 
     // Filter orders where confirmed === false
     const unconfirmedOrders = (data.preOrders || []).filter(
@@ -35,7 +40,7 @@ const fetchOrders = async (page = 1, searchQuery = "") => {
     setCurrentPage(data.currentPage);
     setTotalPages(data.pages);
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching preorders:", err);
   } finally {
     setLoading(false);
   }
@@ -44,7 +49,7 @@ const fetchOrders = async (page = 1, searchQuery = "") => {
 
   useEffect(() => {
     fetchOrders(currentPage);
-  }, [currentPage, token, storeId]);
+  }, [currentPage, token]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

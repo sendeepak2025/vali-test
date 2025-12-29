@@ -12,6 +12,9 @@ export const caseDimensionsSchema = z.object({
   height: z.coerce.number().min(0, { message: 'Height must be 0 or greater' }).default(0),
 });
 
+// Pallet input mode - either calculate from dimensions or manual entry
+export type PalletInputMode = 'auto' | 'manual';
+
 export const formSchema = z.object({
   name: z.string().min(1, { message: 'Product name is required' }),
   category: z.string().min(1, { message: 'Category is required' }),
@@ -46,6 +49,9 @@ export const formSchema = z.object({
   salesMode: z.enum(['unit', 'case', 'both']).default('both').optional(),
   caseDimensions: caseDimensionsSchema.optional(),
   caseWeight: z.coerce.number().min(0, { message: 'Case weight must be 0 or greater' }).default(0).optional(),
+  // Manual pallet input - user can directly specify cases per pallet
+  palletInputMode: z.enum(['auto', 'manual']).default('auto').optional(),
+  manualCasesPerPallet: z.coerce.number().min(0, { message: 'Cases per pallet must be 0 or greater' }).default(0).optional(),
 });
 
 export type FormValues = z.infer<typeof formSchema>;
@@ -157,11 +163,12 @@ export interface CaseDimensions {
   height: number;
 }
 
-// Pallet capacity interface (calculated from case dimensions)
+// Pallet capacity interface (calculated from case dimensions or manual)
 export interface PalletCapacity {
   casesPerLayer: number;
   layersPerPallet: number;
   totalCasesPerPallet: number;
+  isManual?: boolean; // true if manually entered, false if auto-calculated
 }
 
 // Pallet estimate interface

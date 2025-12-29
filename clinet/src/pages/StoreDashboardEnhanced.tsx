@@ -190,17 +190,26 @@ const StoreDashboardEnhanced = () => {
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Welcome Banner */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-6 mb-6 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold mb-1">Welcome back, {user?.ownerName || user?.storeName}!</h2>
-              <p className="text-blue-100">Here's what's happening with your store today.</p>
-            </div>
-            <Button className="bg-white text-blue-600 hover:bg-blue-50" onClick={() => navigate("/store/mobile")}>
-              <Plus className="h-4 w-4 mr-2" /> Place Order
-            </Button>
-          </div>
-        </div>
+<div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-6 mb-6 text-white">
+  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <h2 className="text-2xl font-bold mb-1">
+        Welcome back, {user?.ownerName || user?.storeName}!
+      </h2>
+      <p className="text-blue-100">
+        Here's what's happening with your store today.
+      </p>
+    </div>
+
+    <Button
+      className="bg-white text-blue-600 hover:bg-blue-50 w-full sm:w-auto"
+      onClick={() => navigate("/store/mobile")}
+    >
+      <Plus className="h-4 w-4 mr-2" /> Place Order
+    </Button>
+  </div>
+</div>
+
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">

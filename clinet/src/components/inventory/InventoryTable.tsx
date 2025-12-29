@@ -112,7 +112,10 @@ interface Product {
     casesPerLayer?: number;
     layersPerPallet?: number;
     totalCasesPerPallet?: number;
+    isManual?: boolean;
   };
+  palletInputMode?: 'auto' | 'manual';
+  manualCasesPerPallet?: number;
 }
 
 interface InventoryTableProps {
@@ -468,7 +471,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
             sortedProducts.map((product, productIndex) => {
               // Calculate pallet estimate for current stock
               const currentStock = product?.summary?.totalRemaining || 0;
-              const totalCasesPerPallet = product?.palletCapacity?.totalCasesPerPallet;
+              const totalCasesPerPallet = product?.palletCapacity?.totalCasesPerPallet || product?.manualCasesPerPallet || 0;
               const hasPalletData = totalCasesPerPallet && totalCasesPerPallet > 0;
               const estimatedPallets = hasPalletData && currentStock > 0
                 ? Math.ceil(currentStock / totalCasesPerPallet)
@@ -577,22 +580,34 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div className="flex items-center justify-center gap-1 cursor-help">
-                            <span className="font-medium">~{estimatedPallets}</span>
+                            {currentStock > 0 ? (
+                              <span className="font-medium">~{estimatedPallets}</span>
+                            ) : (
+                              <span className="font-medium text-muted-foreground">{totalCasesPerPallet}/plt</span>
+                            )}
+                            {product.palletCapacity?.isManual && (
+                              <span className="text-[10px] text-muted-foreground">(M)</span>
+                            )}
                             <Info className="h-3 w-3 text-muted-foreground" />
                           </div>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <div className="space-y-2 text-xs">
-                            <p className="font-medium">Pallet Breakdown</p>
+                            <p className="font-medium">
+                              Pallet Breakdown 
+                              {product.palletCapacity?.isManual && (
+                                <span className="text-muted-foreground ml-1">(Manual Entry)</span>
+                              )}
+                            </p>
                             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                               <span className="text-muted-foreground">Cases/Layer:</span>
-                              <span>{product.palletCapacity?.casesPerLayer || '-'}</span>
+                              <span>{product.palletCapacity?.casesPerLayer || '~' + Math.ceil(totalCasesPerPallet / 5)}</span>
                               <span className="text-muted-foreground">Layers/Pallet:</span>
-                              <span>{product.palletCapacity?.layersPerPallet || '-'}</span>
+                              <span>{product.palletCapacity?.layersPerPallet || '~5'}</span>
                               <span className="text-muted-foreground">Total/Pallet:</span>
-                              <span>{totalCasesPerPallet}</span>
+                              <span className="font-medium">{totalCasesPerPallet}</span>
                             </div>
-                            {currentStock > 0 && (
+                            {currentStock > 0 ? (
                               <>
                                 <hr className="border-border" />
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -608,9 +623,14 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                                   )}
                                 </div>
                               </>
+                            ) : (
+                              <>
+                                <hr className="border-border" />
+                                <p className="text-muted-foreground">No stock - add inventory to see pallet count</p>
+                              </>
                             )}
                             <p className="text-amber-600 text-[10px] mt-2 border-t pt-1">
-                              ⚠️ Estimates only - verify for actual shipping
+                              ⚠️ {product.palletCapacity?.isManual ? "Manual entry" : "Estimates only"} - verify for actual shipping
                             </p>
                           </div>
                         </TooltipContent>

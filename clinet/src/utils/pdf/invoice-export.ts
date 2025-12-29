@@ -36,7 +36,7 @@ const templateColors = {
 };
 
 export const exportInvoiceToPDF = (
-  order: Order,
+  order: Order & { preOrder?: boolean },
   options: {
     includeHeader?: boolean;
     includeCompanyDetails?: boolean;
@@ -58,6 +58,8 @@ export const exportInvoiceToPDF = (
       .split("T")[0],
     invoiceTemplate = "standard",
   } = options;
+
+  const isPreOrder = order.preOrder === true;
 
   const colors = templateColors[invoiceTemplate as keyof typeof templateColors] || templateColors.standard;
 
@@ -276,15 +278,16 @@ export const exportInvoiceToPDF = (
   }
 
   const subTotal = order.total - (order.shippinCost || 0);
-  const shippingCost = order.shippinCost || 0;
-  const allTotal = subTotal + shippingCost;
+  const shippingCost = isPreOrder ? 0 : (order.shippinCost || 0);
+  const allTotal = isPreOrder ? subTotal : (subTotal + shippingCost);
 
-  // Totals box
+  // Totals box - adjust height based on whether shipping is shown
   const totalsWidth = 80;
   const totalsX = PAGE_WIDTH - MARGIN - totalsWidth;
+  const totalsBoxHeight = isPreOrder ? 24 : 32;
   
   doc.setFillColor(colors.accent[0], colors.accent[1], colors.accent[2]);
-  doc.roundedRect(totalsX, yPos, totalsWidth, 32, 3, 3, "F");
+  doc.roundedRect(totalsX, yPos, totalsWidth, totalsBoxHeight, 3, 3, "F");
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
@@ -293,21 +296,35 @@ export const exportInvoiceToPDF = (
   doc.text("Subtotal:", totalsX + 6, yPos + 8);
   doc.text(formatCurrency(subTotal), PAGE_WIDTH - MARGIN - 6, yPos + 8, { align: "right" });
 
-  doc.text("Shipping:", totalsX + 6, yPos + 15);
-  doc.text(formatCurrency(shippingCost), PAGE_WIDTH - MARGIN - 6, yPos + 15, { align: "right" });
+  // Only show shipping for non-preorders
+  if (!isPreOrder) {
+    doc.text("Shipping:", totalsX + 6, yPos + 15);
+    doc.text(formatCurrency(shippingCost), PAGE_WIDTH - MARGIN - 6, yPos + 15, { align: "right" });
 
-  // Total divider line
-  doc.setDrawColor(colors.primary[0], colors.primary[1], colors.primary[2]);
-  doc.setLineWidth(0.5);
-  doc.line(totalsX + 6, yPos + 19, PAGE_WIDTH - MARGIN - 6, yPos + 19);
+    // Total divider line
+    doc.setDrawColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+    doc.setLineWidth(0.5);
+    doc.line(totalsX + 6, yPos + 19, PAGE_WIDTH - MARGIN - 6, yPos + 19);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
-  doc.text("Total:", totalsX + 6, yPos + 27);
-  doc.text(formatCurrency(allTotal), PAGE_WIDTH - MARGIN - 6, yPos + 27, { align: "right" });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+    doc.text("Total:", totalsX + 6, yPos + 27);
+    doc.text(formatCurrency(allTotal), PAGE_WIDTH - MARGIN - 6, yPos + 27, { align: "right" });
+  } else {
+    // For preorders, show total directly after subtotal
+    doc.setDrawColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+    doc.setLineWidth(0.5);
+    doc.line(totalsX + 6, yPos + 12, PAGE_WIDTH - MARGIN - 6, yPos + 12);
 
-  yPos += 40;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
+    doc.text("Total:", totalsX + 6, yPos + 20);
+    doc.text(formatCurrency(allTotal), PAGE_WIDTH - MARGIN - 6, yPos + 20, { align: "right" });
+  }
+
+  yPos += isPreOrder ? 32 : 40;
 
   // Signature section
   if (includeSignature) {
@@ -330,6 +347,34 @@ export const exportInvoiceToPDF = (
     doc.text("Authorized Signature", sigX + 35, yPos + 22, { align: "center" });
     
     yPos += 30;
+  }
+
+  // Pre-Order Note (if applicable)
+  if (isPreOrder) {
+    if (yPos + 25 > PAGE_HEIGHT - 60) {
+      doc.addPage();
+      drawHeader(doc, false);
+      yPos = HEADER_HEIGHT + 15;
+    }
+    
+    // Note box with orange/amber background
+    doc.setFillColor(255, 251, 235); // amber-50
+    doc.setDrawColor(251, 191, 36); // amber-400
+    doc.setLineWidth(0.5);
+    doc.roundedRect(MARGIN, yPos, CONTENT_WIDTH, 20, 3, 3, "FD");
+    
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(180, 83, 9); // amber-700
+    doc.text("Note:", MARGIN + 6, yPos + 8);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(146, 64, 14); // amber-800
+    const noteText = "This is a Pre-Order. Delivery timeline and order details will be reviewed and the Actual Order will be updated accordingly.";
+    doc.text(noteText, MARGIN + 20, yPos + 8, { maxWidth: CONTENT_WIDTH - 26 });
+    
+    yPos += 28;
   }
 
   // 🧾 FOOTER - Thank you message and payment terms (at page bottom with safe margin)

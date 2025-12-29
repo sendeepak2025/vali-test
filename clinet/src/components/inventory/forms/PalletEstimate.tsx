@@ -14,9 +14,23 @@ import { CaseDimensions, PalletCapacity, PalletEstimate as PalletEstimateType } 
 const STANDARD_PALLET = {
   length: 48,
   width: 40,
-  maxHeight: 48,
-  maxWeight: 2500,
+  maxHeight: 60,      // Max total height including pallet (6" pallet + 54" stack)
+  palletHeight: 6,    // Standard pallet deck height
+  maxStackHeight: 54, // Max stack height on pallet
+  warnWeight: 2000,   // Warning weight limit
+  maxWeight: 2500,    // Hard weight limit
 };
+
+// Validation result interface for manual mode
+interface ManualPalletValidation {
+  isValid: boolean;
+  casesPerLayer: number;
+  layersUsed: number;
+  totalPalletHeight: number;
+  totalPalletWeight: number;
+  warnings: string[];
+  errors: string[];
+}
 
 interface PalletEstimateDisplayProps {
   caseDimensions?: CaseDimensions;
@@ -26,6 +40,8 @@ interface PalletEstimateDisplayProps {
   palletEstimate?: PalletEstimateType;
   showBreakdown?: boolean;
   compact?: boolean;
+  // Manual mode support
+  manualCasesPerPallet?: number;
 }
 
 // Calculate pallet capacity on frontend (for live preview)
@@ -51,7 +67,7 @@ const calculatePalletCapacity = (
 
   if (casesPerLayer === 0) return null;
 
-  const layersByHeight = Math.floor(STANDARD_PALLET.maxHeight / height);
+  const layersByHeight = Math.floor(STANDARD_PALLET.maxStackHeight / height);
 
   let layersByWeight = layersByHeight;
   if (caseWeight > 0) {
@@ -69,6 +85,94 @@ const calculatePalletCapacity = (
   };
 };
 
+// Validate manual pallet entry using actual case dimensions
+const validateManualPallet = (
+  casesPerPallet: number,
+  caseDimensions: CaseDimensions,
+  caseWeight: number
+): ManualPalletValidation => {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  
+  const { length, width, height } = caseDimensions;
+  
+  // Check if dimensions are provided
+  if (!length || !width || !height || length <= 0 || width <= 0 || height <= 0) {
+    return {
+      isValid: false,
+      casesPerLayer: 0,
+      layersUsed: 0,
+      totalPalletHeight: 0,
+      totalPalletWeight: 0,
+      warnings: [],
+      errors: ["Enter case dimensions for validation"],
+    };
+  }
+
+  // Calculate cases per layer from actual dimensions
+  // Try both orientations
+  const orientation1 =
+    Math.floor(STANDARD_PALLET.length / length) *
+    Math.floor(STANDARD_PALLET.width / width);
+  const orientation2 =
+    Math.floor(STANDARD_PALLET.length / width) *
+    Math.floor(STANDARD_PALLET.width / length);
+
+  const casesPerLayer = Math.max(orientation1, orientation2);
+
+  if (casesPerLayer === 0) {
+    return {
+      isValid: false,
+      casesPerLayer: 0,
+      layersUsed: 0,
+      totalPalletHeight: 0,
+      totalPalletWeight: 0,
+      warnings: [],
+      errors: ["Case too large for pallet (48\"×40\")"],
+    };
+  }
+
+  // Calculate layers needed for the manual cases per pallet
+  const layersUsed = Math.ceil(casesPerPallet / casesPerLayer);
+  
+  // Calculate total pallet height (stack height + pallet deck)
+  const stackHeight = layersUsed * height;
+  const totalPalletHeight = stackHeight + STANDARD_PALLET.palletHeight;
+  
+  // Calculate total weight
+  const totalPalletWeight = casesPerPallet * (caseWeight || 0);
+
+  // Validate height
+  if (totalPalletHeight > STANDARD_PALLET.maxHeight) {
+    errors.push(`Height ${totalPalletHeight.toFixed(1)}" exceeds max ${STANDARD_PALLET.maxHeight}"`);
+  }
+
+  // Validate weight
+  if (caseWeight > 0) {
+    if (totalPalletWeight > STANDARD_PALLET.maxWeight) {
+      errors.push(`Weight ${totalPalletWeight.toFixed(0)} lbs exceeds max ${STANDARD_PALLET.maxWeight} lbs`);
+    } else if (totalPalletWeight > STANDARD_PALLET.warnWeight) {
+      warnings.push(`Weight ${totalPalletWeight.toFixed(0)} lbs exceeds recommended ${STANDARD_PALLET.warnWeight} lbs`);
+    }
+  }
+
+  // Check if manual entry matches calculated capacity
+  const calculatedMax = casesPerLayer * Math.floor(STANDARD_PALLET.maxStackHeight / height);
+  if (casesPerPallet > calculatedMax) {
+    warnings.push(`Entered ${casesPerPallet} cases exceeds calculated max ${calculatedMax}`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    casesPerLayer,
+    layersUsed,
+    totalPalletHeight,
+    totalPalletWeight,
+    warnings,
+    errors,
+  };
+};
+
 export const PalletEstimateDisplay: React.FC<PalletEstimateDisplayProps> = ({
   caseDimensions,
   caseWeight = 0,
@@ -77,24 +181,47 @@ export const PalletEstimateDisplay: React.FC<PalletEstimateDisplayProps> = ({
   palletEstimate: providedEstimate,
   showBreakdown = true,
   compact = false,
+  manualCasesPerPallet,
 }) => {
-  // Calculate capacity if not provided
-  const capacity =
-    providedCapacity ||
-    (caseDimensions ? calculatePalletCapacity(caseDimensions, caseWeight) : null);
+  // Check if using manual mode
+  const isManualMode = manualCasesPerPallet !== undefined && manualCasesPerPallet > 0;
 
-  // Check if dimensions are missing
+  // For manual mode, validate using actual dimensions
+  const validation = isManualMode && caseDimensions
+    ? validateManualPallet(manualCasesPerPallet, caseDimensions, caseWeight)
+    : null;
+
+  // Calculate capacity - either from manual input or dimensions
+  let capacity: PalletCapacity | null = null;
+  
+  if (isManualMode) {
+    // Manual mode - use user's cases per pallet with validated breakdown
+    capacity = {
+      casesPerLayer: validation?.casesPerLayer || 0,
+      layersPerPallet: validation?.layersUsed || 0,
+      totalCasesPerPallet: manualCasesPerPallet,
+      isManual: true,
+    };
+  } else {
+    // Auto mode - calculate from dimensions
+    capacity =
+      providedCapacity ||
+      (caseDimensions ? calculatePalletCapacity(caseDimensions, caseWeight) : null);
+  }
+
+  // Check if dimensions are missing (only relevant for auto mode)
   const hasDimensions =
     caseDimensions &&
     caseDimensions.length > 0 &&
     caseDimensions.width > 0 &&
     caseDimensions.height > 0;
 
-  if (!hasDimensions) {
+  // Show appropriate message if no data
+  if (!isManualMode && !hasDimensions) {
     return (
       <div className={`flex items-center gap-2 text-muted-foreground ${compact ? "text-xs" : "text-sm"}`}>
         <AlertCircle className={compact ? "h-3 w-3" : "h-4 w-4"} />
-        <span>Dimensions required for pallet calculation</span>
+        <span>Enter dimensions or cases per pallet</span>
       </div>
     );
   }
@@ -103,7 +230,7 @@ export const PalletEstimateDisplay: React.FC<PalletEstimateDisplayProps> = ({
     return (
       <div className={`flex items-center gap-2 text-amber-600 ${compact ? "text-xs" : "text-sm"}`}>
         <AlertCircle className={compact ? "h-3 w-3" : "h-4 w-4"} />
-        <span>Unable to calculate - check dimensions</span>
+        <span>Unable to calculate - check input values</span>
       </div>
     );
   }
@@ -172,28 +299,99 @@ export const PalletEstimateDisplay: React.FC<PalletEstimateDisplayProps> = ({
           <Layers className="h-4 w-4" />
           Pallet Estimate
           <Badge variant="outline" className="text-[10px] font-normal">
-            Estimate
+            {capacity.isManual ? "Manual" : "Auto"}
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {showBreakdown && (
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-2xl font-bold">{capacity.casesPerLayer}</p>
-              <p className="text-xs text-muted-foreground">Cases/Layer</p>
+          capacity.isManual ? (
+            // Manual mode - show validated breakdown using actual dimensions
+            <div className="space-y-4">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-primary">
+                  {capacity.totalCasesPerPallet}
+                </p>
+                <p className="text-sm text-muted-foreground">Cases Per Pallet</p>
+              </div>
+              
+              {validation && validation.casesPerLayer > 0 && (
+                <div className="bg-muted/30 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Calculated from your dimensions:</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Cases/Layer:</span>
+                    <span>{validation.casesPerLayer}</span>
+                    <span className="text-muted-foreground">Layers Used:</span>
+                    <span>{validation.layersUsed}</span>
+                  </div>
+                  <hr className="border-border/50" />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <span className="text-muted-foreground">Pallet Height:</span>
+                    <span>{validation.totalPalletHeight.toFixed(1)}" (max 60")</span>
+                    {caseWeight > 0 && (
+                      <>
+                        <span className="text-muted-foreground">Total Weight:</span>
+                        <span>{validation.totalPalletWeight.toFixed(0)} lbs</span>
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* Warnings */}
+                  {validation.warnings.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {validation.warnings.map((warning, i) => (
+                        <p key={i} className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {warning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Errors */}
+                  {validation.errors.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {validation.errors.map((error, i) => (
+                        <p key={i} className="text-xs text-red-600 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {error}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {validation && validation.casesPerLayer === 0 && validation.errors.length > 0 && (
+                <div className="bg-red-50 rounded-lg p-3">
+                  {validation.errors.map((error, i) => (
+                    <p key={i} className="text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {error}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
-            <div>
-              <p className="text-2xl font-bold">{capacity.layersPerPallet}</p>
-              <p className="text-xs text-muted-foreground">Layers</p>
+          ) : (
+            // Auto mode - show full breakdown
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-2xl font-bold">{capacity.casesPerLayer}</p>
+                <p className="text-xs text-muted-foreground">Cases/Layer</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{capacity.layersPerPallet}</p>
+                <p className="text-xs text-muted-foreground">Layers</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-primary">
+                  {capacity.totalCasesPerPallet}
+                </p>
+                <p className="text-xs text-muted-foreground">Total/Pallet</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-primary">
-                {capacity.totalCasesPerPallet}
-              </p>
-              <p className="text-xs text-muted-foreground">Total/Pallet</p>
-            </div>
-          </div>
+          )
         )}
 
         {currentStock > 0 && (
@@ -216,7 +414,9 @@ export const PalletEstimateDisplay: React.FC<PalletEstimateDisplayProps> = ({
 
         <p className="text-[10px] text-amber-600 flex items-center gap-1">
           <AlertCircle className="h-3 w-3" />
-          Estimates only - verify for actual shipping (48"×40" pallet)
+          {capacity.isManual 
+            ? "Manual entry - verify for actual shipping" 
+            : "Estimates only - verify for actual shipping (48\"×40\" pallet)"}
         </p>
       </CardContent>
     </Card>

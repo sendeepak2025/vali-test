@@ -505,7 +505,7 @@ const StoreOrderMobile = () => {
           id: orderNumber, clientId: storeInfo._id, clientName: storeInfo.storeName,
           shippinCost: 0, date: order.date, shippingAddress: finalShipping, billingAddress,
           status: "pending", items: orderedProducts, total: cartTotal, paymentStatus: "pending",
-          subtotal: cartTotal, store: storeInfo, paymentDetails: {}
+          subtotal: cartTotal, store: storeInfo, paymentDetails: {}, preOrder: true
         })
       } catch (e) {}
       

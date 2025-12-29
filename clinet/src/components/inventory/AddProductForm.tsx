@@ -58,6 +58,9 @@ const AddProductForm: React.FC<AddProductFormProps> = ({
       salesMode: "both",
       caseDimensions: { length: 0, width: 0, height: 0 },
       caseWeight: 0,
+      // Pallet input mode
+      palletInputMode: "auto",
+      manualCasesPerPallet: 0,
     },
   });
 
@@ -98,6 +101,9 @@ console.log(isEditProduct)
           salesMode: response.salesMode || "both",
           caseDimensions: response.caseDimensions || { length: 0, width: 0, height: 0 },
           caseWeight: response.caseWeight || 0,
+          // Pallet input mode
+          palletInputMode: response.palletInputMode || "auto",
+          manualCasesPerPallet: response.manualCasesPerPallet || 0,
         });
       }
     } catch (error) {

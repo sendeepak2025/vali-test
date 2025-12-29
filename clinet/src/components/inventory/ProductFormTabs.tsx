@@ -10,7 +10,10 @@ import { SalesModeSelector } from './forms/SalesModeSelector';
 import { PalletEstimateDisplay } from './forms/PalletEstimate';
 import { TextField } from './forms/FormFields';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Package, Ruler } from "lucide-react";
+import { Package, Ruler, Calculator, Edit3 } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { FormField, FormItem, FormControl } from "@/components/ui/form";
 
 interface ProductFormTabsProps {
   control: Control<FormValues>;
@@ -71,24 +74,126 @@ const CaseDimensionsInput: React.FC<{ control: Control<FormValues> }> = ({ contr
   );
 };
 
+// Manual Pallet Input Component - Now includes case dimensions for validation
+const ManualPalletInput: React.FC<{ control: Control<FormValues> }> = ({ control }) => {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Package className="h-4 w-4" />
+          Manual Pallet Configuration
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Enter cases per pallet and case dimensions for validation
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <TextField
+          control={control}
+          name="manualCasesPerPallet"
+          label="Cases Per Pallet"
+          type="number"
+          placeholder="e.g., 60"
+          description="Total number of cases that fit on one standard pallet"
+        />
+        
+     
+      </CardContent>
+    </Card>
+  );
+};
+
+// Pallet Input Mode Selector
+const PalletInputModeSelector: React.FC<{ control: Control<FormValues> }> = ({ control }) => {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Calculator className="h-4 w-4" />
+          Pallet Calculation Method
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Choose how to determine pallet capacity
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <FormField
+          control={control}
+          name="palletInputMode"
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <RadioGroup
+                  onValueChange={field.onChange}
+                  value={field.value || 'auto'}
+                  className="grid grid-cols-2 gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="auto" id="auto" />
+                    <Label htmlFor="auto" className="flex items-center gap-2 cursor-pointer">
+                      <Calculator className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <div className="font-medium">Auto Calculate</div>
+                        <div className="text-xs text-muted-foreground">From case dimensions</div>
+                      </div>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="manual" id="manual" />
+                    <Label htmlFor="manual" className="flex items-center gap-2 cursor-pointer">
+                      <Edit3 className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <div className="font-medium">Manual Entry</div>
+                        <div className="text-xs text-muted-foreground">I know cases/pallet</div>
+                      </div>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </FormControl>
+            </FormItem>
+          )}
+        />
+      </CardContent>
+    </Card>
+  );
+};
+
 // Sales & Shipping Tab Content
 const SalesShippingTab: React.FC<{ control: Control<FormValues> }> = ({ control }) => {
-  // Watch case dimensions for live pallet estimate
+  // Watch case dimensions and pallet input mode for live pallet estimate
   const caseDimensions = useWatch({ control, name: "caseDimensions" });
   const caseWeight = useWatch({ control, name: "caseWeight" });
+  const palletInputMode = useWatch({ control, name: "palletInputMode" }) || 'auto';
+  const manualCasesPerPallet = useWatch({ control, name: "manualCasesPerPallet" });
 
   return (
     <div className="space-y-6">
       <SalesModeSelector control={control} />
       
-      <CaseDimensionsInput control={control} />
+      <PalletInputModeSelector control={control} />
       
-      {/* Live Pallet Estimate Preview */}
-      <PalletEstimateDisplay
-        caseDimensions={caseDimensions}
-        caseWeight={caseWeight || 0}
-        showBreakdown={true}
-      />
+      {palletInputMode === 'auto' ? (
+        <>
+          <CaseDimensionsInput control={control} />
+          {/* Live Pallet Estimate Preview - Auto Mode */}
+          <PalletEstimateDisplay
+            caseDimensions={caseDimensions}
+            caseWeight={caseWeight || 0}
+            showBreakdown={true}
+          />
+        </>
+      ) : (
+        <>
+          <ManualPalletInput control={control} />
+          {/* Live Pallet Estimate Preview - Manual Mode with Validation */}
+          <PalletEstimateDisplay
+            manualCasesPerPallet={manualCasesPerPallet || 0}
+            caseDimensions={caseDimensions}
+            caseWeight={caseWeight || 0}
+            showBreakdown={true}
+          />
+        </>
+      )}
     </div>
   );
 };
