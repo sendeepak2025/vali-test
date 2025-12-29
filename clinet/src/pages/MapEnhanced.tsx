@@ -121,6 +121,7 @@ const MapContent = () => {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedEntity, setSelectedEntity] = useState<any>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
 
   // Summary stats
   const [stats, setStats] = useState({
@@ -684,11 +685,14 @@ const MapContent = () => {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button className="flex-1" onClick={() => window.location.href = `/clients/${selectedEntity.data.id}`}>
+                    <Button className="flex-1" onClick={() => {
+                      setDetailsOpen(false)
+                      setProfileModalOpen(true)
+                    }}>
                       <Eye className="h-4 w-4 mr-2" />
                       View Profile
                     </Button>
-                    <Button variant="outline" className="flex-1" onClick={() => window.location.href = `/orders/new/${selectedEntity.data.id}`}>
+                    <Button variant="outline" className="flex-1" onClick={() => window.location.href = `/orders/new?clientId=${selectedEntity.data.id}`}>
                       <Package className="h-4 w-4 mr-2" />
                       New Order
                     </Button>
@@ -731,6 +735,144 @@ const MapContent = () => {
                   </div>
                 </>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Customer Profile Modal */}
+      <Dialog open={profileModalOpen} onOpenChange={setProfileModalOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Store className="h-5 w-5 text-blue-600" />
+              Customer Profile
+            </DialogTitle>
+            <DialogDescription>
+              Complete customer information and activity
+            </DialogDescription>
+          </DialogHeader>
+          {selectedEntity?.type === "customer" && selectedEntity.data && (
+            <div className="space-y-6">
+              {/* Header Section */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">{selectedEntity.data.storeName || "Unknown Store"}</h2>
+                  <p className="text-muted-foreground">{selectedEntity.data.ownerName}</p>
+                </div>
+                <Badge variant={selectedEntity.data.status === "active" ? "default" : "secondary"}>
+                  {selectedEntity.data.status || "active"}
+                </Badge>
+              </div>
+
+              {/* Contact Information */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm">Contact Information</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">{selectedEntity.data.phone || "N/A"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm truncate">{selectedEntity.data.email || "N/A"}</span>
+                  </div>
+                  <div className="flex items-start gap-2 col-span-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <span className="text-sm">
+                      {[selectedEntity.data.address, selectedEntity.data.city, selectedEntity.data.state]
+                        .filter(Boolean)
+                        .join(", ") || "N/A"}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Financial Summary */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" />
+                    Financial Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-3 bg-blue-50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Total Orders</p>
+                      <p className="text-xl font-bold text-blue-600">{selectedEntity.data.totalOrders || 0}</p>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Total Spent</p>
+                      <p className="text-xl font-bold text-green-600">{formatCurrency(selectedEntity.data.totalSpent || 0)}</p>
+                    </div>
+                    <div className={`p-3 rounded-lg text-center ${selectedEntity.data.balanceDue > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                      <p className="text-xs text-muted-foreground">Balance Due</p>
+                      <p className={`text-xl font-bold ${selectedEntity.data.balanceDue > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                        {formatCurrency(selectedEntity.data.balanceDue || 0)}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Additional Details */}
+              {(selectedEntity.data.category || selectedEntity.data.route) && (
+                <Card>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-sm">Additional Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {selectedEntity.data.category && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Category</span>
+                        <span className="text-sm font-medium capitalize">{selectedEntity.data.category}</span>
+                      </div>
+                    )}
+                    {selectedEntity.data.route && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Route</span>
+                        <span className="text-sm font-medium">{selectedEntity.data.route}</span>
+                      </div>
+                    )}
+                    {selectedEntity.data.createdAt && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Customer Since</span>
+                        <span className="text-sm font-medium">
+                          {new Date(selectedEntity.data.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-2">
+                <Button 
+                  className="flex-1" 
+                  onClick={() => window.location.href = `/admin/orders`}
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  View Orders
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+onClick={() => window.location.href = `/orders/new?clientId=${selectedEntity.data.id}`}                >
+                  <Truck className="h-4 w-4 mr-2" />
+                  New Order
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => window.location.href = `/admin/store`}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                  Full Page
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
