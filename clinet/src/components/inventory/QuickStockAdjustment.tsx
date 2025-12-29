@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,9 +18,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, Package, Zap, Search } from "lucide-react";
+import { Plus, Minus, Package, Zap, Search, Loader2 } from "lucide-react";
 import { toast } from "react-toastify";
-import { addQuantityProductAPI, trashProductQuanityAPI } from "@/services2/operations/product";
+import { addQuantityProductAPI, trashProductQuanityAPI, searchProductsAPI } from "@/services2/operations/product";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 
@@ -55,12 +55,53 @@ const QuickStockAdjustment: React.FC<QuickStockAdjustmentProps> = ({
   const [unitType, setUnitType] = useState<"box" | "unit">("box");
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Debounced search function
+  const searchProducts = useCallback(async (term: string) => {
+    if (!term || term.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const results = await searchProductsAPI(term);
+      // Map backend response to match Product interface
+      const mappedResults = results.map((p: any) => ({
+        id: p._id,
+        _id: p._id,
+        name: p.name,
+        image: p.image,
+        summary: p.summary,
+      }));
+      setSearchResults(mappedResults);
+    } catch (error) {
+      console.error("Search error:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchTerm) {
+        searchProducts(searchTerm);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, searchProducts]);
+
+  // Use search results if searching, otherwise show passed products
+  const displayProducts = searchTerm.length >= 2 ? searchResults : products;
 
   const handleSubmit = async () => {
     if (!selectedProduct || !quantity || Number(quantity) <= 0) {
@@ -174,11 +215,17 @@ const QuickStockAdjustment: React.FC<QuickStockAdjustmentProps> = ({
 
           {/* Quick Adjust List */}
           <div className="border rounded-lg max-h-[200px] overflow-y-auto">
-            {filteredProducts.slice(0, 10).map((product) => (
+            {isSearching ? (
+              <div className="p-4 text-center text-gray-500 flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Searching...
+              </div>
+            ) : displayProducts.length > 0 ? (
+              displayProducts.slice(0, 10).map((product) => (
               <div
-                key={product.id}
+                key={product.id || product._id}
                 className={`flex items-center justify-between p-3 border-b last:border-b-0 hover:bg-gray-50 ${
-                  selectedProduct?.id === product.id ? "bg-blue-50" : ""
+                  selectedProduct?.id === product.id || selectedProduct?._id === product._id ? "bg-blue-50" : ""
                 }`}
               >
                 <div
@@ -226,9 +273,63 @@ const QuickStockAdjustment: React.FC<QuickStockAdjustmentProps> = ({
                   </Button>
                 </div>
               </div>
-            ))}
-            {filteredProducts.length === 0 && (
+            ))
+            ) : searchTerm.length >= 2 ? (
               <div className="p-4 text-center text-gray-500">No products found</div>
+            ) : (
+              displayProducts.slice(0, 10).map((product) => (
+              <div
+                key={product.id || product._id}
+                className={`flex items-center justify-between p-3 border-b last:border-b-0 hover:bg-gray-50 ${
+                  selectedProduct?.id === product.id || selectedProduct?._id === product._id ? "bg-blue-50" : ""
+                }`}
+              >
+                <div
+                  className="flex items-center gap-3 flex-1 cursor-pointer"
+                  onClick={() => setSelectedProduct(product)}
+                >
+                  {product.image ? (
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                      className="w-8 h-8 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 bg-gray-200 rounded flex items-center justify-center">
+                      <Package className="w-4 h-4 text-gray-400" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="font-medium text-sm">{product.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Stock: {product.summary?.totalRemaining || 0} boxes
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick +/- Buttons */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                    onClick={() => handleQuickAdjust(product, "remove", 1)}
+                    disabled={loading}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
+                    onClick={() => handleQuickAdjust(product, "add", 1)}
+                    disabled={loading}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            ))
             )}
           </div>
 

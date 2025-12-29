@@ -330,6 +330,24 @@ export const addQuantityProductAPI = async ( formData, token) => {
 };
 
 
+// Search products from backend (for QuickStockAdjustment)
+export const searchProductsAPI = async (searchTerm) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${product.SEARCH_PRODUCTS}?search=${encodeURIComponent(searchTerm)}&limit=20`
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.data || [];
+  } catch (error) {
+    console.error("Search Products API ERROR:", error);
+    return [];
+  }
+};
 
 
 export const calculateTripWeightAPI = async (orderIds, token) => {
