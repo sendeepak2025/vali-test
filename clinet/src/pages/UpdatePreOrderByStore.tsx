@@ -342,7 +342,7 @@ const UpdatePreOrderByStore = () => {
 
         setOrder(formattedOrder)
         setOrderItems(formattedOrder.items)
-        setOrderStatus(formattedOrder.status)
+setOrderStatus(formattedOrder.status.toLowerCase())
         setOrderDate(formattedOrder.date ? new Date(formattedOrder.date).toISOString().split('T')[0] : "")
         setSameAsBilling(JSON.stringify(res?.shippingAddress) === JSON.stringify(res?.billingAddress))
       } catch (error) {

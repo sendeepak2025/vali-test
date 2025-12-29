@@ -418,7 +418,7 @@ if (insufficientStock.length > 0  ) {
             orderNumber: newOrder.orderNumber,
             total: newOrder.total 
           },
-          `/orders/${newOrder._id}`
+          `/orders/edit/${newOrder._id}`
         );
 
         // Notify admins about new order (in-app only, no email)
@@ -432,7 +432,7 @@ if (insufficientStock.length > 0  ) {
             storeName: storeDetails.storeName,
             total: newOrder.total,
           },
-          `/admin/orders/${newOrder._id}`,
+          `/orders/edit/${newOrder._id}`,
           false // No email for regular orders
         );
 
@@ -449,7 +449,7 @@ if (insufficientStock.length > 0  ) {
               total: newOrder.total,
               isHighValue: true,
             },
-            `/admin/orders/${newOrder._id}`,
+            `/orders/edit/${newOrder._id}`,
             true, // Send email for high-value orders
             "ORDER_CONFIRMATION",
             {
@@ -1065,7 +1065,7 @@ const updateOrderCtrl = async (req, res) => {
               oldStatus,
               newStatus 
             },
-            `/orders/${existingOrder._id}`
+            `/orders/edit/${existingOrder._id}`
           );
         }
       } catch (notificationError) {

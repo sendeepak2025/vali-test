@@ -116,7 +116,7 @@ const getSinglePreOrderCtrl = async (req, res) => {
     const { id } = req.params;
 
     const order = await PreOrder.findById(id)
-      .populate("store", "storeName ");   // ⬅️ storeName populate
+      .populate("store", "storeName ownerName");   // ⬅️ storeName populate
 
     return res.status(200).json({
       success: true,

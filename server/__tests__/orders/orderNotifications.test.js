@@ -74,7 +74,7 @@ describe("Order Notifications", () => {
               "Order Confirmed",
               `Your order #${orderData.orderNumber} has been placed successfully. Total: $${orderData.total.toFixed(2)}`,
               orderData,
-              `/orders/${orderData.orderId}`
+              `/orders/edit/${orderData.orderId}`
             );
 
             // Verify notification was created for store owner
@@ -110,7 +110,7 @@ describe("Order Notifications", () => {
         "New Order Received",
         `${orderData.storeName} placed order #${orderData.orderNumber} for $${orderData.total.toFixed(2)}`,
         orderData,
-        `/admin/orders/${orderData.orderId}`,
+        `/orders/edit/${orderData.orderId}`,
         false
       );
 
@@ -150,7 +150,7 @@ describe("Order Notifications", () => {
               "Order Status Updated",
               `Your order #${orderData.orderNumber} status has been updated to: ${newStatus}`,
               orderData,
-              `/orders/${orderData.orderId}`
+              `/orders/edit/${orderData.orderId}`
             );
 
             // Verify notification was created
@@ -195,7 +195,7 @@ describe("Order Notifications", () => {
               "⚠️ High-Value Order Alert",
               `High-value order #${orderData.orderNumber} from ${orderData.storeName}: $${orderData.total.toFixed(2)}`,
               orderData,
-              `/admin/orders/${orderData.orderId}`,
+              `/orders/edit/${orderData.orderId}`,
               false // Skip email in test
             );
 
@@ -232,7 +232,7 @@ describe("Order Notifications", () => {
         "Order Confirmed",
         `Your order #${orderData.orderNumber} has been placed.`,
         orderData,
-        `/orders/${orderData.orderId}`
+        `/orders/edit/${orderData.orderId}`
       );
 
       const notification = await Notification.findOne({
@@ -244,7 +244,7 @@ describe("Order Notifications", () => {
       expect(notification.data.orderId).toBeDefined();
       expect(notification.data.orderNumber).toBe(orderData.orderNumber);
       expect(notification.data.total).toBe(orderData.total);
-      expect(notification.link).toBe(`/orders/${orderData.orderId}`);
+      expect(notification.link).toBe(`/orders/edit/${orderData.orderId}`);
     });
   });
 
