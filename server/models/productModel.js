@@ -252,12 +252,28 @@ const ProductSchema = new mongoose.Schema(
             min: 0
         },
 
+        // Pallet input mode - 'auto' calculates from dimensions, 'manual' uses direct input
+        palletInputMode: {
+            type: String,
+            enum: ["auto", "manual"],
+            default: "auto"
+        },
+
+        // Manual cases per pallet - used when palletInputMode is 'manual'
+        // e.g., "This product comes 60 cases per pallet"
+        manualCasesPerPallet: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+
         // Cached pallet capacity (auto-calculated on save when dimensions change)
         // Note: These are estimates only - verify for actual shipping
         palletCapacity: {
             casesPerLayer: { type: Number, default: 0 },
             layersPerPallet: { type: Number, default: 0 },
-            totalCasesPerPallet: { type: Number, default: 0 }
+            totalCasesPerPallet: { type: Number, default: 0 },
+            isManual: { type: Boolean, default: false }
         }
 
 
@@ -281,11 +297,46 @@ ProductSchema.pre('save', async function(next) {
 
 // Pre-save hook to automatically calculate pallet capacity when dimensions change
 ProductSchema.pre('save', function(next) {
+    // Check if using manual mode
+    if (this.palletInputMode === 'manual') {
+        // Manual mode - use the manually entered value with actual dimension validation
+        if (this.isModified('manualCasesPerPallet') || this.isModified('palletInputMode') || 
+            this.isModified('caseDimensions') || this.isModified('caseWeight')) {
+            
+            const casesPerPallet = this.manualCasesPerPallet || 0;
+            let casesPerLayer = 0;
+            let layersUsed = 0;
+            
+            // Calculate from actual dimensions if provided
+            if (this.caseDimensions && 
+                this.caseDimensions.length > 0 && 
+                this.caseDimensions.width > 0 && 
+                this.caseDimensions.height > 0) {
+                
+                const capacity = calculatePalletCapacity(this.caseDimensions, this.caseWeight);
+                if (capacity) {
+                    casesPerLayer = capacity.casesPerLayer;
+                    layersUsed = Math.ceil(casesPerPallet / casesPerLayer);
+                }
+            }
+            
+            this.palletCapacity = {
+                casesPerLayer: casesPerLayer,
+                layersPerPallet: layersUsed,
+                totalCasesPerPallet: casesPerPallet,
+                isManual: true
+            };
+        }
+        return next();
+    }
+
+    // Auto mode - calculate from dimensions
     // Check if caseDimensions or caseWeight has been modified
     const dimensionsModified = this.isModified('caseDimensions.length') || 
                                this.isModified('caseDimensions.width') || 
                                this.isModified('caseDimensions.height') ||
-                               this.isModified('caseWeight');
+                               this.isModified('caseWeight') ||
+                               this.isModified('palletInputMode');
     
     // Also calculate on new documents with dimensions
     const isNewWithDimensions = this.isNew && 

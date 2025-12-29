@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Counter = require("../models/counterModel");
 const PreOrder = require("../models/preOrderModel");
 const { createOrderCtrl } = require("./orderCtrl");
@@ -68,9 +69,30 @@ const createPreOrderCtrl = async (req, res) => {
 };
 
 
+const User = require("../models/authModel");
+
 const getAllPreOrdersCtrl = async (req, res) => {
   try {
-    const storeId = req.query.storeId; 
+    // Get user from token (set by auth middleware)
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated"
+      });
+    }
+
+    // Get user details to check role
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
     const search = req.query.search || "";
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
@@ -78,11 +100,26 @@ const getAllPreOrdersCtrl = async (req, res) => {
 
     const searchRegex = new RegExp(search, "i");
 
-    // Filter by storeId and optional search
-    const filter = {
-      ...(storeId && { store: storeId }),
-      ...(search && { preOrderNumber: searchRegex }),
-    };
+    // Build filter based on user role
+    let filter = {};
+    
+    if (user.role === "store") {
+      // Store users can only see their own preorders
+      filter.store = new mongoose.Types.ObjectId(userId);
+    } else if (user.role === "admin" || user.role === "member") {
+      // Admin/member can see all preorders, or filter by storeId if provided
+      const storeId = req.query.storeId;
+      if (storeId && mongoose.Types.ObjectId.isValid(storeId)) {
+        filter.store = new mongoose.Types.ObjectId(storeId);
+      }
+    }
+    
+    // Add search filter
+    if (search) {
+      filter.preOrderNumber = searchRegex;
+    }
+    
+    console.log("PreOrder filter:", filter, "userId:", userId, "role:", user.role);
 
     const total = await PreOrder.countDocuments(filter);
 

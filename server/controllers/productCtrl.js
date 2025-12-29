@@ -39,6 +39,8 @@ const createProductCtrl = async (req, res) => {
             salesMode = "both",
             caseDimensions,
             caseWeight = 0,
+            palletInputMode = "auto",
+            manualCasesPerPallet = 0,
             
         } = req.body;
 
@@ -86,6 +88,8 @@ console.log(req.body)
             salesMode: salesMode || "both",
             caseDimensions: caseDimensions || { length: 0, width: 0, height: 0 },
             caseWeight: caseWeight || 0,
+            palletInputMode: palletInputMode || "auto",
+            manualCasesPerPallet: manualCasesPerPallet || 0,
           
         });
 
@@ -362,7 +366,9 @@ const updateProductCtrl = async (req, res) => {
             // New fields for sales mode and pallet tracking
             salesMode,
             caseDimensions,
-            caseWeight
+            caseWeight,
+            palletInputMode,
+            manualCasesPerPallet
         } = req.body;
 
         const { id } = req.params;
@@ -429,6 +435,8 @@ const updateProductCtrl = async (req, res) => {
             };
         }
         if (caseWeight !== undefined) product.caseWeight = caseWeight;
+        if (palletInputMode) product.palletInputMode = palletInputMode;
+        if (manualCasesPerPallet !== undefined) product.manualCasesPerPallet = manualCasesPerPallet;
 
         await product.save();
 
