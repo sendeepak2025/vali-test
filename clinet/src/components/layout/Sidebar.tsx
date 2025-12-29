@@ -42,7 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const handleLogout = useCallback(() => {
     dispatch(logout());
-    navigate("/login");
+    navigate("/auth");
   }, [dispatch, navigate]);
 
   const adminNavigation = [
@@ -108,27 +108,28 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     },
   ];
 
-  const memberNavigation = [
-    ...(user?.role === "member" && user?.isOrder
-      ? [
-          {
-            name: "Orders",
-            path: "/admin/orders",
-            icon: <ShoppingCart size={20} />,
-          },
-        ]
-      : []),
-    {
-      name: "Products",
-      path: "/admin/inventory",
-      icon: <Package size={20} />,
-    },
-    {
-      name: "Vendors",
-      path: "/vendors",
-      icon: <User2Icon size={20} />,
-    },
-  ];
+ const memberNavigation = [
+  ...(user?.role === "member" && user?.isOrder
+    ? [
+        {
+          name: "Orders",
+          path: "/admin/orders",
+          icon: <ShoppingCart size={20} />,
+        },
+      ]
+    : []),
+
+  ...(user?.role === "member" && user?.isProduct
+    ? [
+        {
+          name: "Products",
+          path: "/admin/inventory",
+          icon: <Package size={20} />,
+        },
+      ]
+    : []),
+];
+
 
   const storeNavigation = [
     {
@@ -286,7 +287,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Pro Version section - only for non-admin */}
-        {userRole !== "admin" && !collapsed && (
+        {/* {userRole !== "admin" && !collapsed && (
           <div className="p-4 border-t border-slate-700/50">
             <Link to="/store" className="block">
               <div className="rounded-xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 p-4 border border-blue-500/20 hover:border-blue-500/40 transition-all duration-200 group">
@@ -306,7 +307,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               </div>
             </Link>
           </div>
-        )}
+        )} */}
 
         {/* Collapsed Pro indicator */}
         {userRole !== "admin" && collapsed && (

@@ -25,7 +25,7 @@ const StoreAccount = () => {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {/* <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} /> */}
       <div className="flex-1 overflow-auto">
         <StoreAccountContent />
       </div>
@@ -173,9 +173,9 @@ const StoreAccountContent = () => {
                   {creditBalance > 0 && ` You have ${formatCurrency(creditBalance)} in store credit available.`}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => navigate('/store-cheque-payment')}>
+              {/* <Button variant="outline" size="sm" onClick={() => navigate('/store-cheque-payment')}>
                 Make Payment
-              </Button>
+              </Button> */}
             </div>
           </CardContent>
         </Card>

@@ -266,10 +266,10 @@ if(res){
                     <div className="text-center mt-2">
                       <Button
                         variant="link"
-                        onClick={() => navigate("/store-portal")}
+                        onClick={() => navigate("/store-registration")}
                         className="text-primary text-sm"
                       >
-                        Go to Store Portal
+                        Go to Store 
                       </Button>
                     </div>
                   </form>

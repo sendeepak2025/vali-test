@@ -697,7 +697,7 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
             <div className="mb-6">
               <PageHeader title="Inventory Management" description="Track stock levels, freshness, and margins">
                 <div className="flex flex-wrap gap-2">
-                  <KeyboardShortcutsHelp shortcuts={shortcuts} />
+                  {/* <KeyboardShortcutsHelp shortcuts={shortcuts} /> */}
                   <Button variant="outline" size="sm" className="bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100" onClick={() => setIsQuickAdjustOpen(true)}>
                     <Zap size={16} className="mr-2" /> Quick Adjust
                   </Button>

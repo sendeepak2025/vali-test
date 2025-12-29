@@ -65,7 +65,7 @@ const Index = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Navbar toggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen} />
 
-        <main className="flex-1 overflow-y-auto bg-muted/30">
+        {/* <main className="flex-1 overflow-y-auto bg-muted/30">
           <div className="page-container max-w-full px-4 py-4">
             <PageHeader 
               title="Dashboard" 
@@ -80,7 +80,6 @@ const Index = () => {
               </div>
             </PageHeader>
 
-            {/* Metrics Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
               <Card>
                 <CardContent className="p-6">
@@ -135,7 +134,6 @@ const Index = () => {
               </Card>
             </div>
 
-            {/* Charts and Tables */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
               <Card>
                 <CardHeader className="pb-2">
@@ -208,7 +206,6 @@ const Index = () => {
               </Card>
             </div>
 
-            {/* AI Insights */}
             <div className="mt-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-medium">AI Insights</h2>
@@ -218,7 +215,7 @@ const Index = () => {
               </div><AiInsights insights={aiInsights} />
             </div>
           </div>
-        </main>
+        </main> */}
       </div>
     </div>
   );

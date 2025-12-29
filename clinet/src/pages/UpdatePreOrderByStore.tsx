@@ -436,7 +436,7 @@ const UpdatePreOrderByStore = () => {
 
       await updatePreOrderAPI(finalData, token, id)
       toast({ title: "Pre-Order Updated", description: `Pre-Order has been updated successfully` })
-      navigate("/store/pre-orders")
+      navigate("/store/dashboard")
     } catch (error) {
       console.error("Error updating pre-order:", error)
       toast({ title: "Error", description: "Failed to update pre-order", variant: "destructive" })
@@ -445,7 +445,7 @@ const UpdatePreOrderByStore = () => {
     }
   }
 
-  const handleCancel = () => navigate("/store/pre-orders")
+  const handleCancel = () => navigate("/store/dashboard")
 
   if (loading) {
     return (
@@ -479,9 +479,9 @@ const UpdatePreOrderByStore = () => {
 
   return (
     <div className="flex overflow-hidden">
-      <Sidebar isOpen={isSidebarOpen} />
+      {/* <Sidebar isOpen={isSidebarOpen} /> */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isSidebarOpen={isSidebarOpen} />
+        {/* <Navbar toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} isSidebarOpen={isSidebarOpen} /> */}
         
         <main className="flex-1 overflow-y-auto bg-gray-50">
           <div className="max-w-6xl mx-auto p-4 md:p-6">

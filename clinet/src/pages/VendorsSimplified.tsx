@@ -520,7 +520,7 @@ const VendorContent = () => {
       <div className="bg-white rounded-lg shadow-sm border">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="border-b px-4 pt-4">
-            <TabsList className="grid w-full max-w-2xl grid-cols-4 h-12">
+            <TabsList className="grid w-full max-w-2xl grid-cols-2 h-12">
               <TabsTrigger value="vendors" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
                 <Users className="h-4 w-4" />
                 <span className="hidden sm:inline">Vendors</span>
@@ -529,14 +529,14 @@ const VendorContent = () => {
                 <Package className="h-4 w-4" />
                 <span className="hidden sm:inline">Purchase Orders</span>
               </TabsTrigger>
-              <TabsTrigger value="invoices" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+              {/* <TabsTrigger value="invoices" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
                 <Receipt className="h-4 w-4" />
                 <span className="hidden sm:inline">Invoices</span>
               </TabsTrigger>
               <TabsTrigger value="payments" className="flex items-center gap-2 data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
                 <DollarSign className="h-4 w-4" />
                 <span className="hidden sm:inline">Payments</span>
-              </TabsTrigger>
+              </TabsTrigger> */}
             </TabsList>
           </div>
 

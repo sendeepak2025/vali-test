@@ -286,9 +286,9 @@ const StoreDashboardEnhanced = () => {
             <TabsTrigger value="orders" className="flex items-center gap-2">
               <ShoppingBag className="h-4 w-4" /> Orders
             </TabsTrigger>
-            <TabsTrigger value="products" className="flex items-center gap-2">
+            {/* <TabsTrigger value="products" className="flex items-center gap-2">
               <Package className="h-4 w-4" /> Products
-            </TabsTrigger>
+            </TabsTrigger> */}
             <TabsTrigger value="payments" className="flex items-center gap-2">
               <CreditCard className="h-4 w-4" /> Payments
             </TabsTrigger>
@@ -359,21 +359,21 @@ const StoreDashboardEnhanced = () => {
                   <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store/mobile")}>
                     <ShoppingCart className="h-4 w-4 mr-3" /> Place New Order
                   </Button>
-                  <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store/mobile/nextweek")}>
+                  {/* <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store/mobile/nextweek")}>
                     <Calendar className="h-4 w-4 mr-3" /> Next Week Order
-                  </Button>
+                  </Button> */}
                   <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("orders")}>
                     <History className="h-4 w-4 mr-3" /> View Order History
                   </Button>
-                  <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store-account")}>
+                  {/* <Button className="w-full justify-start" variant="outline" onClick={() => navigate("/store-account")}>
                     <Wallet className="h-4 w-4 mr-3" /> My Account & Credits
-                  </Button>
+                  </Button> */}
                   <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("payments")}>
                     <Receipt className="h-4 w-4 mr-3" /> View Statements
                   </Button>
-                  <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("products")}>
+                  {/* <Button className="w-full justify-start" variant="outline" onClick={() => setActiveTab("products")}>
                     <Package className="h-4 w-4 mr-3" /> Browse Products
-                  </Button>
+                  </Button> */}
                 </CardContent>
               </Card>
             </div>
@@ -618,6 +618,33 @@ const StoreDashboardEnhanced = () => {
 
           {/* Profile Tab */}
           <TabsContent value="profile" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" /> Account Statistics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-3xl font-bold text-blue-600">{totalOrders}</p>
+                    <p className="text-sm text-gray-500">Total Orders</p>
+                  </div>
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-3xl font-bold text-green-600">{formatCurrency(totalSpent)}</p>
+                    <p className="text-sm text-gray-500">Total Spent</p>
+                  </div>
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-3xl font-bold text-purple-600">{orders.filter(o => o.paymentStatus === "paid").length}</p>
+                    <p className="text-sm text-gray-500">Paid Orders</p>
+                  </div>
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <p className="text-3xl font-bold text-orange-600">{totalOrders > 0 ? formatCurrency(totalSpent / totalOrders) : "$0"}</p>
+                    <p className="text-sm text-gray-500">Avg Order Value</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Current Profile Information */}
               <div className="space-y-4">
@@ -688,33 +715,7 @@ const StoreDashboardEnhanced = () => {
             </div>
 
             {/* Account Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" /> Account Statistics
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-3xl font-bold text-blue-600">{totalOrders}</p>
-                    <p className="text-sm text-gray-500">Total Orders</p>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-3xl font-bold text-green-600">{formatCurrency(totalSpent)}</p>
-                    <p className="text-sm text-gray-500">Total Spent</p>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-3xl font-bold text-purple-600">{orders.filter(o => o.paymentStatus === "paid").length}</p>
-                    <p className="text-sm text-gray-500">Paid Orders</p>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-3xl font-bold text-orange-600">{totalOrders > 0 ? formatCurrency(totalSpent / totalOrders) : "$0"}</p>
-                    <p className="text-sm text-gray-500">Avg Order Value</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            
           </TabsContent>
 
             <TabsContent value="preOrder" className="space-y-4">
