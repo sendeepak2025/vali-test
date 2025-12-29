@@ -2029,10 +2029,10 @@ const VendorManagementContent = () => {
             <MessageSquareWarning className="h-4 w-4" />
             Disputes
           </TabsTrigger>
-          <TabsTrigger value="reports" className="flex items-center gap-2">
+          {/* <TabsTrigger value="reports" className="flex items-center gap-2">
             <PieChart className="h-4 w-4" />
             Reports
-          </TabsTrigger>
+          </TabsTrigger> */}
         </TabsList>
 
         {/* Dashboard Tab */}

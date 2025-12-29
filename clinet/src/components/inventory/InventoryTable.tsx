@@ -141,6 +141,8 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   const [orderDetails, setOrderDetails] = useState(false);
   const [productOrderData, setProductOrderData] = useState(null);
 const [assingProductToStore, setAssingProductToStore] = useState(false);
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false);
+  const [viewDetailsProduct, setViewDetailsProduct] = useState<Product | null>(null);
 
   const openModal = () => setAssingProductToStore(true);
   const closeModal = () => setAssingProductToStore(false);
@@ -655,8 +657,23 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                           }}
                         >
                           <FileEdit className="h-4 w-4 mr-2" />
-                          Edit
+                           Edit
                         </DropdownMenuItem>
+                        {/* <DropdownMenuItem
+                          onClick={() => onReorderProduct(product)}
+                        >
+                          <Package className="h-4 w-4 mr-2" />
+                          Reorder
+                        </DropdownMenuItem> */}
+                        {/* <DropdownMenuItem
+                          onClick={() => {
+                            setViewDetailsProduct(product);
+                            setIsViewDetailsOpen(true);
+                          }}
+                        >
+                          <Info className="h-4 w-4 mr-2" />
+                          View Details
+                        </DropdownMenuItem> */}
                         <DropdownMenuItem
                           onClick={() => handleDelete(product.id)}
                           className="text-red-600"
@@ -1052,6 +1069,144 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* View Details Dialog */}
+      <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+              <Info className="h-5 w-5" />
+              Product Details
+            </DialogTitle>
+          </DialogHeader>
+          {viewDetailsProduct && (
+            <div className="space-y-6">
+              {/* Product Header */}
+              <div className="flex items-start gap-4">
+                <div className="h-20 w-20 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {viewDetailsProduct.image ? (
+                    <img src={viewDetailsProduct.image} alt={viewDetailsProduct.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold">{viewDetailsProduct.name}</h3>
+                  <p className="text-sm text-muted-foreground">{viewDetailsProduct.category || "Uncategorized"}</p>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {viewDetailsProduct.organic && (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">
+                        Organic
+                      </Badge>
+                    )}
+                    {viewDetailsProduct.origin && (
+                      <Badge variant="outline" className="text-xs">
+                        {viewDetailsProduct.origin}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stock Information */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="p-4 bg-blue-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-blue-600">{viewDetailsProduct.summary?.totalPurchase || 0}</p>
+                  <p className="text-xs text-blue-600/80">Purchased</p>
+                </div>
+                <div className="p-4 bg-green-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-600">{viewDetailsProduct.summary?.totalSell || 0}</p>
+                  <p className="text-xs text-green-600/80">Sold</p>
+                </div>
+                <div className="p-4 bg-orange-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-orange-600">{viewDetailsProduct.summary?.totalRemaining || 0}</p>
+                  <p className="text-xs text-orange-600/80">Remaining</p>
+                </div>
+              </div>
+
+              {/* Pricing Information */}
+              <div className="space-y-3">
+                <h4 className="font-medium">Pricing</h4>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Price</p>
+                    <p className="font-semibold">${viewDetailsProduct.price?.toFixed(2) || "0.00"}</p>
+                  </div>
+                  {viewDetailsProduct.pricePerBox && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Price Per Box</p>
+                      <p className="font-semibold">${viewDetailsProduct.pricePerBox.toFixed(2)}</p>
+                    </div>
+                  )}
+                  {viewDetailsProduct.boxSize && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Box Size</p>
+                      <p className="font-semibold">{viewDetailsProduct.boxSize}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs text-muted-foreground">Inventory Value</p>
+                    <p className="font-semibold">${((viewDetailsProduct.price || 0) * (viewDetailsProduct.summary?.totalRemaining || 0)).toFixed(2)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Details */}
+              <div className="space-y-3">
+                <h4 className="font-medium">Additional Details</h4>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg text-sm">
+                  {viewDetailsProduct.unit && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Unit</p>
+                      <p>{viewDetailsProduct.unit}</p>
+                    </div>
+                  )}
+                  {viewDetailsProduct.storageInstructions && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Storage Instructions</p>
+                      <p>{viewDetailsProduct.storageInstructions}</p>
+                    </div>
+                  )}
+                  {viewDetailsProduct.expiryDate && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Expiry Date</p>
+                      <p>{new Date(viewDetailsProduct.expiryDate).toLocaleDateString()}</p>
+                    </div>
+                  )}
+                  {viewDetailsProduct.batchInfo && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Batch Info</p>
+                      <p>{viewDetailsProduct.batchInfo}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs text-muted-foreground">Last Updated</p>
+                    <p>{viewDetailsProduct.lastUpdated ? new Date(viewDetailsProduct.lastUpdated).toLocaleDateString() : "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {viewDetailsProduct.description && (
+                <div className="space-y-2">
+                  <h4 className="font-medium">Description</h4>
+                  <p className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg">{viewDetailsProduct.description}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setIsViewDetailsOpen(false)}>Close</Button>
+            <Button onClick={() => {
+              setIsViewDetailsOpen(false);
+              setEditProduct(viewDetailsProduct?.id);
+              setIsEditProduct(true);
+            }}>
+              <FileEdit className="h-4 w-4 mr-2" /> Edit Product
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

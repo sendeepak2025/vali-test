@@ -171,6 +171,8 @@ const InventoryEnhanced = () => {
   const [isAddCateOpen, setIsAddCateOpen] = useState(false)
   const [quickEditOpen, setQuickEditOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [isEditProductOpen, setIsEditProductOpen] = useState(false)
+  const [editProductId, setEditProductId] = useState<string | null>(null)
   const [lowStockAlertOpen, setLowStockAlertOpen] = useState(false)
   const [isReorderDialogOpen, setIsReorderDialogOpen] = useState(false)
   const [selectedProductForReorder, setSelectedProductForReorder] = useState<Product | null>(null)
@@ -181,6 +183,8 @@ const InventoryEnhanced = () => {
   const [isQuickAdjustOpen, setIsQuickAdjustOpen] = useState(false)
   const [isStoreViewOpen, setIsStoreViewOpen] = useState(false)
   const [isStoreInventoryOpen, setIsStoreInventoryOpen] = useState(false)
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false)
+  const [viewDetailsProduct, setViewDetailsProduct] = useState<any>(null)
 
   // Stats
   const [stats, setStats] = useState({
@@ -489,6 +493,11 @@ const InventoryEnhanced = () => {
     setQuickEditOpen(true)
   }
 
+  const handleViewDetails = (product: any) => {
+    setViewDetailsProduct(product)
+    setIsViewDetailsOpen(true)
+  }
+
   const handleSelectAll = (checked: boolean) => {
     setSelectedProducts(checked ? products.map(p => p.id) : [])
   }
@@ -655,19 +664,19 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleQuickEdit(product)}>
+                            {/* <DropdownMenuItem onClick={() => handleQuickEdit(product)}>
                               <Edit className="h-4 w-4 mr-2" /> Quick Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenReorderDialog(product)}>
+                            </DropdownMenuItem> */}
+                            {/* <DropdownMenuItem onClick={() => handleOpenReorderDialog(product)}>
                               <Package className="h-4 w-4 mr-2" /> Reorder
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            </DropdownMenuItem> */}
+                            <DropdownMenuItem onClick={() => handleViewDetails(product)}>
                               <Eye className="h-4 w-4 mr-2" /> View Details
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-red-600">
+                            {/* <DropdownMenuItem className="text-red-600">
                               <Trash2 className="h-4 w-4 mr-2" /> Delete
-                            </DropdownMenuItem>
+                            </DropdownMenuItem> */}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1004,6 +1013,170 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                     Save Changes
                   </Button>
                 </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* View Details Dialog */}
+            <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
+              <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+                    <Eye className="h-5 w-5" />
+                    Product Details
+                  </DialogTitle>
+                </DialogHeader>
+                {viewDetailsProduct && (
+                  <div className="space-y-6">
+                    {/* Product Header */}
+                    <div className="flex items-start gap-4">
+                      <div className="h-20 w-20 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {viewDetailsProduct.image ? (
+                          <img src={viewDetailsProduct.image} alt={viewDetailsProduct.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold">{viewDetailsProduct.name}</h3>
+                        <p className="text-sm text-muted-foreground">{viewDetailsProduct.category?.categoryName || "Uncategorized"}</p>
+                        {viewDetailsProduct.sku && <p className="text-xs text-muted-foreground mt-1">SKU: {viewDetailsProduct.sku}</p>}
+                        <div className="mt-2">
+                          <StockBadge 
+                            purchased={viewDetailsProduct.summary?.totalPurchase || 0} 
+                            sold={viewDetailsProduct.summary?.totalSell || 0} 
+                            remaining={viewDetailsProduct.summary?.totalRemaining || 0} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stock Information */}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="p-4 bg-blue-50 rounded-lg text-center">
+                        <p className="text-2xl font-bold text-blue-600">{viewDetailsProduct.summary?.totalPurchase || 0}</p>
+                        <p className="text-xs text-blue-600/80">Purchased</p>
+                      </div>
+                      <div className="p-4 bg-green-50 rounded-lg text-center">
+                        <p className="text-2xl font-bold text-green-600">{viewDetailsProduct.summary?.totalSell || 0}</p>
+                        <p className="text-xs text-green-600/80">Sold</p>
+                      </div>
+                      <div className="p-4 bg-orange-50 rounded-lg text-center">
+                        <p className="text-2xl font-bold text-orange-600">{viewDetailsProduct.summary?.totalRemaining || 0}</p>
+                        <p className="text-xs text-orange-600/80">Remaining</p>
+                      </div>
+                    </div>
+
+                    {/* Pricing Information */}
+                    <div className="space-y-3">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" /> Pricing
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Price</p>
+                          <p className="font-semibold">{formatCurrency(viewDetailsProduct.price || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Cost</p>
+                          <p className="font-semibold">{formatCurrency(viewDetailsProduct.cost || 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Margin</p>
+                          <MarginIndicator cost={viewDetailsProduct.cost || 0} price={viewDetailsProduct.price || 0} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Inventory Value</p>
+                          <p className="font-semibold">{formatCurrency((viewDetailsProduct.price || 0) * (viewDetailsProduct.summary?.totalRemaining || 0))}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Additional Details */}
+                    <div className="space-y-3">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <Package className="h-4 w-4" /> Additional Details
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg text-sm">
+                        {viewDetailsProduct.unit && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Unit</p>
+                            <p>{viewDetailsProduct.unit}</p>
+                          </div>
+                        )}
+                        {viewDetailsProduct.boxSize && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Box Size</p>
+                            <p>{viewDetailsProduct.boxSize}</p>
+                          </div>
+                        )}
+                        {viewDetailsProduct.pricePerBox && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Price Per Box</p>
+                            <p>{formatCurrency(viewDetailsProduct.pricePerBox)}</p>
+                          </div>
+                        )}
+                        {viewDetailsProduct.origin && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Origin</p>
+                            <p>{viewDetailsProduct.origin}</p>
+                          </div>
+                        )}
+                        {viewDetailsProduct.storageType && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Storage Type</p>
+                            <StorageBadge type={viewDetailsProduct.storageType} />
+                          </div>
+                        )}
+                        {viewDetailsProduct.organic !== undefined && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Organic</p>
+                            <p>{viewDetailsProduct.organic ? "Yes" : "No"}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-muted-foreground">Last Updated</p>
+                          <p>{viewDetailsProduct.lastUpdated ? new Date(viewDetailsProduct.lastUpdated).toLocaleDateString() : "N/A"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {viewDetailsProduct.description && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium">Description</h4>
+                        <p className="text-sm text-muted-foreground p-4 bg-muted/50 rounded-lg">{viewDetailsProduct.description}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsViewDetailsOpen(false)}>Close</Button>
+                  <Button onClick={() => {
+                    setIsViewDetailsOpen(false)
+                    setEditProductId(viewDetailsProduct?.id || viewDetailsProduct?._id)
+                    setIsEditProductOpen(true)
+                  }}>
+                    <Edit className="h-4 w-4 mr-2" /> Edit Product
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* Edit Product Dialog */}
+            <Dialog open={isEditProductOpen} onOpenChange={setIsEditProductOpen}>
+              <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-semibold">Edit Product</DialogTitle>
+                </DialogHeader>
+                <AddProductForm
+                  onSuccess={() => {
+                    fetchProducts()
+                    setIsEditProductOpen(false)
+                    setEditProductId(null)
+                  }}
+                  editProduct={editProductId}
+                  isEditProduct={isEditProductOpen}
+                />
               </DialogContent>
             </Dialog>
 
