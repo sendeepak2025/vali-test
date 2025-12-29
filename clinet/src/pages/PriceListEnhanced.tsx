@@ -934,12 +934,30 @@ const PriceListEnhanced = () => {
     toast({ title: "Undone", description: `Reverted ${last.code} ${last.field} to $${last.oldPrice.toFixed(2)}` })
   }
 
+  // Search product by name
+  const searchProductByName = (searchTerm: string): any | null => {
+    const term = searchTerm.toLowerCase()
+    const found = products.find(p => 
+      p.name?.toLowerCase().includes(term) ||
+      p.shortCode?.toLowerCase().includes(term)
+    )
+    return found || null
+  }
+
   // Quick Add - Handle input change and show preview
   const handleQuickAddChange = (value: string) => {
     setQuickAddInput(value)
     const code = value.trim().padStart(2, '0')
     const product = productCodeMap.get(code)
-    setQuickAddPreview(product || null)
+    if (product) {
+      setQuickAddPreview(product)
+    } else if (value.trim()) {
+      // If not a code, search by name
+      const foundProduct = searchProductByName(value)
+      setQuickAddPreview(foundProduct)
+    } else {
+      setQuickAddPreview(null)
+    }
   }
 
   // Quick Add - Add product to price list

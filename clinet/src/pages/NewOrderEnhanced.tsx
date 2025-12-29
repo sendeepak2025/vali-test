@@ -202,12 +202,23 @@ const NewOrderEnhanced = () => {
     }
   }, [])
 
+  // Search product by name
+  const searchProductByName = useCallback((searchTerm: string): ProductType | null => {
+    const term = searchTerm.toLowerCase()
+    const found = products.find(p => 
+      p.name?.toLowerCase().includes(term) ||
+      p.shortCode?.toLowerCase().includes(term)
+    )
+    return found ? { ...found, shortCode: found.shortCode || '' } : null
+  }, [products])
+
   // Handle quick add input change
   const handleQuickAddChange = useCallback((value: string) => {
     setQuickAddInput(value)
     
     const parsed = parseQuickAddInput(value)
     if (parsed) {
+      // First try to find by shortCode
       const product = productCodeMap.get(parsed.code)
       setQuickAddPreview(product || null)
       if (product) {
@@ -217,10 +228,20 @@ const NewOrderEnhanced = () => {
         setQuickAddPricingType(defaultType)
         setQuickAddQuantity(1)
       }
+    } else if (value.trim()) {
+      // If not a code pattern, search by name
+      const product = searchProductByName(value)
+      setQuickAddPreview(product)
+      if (product) {
+        const salesMode = product.salesMode || "both"
+        const defaultType = salesMode === "unit" ? "unit" : "box"
+        setQuickAddPricingType(defaultType)
+        setQuickAddQuantity(1)
+      }
     } else {
       setQuickAddPreview(null)
     }
-  }, [parseQuickAddInput, productCodeMap])
+  }, [parseQuickAddInput, productCodeMap, searchProductByName])
 
   // Handle quick add submit
   const handleQuickAddSubmit = useCallback(() => {

@@ -8,18 +8,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
 import { VendorSelect } from "@/components/ui/vendor-select"
+
 import PageHeader from "@/components/shared/PageHeader"
 import { getAllProductAPI } from "@/services2/operations/product"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { createPurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import { useSelector } from "react-redux"
 import type { RootState } from "@/redux/store"
-import Select2, { GroupBase, Options } from "react-select";
+import Select2 from "react-select";
 import Swal from "sweetalert2";
 
 // Mock vendor pricing data
@@ -334,9 +335,6 @@ const NewPurchaseForm = () => {
     pricePerUnit: Number(product.price), // Make sure this exists in product
     shippinCost: Number(product.shippinCost || 0), // Make sure this exists in product
   }));
-  const isRecommendedVendor = (vendorId: string) => {
-    return suggestedVendors.includes(vendorId)
-  }
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -356,29 +354,7 @@ const NewPurchaseForm = () => {
           <CardContent className="space-y-6 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
-              <div>
-  <Label htmlFor="vendor">Vendor</Label>
-  <Select2
-    options={vendors.map((vendor) => ({
-      value: vendor.id,
-      label: isRecommendedVendor(vendor.id)
-        ? `${vendor.name} (Recommended)`
-        : vendor.name,
-    }))}
-    value={vendors
-      .map((vendor) => ({
-        value: vendor.id,
-        label: isRecommendedVendor(vendor.id)
-          ? `${vendor.name} (Recommended)`
-          : vendor.name,
-      }))
-      .find((opt) => opt.value === vendorId)}
-    onChange={(selectedOption) => {
-      handleVendorChange(selectedOption.value);
-    }}
-  />
-</div>
-  <div>
+                <div>
                   <Label htmlFor="vendor">Vendor</Label>
                   <VendorSelect
                     value={vendorId}
