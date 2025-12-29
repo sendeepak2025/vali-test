@@ -519,8 +519,8 @@ const NewOrderEnhanced = () => {
     orderItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   , [orderItems])
 
-  const shippingCost = selectedStore?.shippingCost || 0
-  const total = subtotal + shippingCost
+  const shippingCost = 0
+  const total = subtotal
 
   // Submit order
   const handleSubmit = async () => {
@@ -537,13 +537,14 @@ const NewOrderEnhanced = () => {
     try {
       const orderData = {
         orderNumber: orderNumber || null,
-        createdAt: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         date: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
         clientId: { value: selectedStore.id },
         items: orderItems,
         total,
         status: orderStatus,
-        shippinCost: shippingCost,
+        shippinCost: 0,
+        orderType: "Regural",
         billingAddress,
         shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
       }

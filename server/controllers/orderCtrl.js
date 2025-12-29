@@ -247,9 +247,9 @@ if (insufficientStock.length > 0  ) {
       .findById(clientId.value)
       .select("shippingCost");
 
-    // If order is created from preOrder, shipping cost should be 0
+    // Shipping cost should always be 0 by default
     // Admin will manually add shipping cost in invoice for each order
-    const shippinCost = preOrder ? 0 : (user?.shippingCost || 0);
+    const shippinCost = 0;
 
     // More robust date handling for VPS deployment
     let orderDate;
@@ -519,7 +519,9 @@ const getAllOrderCtrl = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Step 1: filterStage applies BEFORE $lookup
-    const filterStage = {};
+    const filterStage = {
+      isDelete: { $ne: true }
+    };
 
     // Filter by store
     if (user.role === "store" && mongoose.Types.ObjectId.isValid(user.id)) {
@@ -574,7 +576,7 @@ const getAllOrderCtrl = async (req, res) => {
       },
       { $unwind: "$store" },
       ...(searchStage.length ? [{ $match: { $and: searchStage } }] : []), // apply search if exists
-      { $sort: { createdAt: -1, orderNumber: -1 } },
+      { $sort: { createdAt: -1 } },
       {
         $facet: {
           data: [{ $skip: skip }, { $limit: limit }],
