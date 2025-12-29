@@ -153,7 +153,7 @@ exports.sendByPriceCategory = async (req, res) => {
         const priceLabel = priceCategoryLabels[priceCategory] || "Price List A";
 
         // const url = `http://valiproduce.shop/store/template?templateId=${templateId}&cat=${catValue}`;
-        const url = `http://valiproduce.shop/store/mobile`;
+const url = `${process.env.CLIENT_URL}/store/mobile`;
 
         const html = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background: #ffffff;">

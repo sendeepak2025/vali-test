@@ -317,7 +317,7 @@ const PriceListEnhanced = () => {
   // }
 
   const copyUrl = (template: any, type: "template" | "nextweek" = "template") => {
-  const baseUrl = "http://localhost:3000/store/mobile";
+const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
   
   // const url = type === "template"
   //   ? `${baseUrl}/template?templateId=${template.id}`
@@ -353,7 +353,7 @@ const PriceListEnhanced = () => {
     try {
       if (sendMode === "bulk") {
         // const url = `http://valiproduce.shop/store/template?templateId=${selectedTemplate.id}`
-        const url = `http://valiproduce.shop/store/mobile`
+        const url = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
         await priceListEmailMulti({ url, selectedStore: selectedStores }, token)
         toast({ title: "Sent!", description: `Price list sent to ${selectedStores.length} stores` })
       } else if (sendMode === "category") {
@@ -1125,9 +1125,9 @@ const PriceListEnhanced = () => {
                           <Button variant="outline" size="sm" onClick={() => copyUrl(template, "template")}>
                             <Copy className="h-4 w-4 mr-1" /> Copy URL
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => copyUrl(template, "nextweek")} className="text-purple-600 border-purple-200 hover:bg-purple-50">
+                          {/* <Button variant="outline" size="sm" onClick={() => copyUrl(template, "nextweek")} className="text-purple-600 border-purple-200 hover:bg-purple-50">
                             <Link2 className="h-4 w-4 mr-1" /> Next Week URL
-                          </Button>
+                          </Button> */}
 
                           {/* Send */}
                           <Button variant="outline" size="sm" onClick={() => openSendModal(template)} className="text-green-600 border-green-200 hover:bg-green-50">
@@ -1151,12 +1151,7 @@ const PriceListEnhanced = () => {
                               <DropdownMenuItem onClick={() => handleDownloadPDF(template)}>
                                 <Download className="h-4 w-4 mr-2" /> Download PDF
                               </DropdownMenuItem>
-                              {/* <DropdownMenuItem onClick={() => window.open(`http://valiproduce.shop/store/template?templateId=${template.id}`, '_blank')}>
-                                <ExternalLink className="h-4 w-4 mr-2" /> Preview
-                              </DropdownMenuItem> */}
-                              <DropdownMenuItem onClick={() => window.open(`http://valiproduce.shop/store/mobile`, '_blank')}>
-                                <ExternalLink className="h-4 w-4 mr-2" /> Preview
-                              </DropdownMenuItem>
+                          
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handleDelete(template.id)} className="text-red-600">
                                 <Trash2 className="h-4 w-4 mr-2" /> Delete
@@ -2204,9 +2199,9 @@ const PriceListEnhanced = () => {
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => selectedTemplate && copyUrl(selectedTemplate, "template")}>
                   <Copy className="h-4 w-4 mr-1" /> Template URL
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => selectedTemplate && copyUrl(selectedTemplate, "nextweek")}>
+                {/* <Button variant="outline" size="sm" className="flex-1" onClick={() => selectedTemplate && copyUrl(selectedTemplate, "nextweek")}>
                   <Copy className="h-4 w-4 mr-1" /> Next Week URL
-                </Button>
+                </Button> */}
               </div>
             </div>
           </div>
