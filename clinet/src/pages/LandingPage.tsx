@@ -350,7 +350,7 @@ const LandingPage = () => {
             <Button
               variant="outline"
               size="lg"
-              className="border-white text-white hover:bg-white/10 font-medium text-lg"
+              className="border-white text-black hover:bg-white/10 font-medium text-lg"
               asChild
             >
               <Link to="/auth">Sign Up Now</Link>

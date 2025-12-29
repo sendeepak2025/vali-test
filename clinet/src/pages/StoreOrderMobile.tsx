@@ -40,6 +40,7 @@ const StoreOrderMobile = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
+  const user = useSelector((state: RootState) => state.auth?.user ?? null)
 
   const urlParams = new URLSearchParams(window.location.search)
   const templateId = urlParams.get("templateId") || "all"
@@ -77,6 +78,9 @@ const StoreOrderMobile = () => {
   const [shippingAddress, setShippingAddress] = useState({ name: "", email: "", phone: "", address: "", street: "", city: "", postalCode: "", state: "", country: "USA" })
   const [sameAsBilling, setSameAsBilling] = useState(true)
   const isNextWeek = location.pathname.includes('/nextweek')
+  
+  // Check if logged-in user is a store - auto-fill address and skip OTP
+  const isLoggedInStore = user && user.role === "store"
 
   // Helper function to get correct price based on store's price category
   const getProductPrice = (product: any, pricingType: "box" | "unit" = "box") => {
@@ -177,7 +181,58 @@ const StoreOrderMobile = () => {
     else if (phoneFromUrl) { setSearchType("phone"); setSearchValue(phoneFromUrl); handleFindStore(phoneFromUrl, "phone") }
   }, [emailFromUrl, phoneFromUrl])
 
+  // Auto-fill address for logged-in store users - skip OTP verification
+  useEffect(() => {
+    if (isLoggedInStore && !storeInfo && currentStep === "welcome") {
+      // Auto-fill store info from logged-in user
+      const autoFillStoreData = async () => {
+        setStoreLoading(true)
+        try {
+          setStoreInfo(user)
+          setPriceCategory(user.priceCategory === "price" || !user.priceCategory ? "aPrice" : user.priceCategory)
+          
+          const addr = { 
+            name: user.ownerName || user.storeName || "", 
+            email: user.email || "", 
+            phone: user.phone || "", 
+            address: user.address || "", 
+            street: user.address || "",
+            city: user.city || "", 
+            postalCode: user.zipCode || "", 
+            state: user.state || "",
+            country: "USA"
+          }
+          setBillingAddress(addr)
+          setShippingAddress(addr)
+          
+          // Fetch last week's order
+          try {
+            const ordersRes = await getUserLatestOrdersAPI(user._id, 1)
+            if (ordersRes?.orders && ordersRes.orders.length > 0) {
+              const lastOrder = ordersRes.orders[0]
+              setLastWeekOrder(lastOrder.items || [])
+            }
+          } catch (e) { console.log("No recent orders") }
+
+          // Fetch user preorders
+          await fetchUserPreOrders(user._id)
+          
+          // Skip welcome step, go directly to address
+          setCurrentStep("address")
+          toast({ title: "Welcome!", description: `Hello, ${user.storeName}` })
+        } catch (error) {
+          console.error("Error auto-filling store data:", error)
+        } finally {
+          setStoreLoading(false)
+        }
+      }
+      
+      autoFillStoreData()
+    }
+  }, [isLoggedInStore, user])
+
   const handleFindStore = async (value?: string, type?: "email" | "phone") => {
+    
     const searchVal = value || searchValue
     const searchBy = type || searchType
     if (!searchVal) { toast({ variant: "destructive", title: "Required", description: `Please enter your ${searchBy}` }); return }

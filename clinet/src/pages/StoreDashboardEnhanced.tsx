@@ -279,32 +279,45 @@ const StoreDashboardEnhanced = () => {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-white border">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" /> Overview
-            </TabsTrigger>
-            <TabsTrigger value="orders" className="flex items-center gap-2">
-              <ShoppingBag className="h-4 w-4" /> Orders
-            </TabsTrigger>
-            {/* <TabsTrigger value="products" className="flex items-center gap-2">
-              <Package className="h-4 w-4" /> Products
-            </TabsTrigger> */}
-            <TabsTrigger value="payments" className="flex items-center gap-2">
-              <CreditCard className="h-4 w-4" /> Payments
-            </TabsTrigger>
-            <TabsTrigger value="profile" className="flex items-center gap-2">
-              <User className="h-4 w-4" /> Profile
-            </TabsTrigger>
-            <TabsTrigger value="preOrder" className="flex items-center gap-2">
-              <User className="h-4 w-4" /> PreOrder
-            </TabsTrigger>
-            <TabsTrigger value="billing" className="flex items-center gap-2">
-              <User className="h-4 w-4" /> Billing
-            </TabsTrigger>
-            <TabsTrigger value="issues" className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> Issues
-            </TabsTrigger>
-          </TabsList>
+         <TabsList
+  className="
+    bg-white border
+    flex
+    overflow-x-auto
+    whitespace-nowrap
+    scrollbar-hide
+    sm:overflow-visible 
+  "
+>
+  <TabsTrigger value="overview" className="flex items-center px-10 md:px-0 gap-2 shrink-0">
+    <BarChart3 className="h-4 w-4" /> Overview
+  </TabsTrigger>
+
+  <TabsTrigger value="orders" className="flex items-center px-5 gap-2 shrink-0">
+    <ShoppingBag className="h-4 w-4" /> Orders
+  </TabsTrigger>
+
+  <TabsTrigger value="payments" className="flex items-center gap-2 shrink-0">
+    <CreditCard className="h-4 w-4" /> Payments
+  </TabsTrigger>
+
+  <TabsTrigger value="profile" className="flex items-center gap-2 shrink-0">
+    <User className="h-4 w-4" /> Profile
+  </TabsTrigger>
+
+  <TabsTrigger value="preOrder" className="flex items-center gap-2 shrink-0">
+    <User className="h-4 w-4" /> PreOrder
+  </TabsTrigger>
+
+  <TabsTrigger value="billing" className="flex items-center gap-2 shrink-0">
+    <User className="h-4 w-4" /> Billing
+  </TabsTrigger>
+
+  <TabsTrigger value="issues" className="flex items-center gap-2 shrink-0">
+    <AlertTriangle className="h-4 w-4" /> Issues
+  </TabsTrigger>
+</TabsList>
+
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">

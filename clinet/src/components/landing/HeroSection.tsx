@@ -252,7 +252,7 @@ const HeroSection: React.FC = () => {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-2 border-white text-white hover:bg-white hover:text-green-700 font-semibold text-lg px-8 py-6 rounded-full transition-all duration-300"
+                className="border-2 border-white text-black hover:bg-white hover:text-green-700 font-semibold text-lg px-8 py-6 rounded-full transition-all duration-300"
                 asChild
               >
                 <Link to="/auth">Create Account</Link>
