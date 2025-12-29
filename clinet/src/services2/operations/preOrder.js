@@ -110,8 +110,60 @@ export const updatePreOrderAPI = async (formData, token,id) => {
 
         return response;
     } catch (error) {
-        console.error("updateOrderAPI  API ERROR:", error);
-        toast.error(error?.response?.data?.message || "Failed to updateOrderAPI!");
+        console.error("updatePreOrderAPI API ERROR:", error);
+        
+        // Handle insufficient stock error
+        const insufficientStock = error?.response?.data?.insufficientStock;
+        if (insufficientStock && insufficientStock.length > 0) {
+            const htmlTable = `
+                <table style="width:100%; text-align:left; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background:#fee2e2;">
+                            <th style="padding:8px; border:1px solid #ddd;">Product</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Requested</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Available</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${insufficientStock
+                            .map(
+                                (item) => `
+                                <tr style="background:#fef2f2;">
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.name}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.requested}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.available}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.type}</td>
+                                </tr>`
+                            )
+                            .join("")}
+                    </tbody>
+                </table>
+            `;
+
+            const shortItemsList = insufficientStock
+                .map(
+                    (item) =>
+                        `• ${item.name} (requested: ${item.requested}, available: ${item.available})`
+                )
+                .join("\n");
+
+            await Swal.fire({
+                icon: "error",
+                title: "Insufficient Stock",
+                html: `
+                    ${htmlTable}
+                    <p style="margin-top:16px; font-weight:600;">Cannot fulfill these items:</p>
+                    <p style="white-space:pre-line; text-align:left;">${shortItemsList}</p>
+                `,
+                confirmButtonText: "OK",
+            });
+            
+            toast.dismiss(toastId);
+            return null;
+        }
+        
+        toast.error(error?.response?.data?.message || "Failed to update pre-order!");
         return null;
     } finally {
 
@@ -137,8 +189,60 @@ export const confirmPreOrderAPI = async ( token,id) => {
 
         return response;
     } catch (error) {
-        console.error("confirm preorer  API ERROR:", error);
-        toast.error(error?.response?.data?.message || "Failed to confirm pre order!");
+        console.error("confirm preorder API ERROR:", error);
+        
+        // Handle insufficient stock error
+        const insufficientStock = error?.response?.data?.insufficientStock;
+        if (insufficientStock && insufficientStock.length > 0) {
+            const htmlTable = `
+                <table style="width:100%; text-align:left; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background:#fee2e2;">
+                            <th style="padding:8px; border:1px solid #ddd;">Product</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Requested</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Available</th>
+                            <th style="padding:8px; border:1px solid #ddd;">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${insufficientStock
+                            .map(
+                                (item) => `
+                                <tr style="background:#fef2f2;">
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.name}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.requested}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.available}</td>
+                                    <td style="padding:8px; border:1px solid #ddd;">${item.type}</td>
+                                </tr>`
+                            )
+                            .join("")}
+                    </tbody>
+                </table>
+            `;
+
+            const shortItemsList = insufficientStock
+                .map(
+                    (item) =>
+                        `• ${item.name} (requested: ${item.requested}, available: ${item.available})`
+                )
+                .join("\n");
+
+            await Swal.fire({
+                icon: "error",
+                title: "Insufficient Stock",
+                html: `
+                    ${htmlTable}
+                    <p style="margin-top:16px; font-weight:600;">Cannot fulfill these items:</p>
+                    <p style="white-space:pre-line; text-align:left;">${shortItemsList}</p>
+                `,
+                confirmButtonText: "OK",
+            });
+            
+            toast.dismiss(toastId);
+            return null;
+        }
+        
+        toast.error(error?.response?.data?.message || "Failed to confirm pre-order!");
         return null;
     } finally {
 

@@ -323,10 +323,11 @@ const EditOrder = () => {
         const formattedOrder = {
           id: res._id || "",
           _id: res._id,
-          orderId: res.orderId,
+          orderId: res.orderNumber || res.orderId || "",
+          orderNumber: res.orderNumber || "",
           store: res.store,
           customer: res.customer,
-          date: res.date,
+          date: res.createdAt || res.date,
           items: res.items.map((item: any) => ({
             ...item,
             productName: item.name || item.productName,
@@ -344,7 +345,7 @@ const EditOrder = () => {
         setOrder(formattedOrder)
         setOrderItems(formattedOrder.items)
         setOrderStatus(formattedOrder.status)
-        setOrderDate(formattedOrder.date ? new Date(formattedOrder.date).toISOString().split('T')[0] : "")
+        setOrderDate(formattedOrder.date ? new Date(formattedOrder.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0])
         setSameAsBilling(JSON.stringify(res?.shippingAddress) === JSON.stringify(res?.billingAddress))
       } catch (error) {
         console.error("Error fetching data:", error)
@@ -903,7 +904,7 @@ const EditOrder = () => {
 
                       <div>
                         <label className="text-sm font-medium">Order Number</label>
-                        <Input value={order.orderId} disabled className="bg-gray-50" />
+                        <Input value={order?.orderNumber || order?.orderId || ""} disabled className="bg-gray-50" />
                       </div>
                     </div>
 

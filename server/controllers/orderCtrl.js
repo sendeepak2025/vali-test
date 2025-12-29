@@ -824,6 +824,94 @@ const updateOrderCtrl = async (req, res) => {
         .json({ success: false, message: "Order not found!" });
     }
 
+    // Stock validation for updated items
+    if (updateFields.items && Array.isArray(updateFields.items)) {
+      // Get current week range (Monday to Sunday) in UTC
+      const now = new Date();
+      const dayOfWeek = now.getUTCDay();
+      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday, 0, 0, 0, 0));
+      const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+      const isWithinRange = (date) => {
+        const d = new Date(date);
+        return d >= monday && d <= sunday;
+      };
+
+      // Build map of old quantities to calculate net change
+      const oldItemsQuantityMap = {};
+      existingOrder.items.forEach((item) => {
+        const key = `${item.productId.toString()}_${item.pricingType}`;
+        oldItemsQuantityMap[key] = item.quantity;
+      });
+
+      let insufficientStock = [];
+
+      for (const item of updateFields.items) {
+        const { productId, quantity, pricingType } = item;
+        if (!productId || quantity <= 0) continue;
+
+        const product = await Product.findById(productId).lean();
+        if (!product) {
+          insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
+          continue;
+        }
+
+        // Calculate net additional quantity needed
+        const key = `${productId}_${pricingType}`;
+        const oldQuantity = oldItemsQuantityMap[key] || 0;
+        const additionalQuantity = quantity - oldQuantity;
+
+        // Only check stock if we're increasing quantity
+        if (additionalQuantity > 0) {
+          const filteredPurchase = (product?.purchaseHistory || []).filter(p => isWithinRange(p.date));
+          const filteredSell = (product?.salesHistory || []).filter(s => isWithinRange(s.date));
+          const filteredUnitPurchase = (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date));
+          const filteredUnitSell = (product?.lbSellHistory || []).filter(s => isWithinRange(s.date));
+          const filteredTrash = (product?.quantityTrash || []).filter(t => isWithinRange(t.date));
+
+          const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
+          const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
+          const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
+          const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
+
+          const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
+          const trashUnit = filteredTrash.filter(t => t.type === "unit").reduce((sum, t) => sum + t.quantity, 0);
+
+          const totalRemaining = Math.max(
+            totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
+            0
+          );
+          const unitRemaining = Math.max(
+            unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
+            0
+          );
+
+          // Check if additional quantity exceeds available stock
+          if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
+              (pricingType === "unit" && additionalQuantity > unitRemaining)) {
+            insufficientStock.push({
+              productId,
+              name: product.name,
+              available: pricingType === "box" ? totalRemaining : unitRemaining,
+              requested: quantity,
+              currentInOrder: oldQuantity,
+              additionalNeeded: additionalQuantity,
+              type: pricingType,
+            });
+          }
+        }
+      }
+
+      if (insufficientStock.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Insufficient stock for some items",
+          insufficientStock,
+        });
+      }
+    }
+
     // Track status change for notifications
     const oldStatus = existingOrder.status;
     const newStatus = updateFields.status;
