@@ -56,24 +56,26 @@ const fetchOrders = async (page = 1, searchQuery = "") => {
     <div className="p-6 bg-gray-50 min-h-screen">
       <h1 className="text-3xl font-bold mb-6">My PreOrders</h1>
 
-      <form
-        onSubmit={handleSearch}
-        className="flex flex-col sm:flex-row items-center gap-3 mb-6"
-      >
-        <input
-          type="text"
-          placeholder="Search by Order Number"
-          className="flex-1 border rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition"
-        >
-          Search
-        </button>
-      </form>
+<form
+  onSubmit={handleSearch}
+  className="flex flex-col sm:flex-row gap-3 mb-6"
+>
+  <input
+    type="text"
+    placeholder="Search by Order Number"
+    className="w-full sm:flex-1 border rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+  />
+
+  <button
+    type="submit"
+    className="w-full sm:w-auto bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition"
+  >
+    Search
+  </button>
+</form>
+
 
       {loading ? (
         <div className="text-center py-20 text-gray-500">Loading orders...</div>

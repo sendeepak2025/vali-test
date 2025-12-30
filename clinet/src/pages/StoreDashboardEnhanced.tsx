@@ -157,7 +157,7 @@ const StoreDashboardEnhanced = () => {
             </div>
             <div>
               <h1 className="font-bold text-lg">{user?.storeName || "My Store"}</h1>
-              <p className="text-xs text-gray-500">{user?.email}</p>
+              <p className="text-xs hidden md:block text-gray-500">{user?.email}</p>
             </div>
           </div>
 

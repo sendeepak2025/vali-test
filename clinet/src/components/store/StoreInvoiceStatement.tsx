@@ -263,43 +263,67 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
         <TabsContent value="statement">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Receipt className="h-5 w-5" />
-                  Account Statement
-                </span>
-                 {
-            <Button
-              variant="link"
-              onClick={() => setIsStatementFilterOpen(true)}
-              disabled={isGeneratingPDF}
-            >
-              {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
-            </Button>
-          }
-              </CardTitle>
+
+<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  {/* Title */}
+  <div className="flex items-center gap-2">
+    <Receipt className="h-5 w-5 text-slate-700" />
+    <span className="text-lg font-semibold text-slate-800">
+      Account Statement
+    </span>
+  </div>
+
+  {/* Button */}
+  <Button
+    onClick={() => setIsStatementFilterOpen(true)}
+    disabled={isGeneratingPDF}
+    className="
+      w-full sm:w-full md:w-auto
+      bg-blue-600 hover:bg-blue-700
+      text-white font-medium
+      px-4 py-2
+      rounded-lg
+      flex items-center justify-center
+      disabled:opacity-60
+    "
+  >
+    {isGeneratingPDF ? "Generating PDF..." : "Download Statement"}
+  </Button>
+</div>
+
+
             </CardHeader>
             <CardContent>
               {/* Statement Header */}
               <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-500">Store Name</p>
-                    <p className="font-medium">{user?.storeName || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Statement Date</p>
-                    <p className="font-medium">{format(new Date(), "MMMM dd, yyyy")}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium">{user?.email || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Phone</p>
-                    <p className="font-medium">{user?.phone || "N/A"}</p>
-                  </div>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+  <div>
+    <p className="text-sm text-gray-500">Store Name</p>
+    <p className="font-medium">{user?.storeName || "N/A"}</p>
+  </div>
+
+  <div>
+    <p className="text-sm text-gray-500">Statement Date</p>
+    <p className="font-medium">
+      {format(new Date(), "MMMM dd, yyyy")}
+    </p>
+  </div>
+
+  <div>
+    <p className="text-sm text-gray-500">Email</p>
+    <p className="font-medium break-all">
+      {user?.email || "N/A"}
+    </p>
+  </div>
+
+  <div>
+    <p className="text-sm text-gray-500">Phone</p>
+    <p className="font-medium">
+      {user?.phone || "N/A"}
+    </p>
+  </div>
+</div>
+
               </div>
 
               {/* Complete Transaction History */}
