@@ -1728,7 +1728,7 @@ const addPaymentRecordCtrl = async (req, res) => {
     store.paymentRecords.push(paymentRecord);
     await store.save();
 
-    // If orderId is provided, update the order payment status
+    // If orderId is provided, update the order payment status and history
     if (orderId) {
       const Order = require("../models/orderModle");
       const order = await Order.findById(orderId);
@@ -1737,11 +1737,38 @@ const addPaymentRecordCtrl = async (req, res) => {
         const newPaid = currentPaid + parseFloat(amount);
         order.paymentAmount = newPaid;
         
-        if (newPaid >= order.total) {
+        // Map payment type to method for paymentHistory
+        let paymentMethod = "cash";
+        if (type === "card" || type === "creditcard") {
+          paymentMethod = "creditcard";
+        } else if (type === "cheque") {
+          paymentMethod = "cheque";
+        }
+        
+        // Add to payment history
+        const paymentHistoryEntry = {
+          amount: parseFloat(amount),
+          method: paymentMethod,
+          transactionId: reference || undefined,
+          notes: notes || undefined,
+          paymentDate: new Date(),
+          recordedBy: req.user?.id || req.user?._id,
+          recordedByName: req.user?.name || req.user?.storeName || req.user?.email || "Store Payment",
+        };
+        
+        if (!order.paymentHistory) {
+          order.paymentHistory = [];
+        }
+        order.paymentHistory.push(paymentHistoryEntry);
+        
+        // Update payment status
+        const totalPaid = newPaid + parseFloat(order.creditApplied || 0);
+        if (totalPaid >= order.total) {
           order.paymentStatus = "paid";
-        } else if (newPaid > 0) {
+        } else if (totalPaid > 0) {
           order.paymentStatus = "partial";
         }
+        
         await order.save();
       }
     }
@@ -2517,7 +2544,7 @@ const getStoreOrdersPaginatedCtrl = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
-      .select("orderNumber total paymentStatus paymentAmount items createdAt")
+      .select("orderNumber total paymentStatus paymentAmount creditApplied creditApplications items createdAt")
       .lean();
 
     res.status(200).json({

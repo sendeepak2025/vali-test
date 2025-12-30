@@ -536,17 +536,17 @@ export const updateOrderPaymentAPI = async (formData, token, id) => {
       toast.dismiss(toastId);
     }
   };
-export const updateOrderUnpaidAPI = async (id, token) => {
-    const toastId = toast.loading("Updating payment...");
+export const updateOrderUnpaidAPI = async (id, token, reason) => {
+    const toastId = toast.loading("Marking as unpaid...");
   
     try {
       const response = await apiConnector(
         "PUT",
         `${UPDATE_PAYMENT_UNPAID_ORDER}/${id}`,
-        {}, // ✅ Send formData directly, not wrapped inside an object
+        { reason },
         {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json", // 👈 Only if formData is a plain JS object
+          "Content-Type": "application/json",
         }
       );
   
@@ -554,11 +554,11 @@ export const updateOrderUnpaidAPI = async (id, token) => {
         throw new Error(response?.data?.message || "Something went wrong!");
       }
   
-      toast.success(response?.data?.message || "Payment updated successfully");
+      toast.success(response?.data?.message || "Order marked as unpaid");
       return response;
     } catch (error) {
-      console.error("updateOrderPaymentAPI ERROR:", error);
-      toast.error(error?.response?.data?.message || "Payment update failed!");
+      console.error("updateOrderUnpaidAPI ERROR:", error);
+      toast.error(error?.response?.data?.message || "Failed to mark as unpaid!");
       return null;
     } finally {
       toast.dismiss(toastId);

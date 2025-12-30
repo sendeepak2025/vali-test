@@ -85,7 +85,7 @@ const paymentRecordSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["cash", "card", "bank_transfer", "other"],
+      enum: ["cash", "card", "cheque"],
       default: "cash",
     },
     reference: {
@@ -591,6 +591,35 @@ const authSchema = new mongoose.Schema(
       createdAt: {
         type: Date,
         default: Date.now,
+      },
+    }],
+
+    // Track orders marked as unpaid with credit refund
+    unpaidOrderHistory: [{
+      orderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "order",
+      },
+      orderNumber: {
+        type: String,
+      },
+      creditRefunded: {
+        type: Number,
+        default: 0,
+      },
+      reason: {
+        type: String,
+      },
+      markedUnpaidAt: {
+        type: Date,
+        default: Date.now,
+      },
+      markedUnpaidBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "auth",
+      },
+      markedUnpaidByName: {
+        type: String,
       },
     }],
 

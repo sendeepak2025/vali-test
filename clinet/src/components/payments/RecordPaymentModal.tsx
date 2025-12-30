@@ -107,6 +107,7 @@ export function RecordPaymentModal({
     (o) => o.paymentStatus !== 'paid'
   ) || []
 
+  console.log(unpaidOrders)
   // Calculate total selected amount
   const calculateSelectedTotal = () => {
     return unpaidOrders
@@ -329,7 +330,9 @@ export function RecordPaymentModal({
                   {unpaidOrders.map((order) => {
                     const orderTotal = order.total || 0
                     const paidAmount = parseFloat(String(order.paymentAmount || 0))
-                    const remainingBalance = orderTotal - paidAmount
+                    const creditApplied = parseFloat(String(order.creditApplied || 0))
+                    const totalPaid = paidAmount + creditApplied
+                    const remainingBalance = orderTotal - totalPaid
                     const isSelected = selectedOrders.includes(order._id)
 
                     return (
@@ -353,9 +356,9 @@ export function RecordPaymentModal({
                           </p>
                           <p className="text-xs text-gray-500">
                             {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '-'}
-                            {paidAmount > 0 && (
+                            {totalPaid > 0 && (
                               <span className="text-green-600 ml-2">
-                                Paid: {formatCurrency(paidAmount)}
+                                Paid: {formatCurrency(totalPaid)}
                               </span>
                             )}
                           </p>
@@ -511,10 +514,7 @@ export function RecordPaymentModal({
               >
                 <option value="cash">Cash</option>
                 <option value="card">Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
                 <option value="cheque">Cheque</option>
-                <option value="credit">Store Credit</option>
-                <option value="other">Other</option>
               </select>
             </div>
           )}

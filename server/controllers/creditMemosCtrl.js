@@ -570,6 +570,18 @@ exports.applyStoreCredit = async (req, res) => {
     const currentCreditApplied = parseFloat(order.creditApplied || 0);
     order.creditApplied = currentCreditApplied + amount;
     
+    // Add to creditApplications array for tracking
+    if (!order.creditApplications) {
+      order.creditApplications = [];
+    }
+    order.creditApplications.push({
+      amount: amount,
+      appliedAt: new Date(),
+      appliedBy: req.user?.id || req.user?._id,
+      appliedByName: req.user?.name || req.user?.storeName || req.user?.email || "Store Credit",
+      reason: "Store credit applied to order",
+    });
+    
     // Recalculate payment status - use order.total directly
     const totalPaid = parseFloat(order.paymentAmount || 0) + parseFloat(order.creditApplied || 0);
     const orderTotal = order.total || order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);

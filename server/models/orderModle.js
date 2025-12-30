@@ -50,9 +50,7 @@ const paymentDetailsSchema = new mongoose.Schema(
     },
     notes: {
       type: String,
-      required: function () {
-        return this.method === "cash" || this.method === "cheque";
-      },
+      default: "",
     },
     paymentDate: {
       type: Date,

@@ -461,17 +461,40 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
   }
 
   const handleMarkUnpaid = async (order: Order) => {
-    const confirmed = await Swal.fire({
+    const creditApplied = parseFloat((order as any).creditApplied || 0);
+    const creditInfo = creditApplied > 0 
+      ? `\n\nNote: $${creditApplied.toFixed(2)} credit will be refunded to store.`
+      : '';
+    
+    const result = await Swal.fire({
       title: "Mark as Unpaid?",
-      text: `Order ${order.id} will be marked as unpaid`,
+      html: `Order ${order.orderNumber || order.id} will be marked as unpaid.${creditInfo}<br><br>Please provide a reason:`,
       icon: "warning",
+      input: "textarea",
+      inputPlaceholder: "Enter reason for marking as unpaid...",
+      inputAttributes: {
+        "aria-label": "Reason"
+      },
       showCancelButton: true,
       confirmButtonColor: "#d33",
+      confirmButtonText: "Mark Unpaid",
+      inputValidator: (value) => {
+        if (!value || !value.trim()) {
+          return "Please enter a reason";
+        }
+      }
     })
     
-    if (confirmed.isConfirmed) {
-      await updateOrderUnpaidAPI(order._id, token)
-      fetchOrders()
+    if (result.isConfirmed && result.value) {
+      try {
+        await updateOrderUnpaidAPI(order._id, token, result.value)
+        toast({ title: "Success", description: creditApplied > 0 
+          ? `Order marked as unpaid. $${creditApplied.toFixed(2)} credit refunded.`
+          : "Order marked as unpaid" })
+        fetchOrders()
+      } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to mark order as unpaid" })
+      }
     }
   }
 
@@ -953,12 +976,30 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
                             Paid: {formatCurrency(parseFloat((order as any).paymentAmount || 0) + parseFloat((order as any).creditApplied || 0))}
                           </span>
                         )}
-                        {(order as any).creditApplications && (order as any).creditApplications.length > 0 && (
-                          <span className="text-xs text-blue-600 flex items-center gap-1">
-                            <CreditCard size={10} />
-                            Credit Memo
-                          </span>
-                        )}
+                        {/* Show Credit Used - only for store credit (entries without creditMemoNumber) */}
+                        {(() => {
+                          const creditApps = (order as any).creditApplications || [];
+                          const storeCreditUsed = creditApps
+                            .filter((app: any) => !app.creditMemoNumber)
+                            .reduce((sum: number, app: any) => sum + (app.amount || 0), 0);
+                          return storeCreditUsed > 0 ? (
+                            <span className="text-xs text-purple-600 flex items-center gap-1">
+                              <CreditCard size={10} />
+                              Credit Used: {formatCurrency(storeCreditUsed)}
+                            </span>
+                          ) : null;
+                        })()}
+                        {/* Show Credit Memo Applied - only for credit memo (entries with creditMemoNumber) */}
+                        {(() => {
+                          const creditApps = (order as any).creditApplications || [];
+                          const hasCreditMemo = creditApps.some((app: any) => app.creditMemoNumber);
+                          return hasCreditMemo ? (
+                            <span className="text-xs text-blue-600 flex items-center gap-1">
+                              <CreditCard size={10} />
+                              Credit Memo Applied
+                            </span>
+                          ) : null;
+                        })()}
                       </div>
                     </TableCell>
                     <TableCell>

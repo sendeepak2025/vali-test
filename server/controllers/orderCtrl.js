@@ -1181,17 +1181,22 @@ const userDetailsWithOrder = async (req, res) => {
                 input: "$orders",
                 as: "order",
                 in: {
-                  $cond: [
-                    { $eq: ["$$order.paymentStatus", "paid"] },
-                    "$$order.total",
+                  $add: [
                     {
                       $cond: [
-                        { $eq: ["$$order.paymentStatus", "partial"] },
-                        { $toDouble: "$$order.paymentAmount" },
-                        0,
+                        { $eq: ["$$order.paymentStatus", "paid"] },
+                        "$$order.total",
+                        {
+                          $cond: [
+                            { $eq: ["$$order.paymentStatus", "partial"] },
+                            { $toDouble: { $ifNull: ["$$order.paymentAmount", 0] } },
+                            0,
+                          ],
+                        },
                       ],
                     },
-                  ],
+                    { $toDouble: { $ifNull: ["$$order.creditApplied", 0] } }
+                  ]
                 },
               },
             },
@@ -1209,11 +1214,16 @@ const userDetailsWithOrder = async (req, res) => {
                       $subtract: [
                         { $toDouble: "$$order.total" },
                         {
-                          $cond: [
-                            { $eq: ["$$order.paymentStatus", "partial"] },
-                            { $toDouble: "$$order.paymentAmount" },
-                            0,
-                          ],
+                          $add: [
+                            {
+                              $cond: [
+                                { $eq: ["$$order.paymentStatus", "partial"] },
+                                { $toDouble: { $ifNull: ["$$order.paymentAmount", 0] } },
+                                0,
+                              ],
+                            },
+                            { $toDouble: { $ifNull: ["$$order.creditApplied", 0] } }
+                          ]
                         },
                       ],
                     },
@@ -1409,38 +1419,89 @@ const updatePaymentDetails = async (req, res) => {
 
 const markOrderAsUnpaid = async (req, res) => {
   const { orderId } = req.params;
-  console.log(orderId);
+  const { reason } = req.body;
+  
+  if (!reason) {
+    return res.status(400).json({
+      success: false,
+      message: "Reason is required",
+    });
+  }
+  
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
   try {
-    const updatedOrder = await orderModel.findByIdAndUpdate(
-      orderId,
-      {
-        paymentStatus: "pending",
-        paymentDetails: null,
-        paymentAmount: 0,
-        paymentHistory: [], // Clear payment history when marking as unpaid
-      },
-      { new: true }
-    );
-
-    if (!updatedOrder) {
+    const order = await orderModel.findById(orderId).session(session);
+    
+    if (!order) {
+      await session.abortTransaction();
       return res.status(404).json({
         success: false,
         message: "Order not found",
       });
     }
+    
+    const creditApplied = parseFloat(order.creditApplied || 0);
+    const storeId = order.store;
+    
+    // If credit was applied, refund it to store
+    if (creditApplied > 0 && storeId) {
+      const store = await authModel.findById(storeId).session(session);
+      if (store) {
+        // Add credit back to store
+        const currentCredit = parseFloat(store.creditBalance || 0);
+        store.creditBalance = currentCredit + creditApplied;
+        
+        // Add to store's unpaid order history
+        if (!store.unpaidOrderHistory) {
+          store.unpaidOrderHistory = [];
+        }
+        store.unpaidOrderHistory.push({
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          creditRefunded: creditApplied,
+          reason: reason,
+          markedUnpaidAt: new Date(),
+          markedUnpaidBy: req.user?.id || req.user?._id,
+          markedUnpaidByName: req.user?.name || req.user?.email || "Admin"
+        });
+        
+        await store.save({ session });
+      }
+    }
+    
+    // Update order - clear all payment info
+    order.paymentStatus = "pending";
+    order.paymentDetails = null;
+    order.paymentAmount = 0;
+    order.paymentHistory = [];
+    order.creditApplied = 0;
+    order.creditApplications = [];
+    order.markedUnpaidReason = reason;
+    order.markedUnpaidAt = new Date();
+    
+    await order.save({ session });
+    await session.commitTransaction();
 
     return res.status(200).json({
       success: true,
-      message: "Order marked as unpaid successfully",
-      data: updatedOrder,
+      message: creditApplied > 0 
+        ? `Order marked as unpaid. ${creditApplied.toFixed(2)} credit refunded to store.`
+        : "Order marked as unpaid successfully",
+      data: order,
+      creditRefunded: creditApplied
     });
   } catch (error) {
+    await session.abortTransaction();
     console.error("Error marking order as unpaid:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
       error: error.message,
     });
+  } finally {
+    session.endSession();
   }
 };
 
