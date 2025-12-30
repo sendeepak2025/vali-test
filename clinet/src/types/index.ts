@@ -97,7 +97,16 @@ export interface Order {
   total: number;
   clientId:any,
   clientName:any,
-  
+  // Credit memo support
+  creditApplied?: number;
+  creditApplications?: {
+    amount: number;
+    appliedAt?: string;
+    appliedBy?: string;
+    appliedByName?: string;
+    creditMemoNumber?: string;
+    reason?: string;
+  }[];
 }
 
 export interface Activity {

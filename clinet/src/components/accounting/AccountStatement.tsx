@@ -362,9 +362,9 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
   const filteredTransactions = getFilteredTransactions()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 ">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row  justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-xl font-bold">Account Statement</h2>
           {storeName && <p className="text-muted-foreground">{storeName}</p>}

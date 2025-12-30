@@ -133,6 +133,8 @@ const orderSchema = new mongoose.Schema(
       appliedAt: { type: Date, default: Date.now },
       appliedBy: { type: mongoose.Schema.Types.ObjectId, ref: "auth" },
       appliedByName: { type: String },
+      creditMemoNumber: { type: String },
+      reason: { type: String },
     }],
 
 

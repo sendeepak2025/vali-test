@@ -313,16 +313,10 @@ exports.getCreditMemosByOrderId = async (req, res) => {
       .populate("customerId", "name email phone") // optional: include customer info
       .sort({ createdAt: -1 });
 
-    if (!creditMemos.length) {
-      return res.status(404).json({
-        success: false,
-        message: "No credit memos found for this order ID",
-      });
-    }
-
+    // Return empty array if no credit memos found (not 404)
     return res.status(200).json({
       success: true,
-      message: "Credit memos fetched successfully!",
+      message: creditMemos.length ? "Credit memos fetched successfully!" : "No credit memos found for this order",
       creditMemos,
     });
   } catch (error) {
@@ -466,6 +460,45 @@ exports.processCreditMemo = async (req, res) => {
     await creditMemo.save({ session });
 
     let creditBalanceUpdate = null;
+    let orderUpdate = null;
+
+    // Update the order to reflect the credit memo amount
+    const order = await Order.findById(creditMemo.orderId).session(session);
+    if (order) {
+      const currentCreditApplied = parseFloat(order.creditApplied || 0);
+      order.creditApplied = currentCreditApplied + creditMemo.totalAmount;
+      
+      // Add to credit applications history
+      if (!order.creditApplications) {
+        order.creditApplications = [];
+      }
+      order.creditApplications.push({
+        amount: creditMemo.totalAmount,
+        appliedAt: new Date(),
+        appliedBy: req.user?.id || req.user?._id,
+        appliedByName: req.user?.name || req.user?.storeName || req.user?.email,
+        creditMemoNumber: creditMemo.creditMemoNumber,
+        reason: creditMemo.reason || "Credit memo processed"
+      });
+
+      // Recalculate payment status
+      const totalPaid = parseFloat(order.paymentAmount || 0);
+      const totalCredit = parseFloat(order.creditApplied || 0);
+      const orderTotal = order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);
+      
+      if (totalPaid + totalCredit >= orderTotal) {
+        order.paymentStatus = "paid";
+      } else if (totalPaid + totalCredit > 0) {
+        order.paymentStatus = "partial";
+      }
+
+      await order.save({ session });
+      orderUpdate = {
+        creditApplied: order.creditApplied,
+        paymentStatus: order.paymentStatus,
+        orderNumber: order.orderNumber
+      };
+    }
 
     // If refund method is store_credit, update the store's credit balance
     if (creditMemo.refundMethod === "store_credit") {
@@ -488,6 +521,7 @@ exports.processCreditMemo = async (req, res) => {
       message: "Credit memo processed successfully",
       creditMemo,
       creditBalanceUpdate,
+      orderUpdate,
     });
   } catch (error) {
     await session.abortTransaction();

@@ -98,6 +98,16 @@ export interface Order {
     reason?: string;
     amount?: number;
   };
+  // 🆕 Credit memo support
+  creditApplied?: number;
+  creditApplications?: {
+    amount: number;
+    appliedAt?: string;
+    appliedBy?: string;
+    appliedByName?: string;
+    creditMemoNumber?: string;
+    reason?: string;
+  }[];
 
 
 }

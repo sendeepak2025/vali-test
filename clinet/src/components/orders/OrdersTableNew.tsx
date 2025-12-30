@@ -487,7 +487,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
 
   const handleCreditMemo = (order: Order) => {
     setSelectedOrder(order)
-    setShowCreditMemo(true)
+    setShowCreditMemoList(true)  // Changed to show list instead of form directly
   }
 
   const handleWorkOrder = (order: Order) => {
@@ -945,7 +945,15 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
                     </TableCell>
                     <TableCell className="text-center text-sm">{order.items?.length || 0}</TableCell>
                     <TableCell className="font-medium">
-                      {formatCurrency(order.isDelete ? order.deleted?.amount : order.total)}
+                      <div className="flex flex-col">
+                        <span>{formatCurrency(order.isDelete ? order.deleted?.amount : order.total)}</span>
+                        {(order as any).creditApplied > 0 && (
+                          <span className="text-xs text-green-600 flex items-center gap-1">
+                            <CreditCard size={10} />
+                            -{formatCurrency((order as any).creditApplied)} credit
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>

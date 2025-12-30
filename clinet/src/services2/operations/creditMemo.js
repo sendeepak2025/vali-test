@@ -78,15 +78,15 @@ export const getCreditMemosByOrderId = async (id,token) => {
             Authorization: `Bearer ${token}`,
         })
 
-
+        // Return empty array if no success or no creditMemos
         if (!response?.data?.success) {
-            throw new Error(response?.data?.message || "Something went wrong!");
+            return [];
         }
 
         return response?.data?.creditMemos || [];
     } catch (error) {
         console.error("GET GET_CREDIT_MEMO_BY_ID API ERROR:", error);
-        toast.error(error?.response?.data?.message || "Failed to get GET_CREDIT_MEMO_BY_ID!");
+        // Don't show error toast for empty results, just return empty array
         return [];
     }
 

@@ -20,9 +20,10 @@ import {
   Plus,
   Mail,
   RefreshCw,
+  Check,
 } from "lucide-react"
 import { formatCurrency, formatDate } from "@/lib/data"
-import { getCreditMemosByOrderId } from "@/services2/operations/creditMemo"
+import { getCreditMemosByOrderId, processCreditMemoAPI } from "@/services2/operations/creditMemo"
 import { useToast } from "@/hooks/use-toast"
 import { exportCreditMemoToPDF } from "@/utils/pdf/export-credit-memo-to-pdf"
 import CreditMemoForm from "./credit-memo-form"
@@ -74,6 +75,7 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
   const [editFormOpen, setEditFormOpen] = useState(false)
   const [createFormOpen, setCreateFormOpen] = useState(false)
   const [emailLoading, setEmailLoading] = useState<string | null>(null)
+  const [processingMemo, setProcessingMemo] = useState<string | null>(null)
 
   // Fetch credit memos when dialog opens
   useEffect(() => {
@@ -86,14 +88,11 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
     setLoading(true)
     try {
       const memos = await getCreditMemosByOrderId(order._id || order.id, token)
-      setCreditMemos(memos)
+      setCreditMemos(memos || [])
     } catch (error) {
       console.error("Error fetching credit memos:", error)
-      toast({
-        title: "Error",
-        description: "Failed to fetch credit memos",
-        variant: "destructive",
-      })
+      // Only show error if it's not a "no memos found" case
+      setCreditMemos([])
     } finally {
       setLoading(false)
     }
@@ -232,7 +231,36 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
     })
   }
 
+  const handleProcessMemo = async (memo: CreditMemo) => {
+    const memoId = memo._id || memo.id
+    if (!memoId) return
+
+    setProcessingMemo(memoId)
+    try {
+      const result = await processCreditMemoAPI(memoId, "Approved and processed", token)
+      if (result) {
+        toast({
+          title: "Credit Memo Processed",
+          description: `Credit memo ${memo.creditMemoNumber} has been processed. ${formatCurrency(memo.totalAmount)} credit applied to order.`,
+        })
+        fetchCreditMemos() // Refresh the list
+      }
+    } catch (error) {
+      console.error("Error processing credit memo:", error)
+      toast({
+        title: "Error",
+        description: "Failed to process credit memo",
+        variant: "destructive",
+      })
+    } finally {
+      setProcessingMemo(null)
+    }
+  }
+
   const totalCreditAmount = creditMemos.reduce((sum, memo) => sum + memo.totalAmount, 0)
+  const processedCreditAmount = creditMemos
+    .filter((m) => m.status === "processed")
+    .reduce((sum, memo) => sum + memo.totalAmount, 0)
 
   // If no credit memos exist, show create form directly
   if (!loading && creditMemos.length === 0 && open) {
@@ -281,21 +309,25 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="text-center">
                     <p className="text-2xl font-bold text-blue-600">{creditMemos.length}</p>
                     <p className="text-sm text-muted-foreground">Total Credit Memos</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">{formatCurrency(totalCreditAmount)}</p>
+                    <p className="text-2xl font-bold text-gray-600">{formatCurrency(totalCreditAmount)}</p>
                     <p className="text-sm text-muted-foreground">Total Credit Amount</p>
                   </div>
-                  {/* <div className="text-center">
-                    <p className="text-2xl font-bold text-orange-600">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-green-600">{formatCurrency(processedCreditAmount)}</p>
+                    <p className="text-sm text-muted-foreground">Applied to Order</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-yellow-600">
                       {creditMemos.filter((m) => m.status === "pending").length}
                     </p>
                     <p className="text-sm text-muted-foreground">Pending Approval</p>
-                  </div> */}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -309,16 +341,16 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
             ) : (
               <div className="space-y-4">
                 {creditMemos.map((memo) => (
-                  <Card key={memo.id} className="hover:shadow-md transition-shadow">
+                  <Card key={memo.id || memo._id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between">
                         <div className="space-y-2">
                           <div className="flex items-center gap-3">
                             <h3 className="text-lg font-semibold">{memo.creditMemoNumber}</h3>
-                            {/* <Badge className={`flex items-center gap-1 ${getStatusColor(memo.status)}`}>
+                            <Badge className={`flex items-center gap-1 ${getStatusColor(memo.status)}`}>
                               {getStatusIcon(memo.status)}
                               {memo.status.charAt(0).toUpperCase() + memo.status.slice(1)}
-                            </Badge> */}
+                            </Badge>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -353,48 +385,69 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
                           </div>
                         </div>
 
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditMemo(memo)}
-                            className="flex items-center gap-1"
-                          >
-                            <Edit className="h-4 w-4" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleViewDetails(memo)}
-                            className="flex items-center gap-1"
-                          >
-                            <Eye className="h-4 w-4" />
-                            View
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDownloadPDF(memo)}
-                            className="flex items-center gap-1"
-                          >
-                            <Download className="h-4 w-4" />
-                            PDF
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEmailCreditMemo(memo)}
-                            disabled={emailLoading === (memo._id || memo.id)}
-                            className="flex items-center gap-1"
-                          >
-                            {emailLoading === (memo._id || memo.id) ? (
-                              <RefreshCw className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Mail className="h-4 w-4" />
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-2">
+                            {memo.status === "pending" && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => handleProcessMemo(memo)}
+                                disabled={processingMemo === (memo._id || memo.id)}
+                                className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
+                              >
+                                {processingMemo === (memo._id || memo.id) ? (
+                                  <RefreshCw className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Check className="h-4 w-4" />
+                                )}
+                                Approve
+                              </Button>
                             )}
-                            Email
-                          </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditMemo(memo)}
+                              className="flex items-center gap-1"
+                              disabled={memo.status === "processed"}
+                            >
+                              <Edit className="h-4 w-4" />
+                              Edit
+                            </Button>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewDetails(memo)}
+                              className="flex items-center gap-1"
+                            >
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownloadPDF(memo)}
+                              className="flex items-center gap-1"
+                            >
+                              <Download className="h-4 w-4" />
+                              PDF
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEmailCreditMemo(memo)}
+                              disabled={emailLoading === (memo._id || memo.id)}
+                              className="flex items-center gap-1"
+                            >
+                              {emailLoading === (memo._id || memo.id) ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Mail className="h-4 w-4" />
+                              )}
+                              Email
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </CardContent>

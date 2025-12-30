@@ -278,6 +278,41 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
               ? formatCurrency(order?.deleted?.amount)
               : formatCurrency(order.total)}</span>
           </div>
+          
+          {/* Credit Applied Section */}
+          {(order as any).creditApplied > 0 && (
+            <>
+              <div className="flex justify-between text-green-600">
+                <span className="flex items-center gap-1">
+                  <CreditCard className="h-4 w-4" />
+                  Credit Memo Applied
+                </span>
+                <span>-{formatCurrency((order as any).creditApplied)}</span>
+              </div>
+              <div className="flex justify-between font-medium text-lg">
+                <span>Amount Due</span>
+                <span>{formatCurrency(Math.max(0, order.total - (order as any).creditApplied))}</span>
+              </div>
+            </>
+          )}
+          
+          {/* Credit Applications History */}
+          {(order as any).creditApplications && (order as any).creditApplications.length > 0 && (
+            <div className="mt-3 p-3 bg-green-50 rounded-md border border-green-200">
+              <h4 className="text-sm font-medium text-green-800 mb-2">Credit Memo History</h4>
+              <div className="space-y-1">
+                {(order as any).creditApplications.map((app: any, idx: number) => (
+                  <div key={idx} className="flex justify-between text-sm text-green-700">
+                    <span>
+                      {app.creditMemoNumber || 'Credit Applied'} 
+                      {app.reason && <span className="text-xs text-green-600 ml-1">({app.reason})</span>}
+                    </span>
+                    <span>-{formatCurrency(app.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Notes */}
