@@ -411,7 +411,9 @@ if (insufficientStock.length > 0  ) {
             orderNumber: newOrder.orderNumber,
             total: newOrder.total.toFixed(2),
             itemCount: items.length,
+            items: items,
             orderDate: new Date().toLocaleDateString(),
+            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
           },
           { 
             orderId: newOrder._id, 
@@ -420,6 +422,8 @@ if (insufficientStock.length > 0  ) {
           },
           `/orders/edit/${newOrder._id}`
         );
+        
+        console.log("📧 Order confirmation email sent to:", storeDetails.email);
 
         // Notify admins about new order (in-app only, no email)
         await notificationService.notifyAdmins(
@@ -459,6 +463,7 @@ if (insufficientStock.length > 0  ) {
               total: newOrder.total.toFixed(2),
               itemCount: items.length,
               orderDate: new Date().toLocaleDateString(),
+              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
             }
           );
         }
@@ -1037,6 +1042,42 @@ const updateOrderCtrl = async (req, res) => {
     }
 
     await existingOrder.save();
+
+    // Send order updated email notification
+    try {
+      const storeDetails = await authModel.findById(existingOrder.store);
+      
+      if (storeDetails) {
+        await notificationService.createNotificationWithEmail(
+          storeDetails._id,
+          storeDetails.email,
+          "order_updated",
+          "Order Updated",
+          `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
+          "ORDER_UPDATED",
+          {
+            ownerName: storeDetails.ownerName || storeDetails.storeName,
+            storeName: storeDetails.storeName,
+            orderNumber: existingOrder.orderNumber,
+            total: existingOrder.total.toFixed(2),
+            itemCount: existingOrder.items.length,
+            items: existingOrder.items,
+            orderDate: new Date().toLocaleDateString(),
+            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+          },
+          { 
+            orderId: existingOrder._id, 
+            orderNumber: existingOrder.orderNumber,
+            total: existingOrder.total 
+          },
+          `/orders/edit/${existingOrder._id}`
+        );
+        
+        console.log("📧 Order update email sent to:", storeDetails.email);
+      }
+    } catch (notificationError) {
+      console.error("Error sending order update notification:", notificationError);
+    }
 
     // Send status change notification if status was updated
     if (statusChanged) {

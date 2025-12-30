@@ -558,19 +558,7 @@ const UpdatePreOrder = () => {
 
     setConfirming(true)
     try {
-      const finalData = {
-        items: orderItems,
-        billingAddress,
-        shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
-        total,
-        subtotal,
-        status: orderStatus,
-        date: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
-        store: order?.store?.id || order?.store?._id || order?.store,
-        shippinCost: shippingCost,
-      }
-
-      await updatePreOrderAPI(finalData, token, id)
+      // Directly confirm without updating - just call confirm API
       const confirmResponse = await confirmPreOrderAPI(token, id)
       
       if (confirmResponse) {

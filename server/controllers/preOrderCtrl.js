@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Counter = require("../models/counterModel");
 const PreOrder = require("../models/preOrderModel");
 const { createOrderCtrl } = require("./orderCtrl");
+const authModel = require("../models/authModel");
+const notificationService = require("../services/notificationService");
 
 
 const getNextPreOrderNumber = async () => {
@@ -54,6 +56,42 @@ const createPreOrderCtrl = async (req, res) => {
     });
 
     await newPreOrder.save();
+
+    // Send preorder created email notification
+    try {
+      const storeDetails = await authModel.findById(clientId?.value || clientId);
+      
+      if (storeDetails) {
+        await notificationService.createNotificationWithEmail(
+          storeDetails._id,
+          storeDetails.email,
+          "order_created",
+          "PreOrder Created",
+          `Your preorder #${newPreOrder.preOrderNumber} has been created. Total: $${newPreOrder.total.toFixed(2)}`,
+          "PREORDER_CREATED",
+          {
+            ownerName: storeDetails.ownerName || storeDetails.storeName,
+            storeName: storeDetails.storeName,
+            preOrderNumber: newPreOrder.preOrderNumber,
+            total: newPreOrder.total.toFixed(2),
+            itemCount: items.length,
+            items: items,
+            orderDate: new Date().toLocaleDateString(),
+            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+          },
+          { 
+            preOrderId: newPreOrder._id,
+            preOrderNumber: newPreOrder.preOrderNumber,
+            total: newPreOrder.total 
+          },
+          `/pre-orders/edit/${newPreOrder._id}`
+        );
+        
+        console.log("📧 PreOrder created email sent to:", storeDetails.email);
+      }
+    } catch (notificationError) {
+      console.error("Error sending preorder created notification:", notificationError);
+    }
 
     return res.status(201).json({
       success: true,
@@ -231,6 +269,42 @@ const updatePreOrderCtrl = async (req, res) => {
       });
     }
 
+    // Send preorder updated email notification
+    try {
+      const storeDetails = await authModel.findById(updated.store);
+      
+      if (storeDetails) {
+        await notificationService.createNotificationWithEmail(
+          storeDetails._id,
+          storeDetails.email,
+          "order_updated",
+          "PreOrder Updated",
+          `Your preorder #${updated.preOrderNumber} has been updated. Total: $${updated.total.toFixed(2)}`,
+          "PREORDER_UPDATED",
+          {
+            ownerName: storeDetails.ownerName || storeDetails.storeName,
+            storeName: storeDetails.storeName,
+            preOrderNumber: updated.preOrderNumber,
+            total: updated.total.toFixed(2),
+            itemCount: updated.items.length,
+            items: updated.items,
+            orderDate: new Date().toLocaleDateString(),
+            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+          },
+          { 
+            preOrderId: updated._id,
+            preOrderNumber: updated.preOrderNumber,
+            total: updated.total 
+          },
+          `/pre-orders/edit/${updated._id}`
+        );
+        
+        console.log("📧 PreOrder update email sent to:", storeDetails.email);
+      }
+    } catch (notificationError) {
+      console.error("Error sending preorder update notification:", notificationError);
+    }
+
     return res.status(200).json({
       success: true,
       message: "PreOrder updated successfully",
@@ -373,6 +447,44 @@ const confirmOrderCtrl = async (req, res) => {
     pre.confirmed = true;
     pre.orderId = createdOrderData._id;
     await pre.save();
+
+    // Send preorder confirmed email notification
+    try {
+      const storeDetails = await authModel.findById(pre.store);
+      
+      if (storeDetails) {
+        await notificationService.createNotificationWithEmail(
+          storeDetails._id,
+          storeDetails.email,
+          "order_created",
+          "PreOrder Confirmed",
+          `Your preorder #${pre.preOrderNumber} has been confirmed and converted to order #${createdOrderData.orderNumber}. Total: $${pre.total.toFixed(2)}`,
+          "PREORDER_CONFIRMED",
+          {
+            ownerName: storeDetails.ownerName || storeDetails.storeName,
+            storeName: storeDetails.storeName,
+            preOrderNumber: pre.preOrderNumber,
+            orderNumber: createdOrderData.orderNumber,
+            total: pre.total.toFixed(2),
+            itemCount: pre.items.length,
+            items: pre.items,
+            orderDate: new Date().toLocaleDateString(),
+            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+          },
+          { 
+            preOrderId: pre._id,
+            orderId: createdOrderData._id, 
+            orderNumber: createdOrderData.orderNumber,
+            total: pre.total 
+          },
+          `/orders/edit/${createdOrderData._id}`
+        );
+        
+        console.log("📧 PreOrder confirmed email sent to:", storeDetails.email);
+      }
+    } catch (notificationError) {
+      console.error("Error sending preorder confirmed notification:", notificationError);
+    }
 
     res.status(200).json({
       success: true,

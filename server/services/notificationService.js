@@ -44,7 +44,7 @@ class NotificationService {
    * @param {number} maxRetries - Maximum retry attempts
    * @returns {Promise<object>} Email send result
    */
-  async sendEmailNotification(email, subject, templateName, templateData, maxRetries = 3) {
+  async sendEmailNotification(email, subject, templateName, templateData, maxRetries = 1) {
     let lastError = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -57,10 +57,18 @@ class NotificationService {
         const htmlContent = template(templateData);
         const result = await mailSender(email, subject, htmlContent);
         
-        if (result && !result.includes("Error")) {
+        // mailSender returns nodemailer info object on success, or error message string on failure
+        if (result && typeof result === 'object' && result.messageId) {
+          console.log("✅ Email sent successfully to:", email);
           return { success: true, result };
         }
-        lastError = result;
+        
+        // If result is a string, it's an error message
+        if (typeof result === 'string') {
+          lastError = result;
+        } else {
+          lastError = "Unknown email error";
+        }
       } catch (error) {
         lastError = error.message;
         console.error(`Email send attempt ${attempt} failed:`, error.message);

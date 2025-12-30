@@ -998,12 +998,12 @@ exports.vendorDetailsWithPurchaseOrders = async (req, res) => {
       updatedAt: vendor.updatedAt,
     };
 
-    console.log("Vendor details result:", {
-      vendorId,
-      vendorName: result.name,
-      totalOrders: result.totalOrders,
-      purchaseOrdersCount: result.purchaseOrders.length
-    });
+    // console.log("Vendor details result:", {
+    //   vendorId,
+    //   vendorName: result.name,
+    //   totalOrders: result.totalOrders,
+    //   purchaseOrdersCount: result.purchaseOrders.length
+    // });
 
     return res.status(200).json({
       success: true,

@@ -15,6 +15,7 @@ const notificationSchema = new mongoose.Schema(
         "store_approved",        // Store approved (to store)
         "store_rejected",        // Store rejected (to store)
         "order_created",         // New order placed (to store & admins)
+        "order_updated",         // Order updated (to store)
         "order_status_changed",  // Order status update (to store)
         "payment_reminder",      // Payment due reminder (to store)
         "inactivity_alert",      // Store inactive (to admins)
