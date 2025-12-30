@@ -14,8 +14,14 @@ import { format } from 'date-fns';
 import {
   AlertTriangle, CheckCircle2, XCircle, DollarSign,
   Search, RefreshCw, Loader2, Eye, Store,
-  ThumbsUp, Image
+  ThumbsUp, Image, Send, MessageSquare
 } from 'lucide-react';
+
+interface Communication {
+  sender: 'store' | 'admin';
+  message: string;
+  timestamp: string;
+}
 
 interface QualityIssue {
   _id: string;
@@ -32,6 +38,7 @@ interface QualityIssue {
   status: string;
   approvedAmount?: number;
   resolution?: string;
+  communications?: Communication[];
   createdAt: string;
 }
 
@@ -42,6 +49,13 @@ const issueTypes: Record<string, string> = {
   quality: '⚠️ Quality',
   expired: '📅 Expired',
   other: '📝 Other'
+};
+
+const requestedActions: Record<string, string> = {
+  refund: '💰 Refund',
+  replacement: '🔄 Replacement',
+  credit: '💳 Store Credit',
+  adjustment: '📝 Adjustment'
 };
 
 const QualityIssueManagement: React.FC = () => {
@@ -62,6 +76,8 @@ const QualityIssueManagement: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
   const [processing, setProcessing] = useState<string | null>(null);
+  const [adminMessage, setAdminMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   // Fetch
   const fetchIssues = async () => {
@@ -171,6 +187,29 @@ const QualityIssueManagement: React.FC = () => {
     setProcessing(null);
   };
 
+  // Send Admin Message
+  const handleSendMessage = async () => {
+    if (!selectedIssue || !adminMessage.trim()) return;
+    setSendingMessage(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/quality-issues/${selectedIssue._id}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message: adminMessage.trim() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedIssue(data.issue);
+        setAdminMessage('');
+        toast({ title: 'Message sent' });
+        fetchIssues();
+      }
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Failed to send message' });
+    }
+    setSendingMessage(false);
+  };
+
   const pendingCount = allIssues.filter(i => i.status === 'pending').length;
   const approvedCount = allIssues.filter(i => i.status === 'approved' || i.status === 'partially_approved').length;
   const rejectedCount = allIssues.filter(i => i.status === 'rejected').length;
@@ -263,9 +302,15 @@ const QualityIssueManagement: React.FC = () => {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">#{issue.orderNumber}</span>
                       <Badge variant="outline" className="text-xs">{issueTypes[issue.issueType] || issue.issueType}</Badge>
+                      <Badge variant="secondary" className="text-xs">{requestedActions[issue.requestedAction] || issue.requestedAction}</Badge>
                       {issue.status === 'approved' && <Badge className="bg-green-100 text-green-700">✓ Approved</Badge>}
                       {issue.status === 'partially_approved' && <Badge className="bg-orange-100 text-orange-700">Partial</Badge>}
                       {issue.status === 'rejected' && <Badge className="bg-red-100 text-red-700">Rejected</Badge>}
+                      {issue.communications && issue.communications.length > 0 && (
+                        <Badge variant="outline" className="text-xs">
+                          <MessageSquare className="h-3 w-3 mr-1" />{issue.communications.length}
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground truncate">
                       <Store className="h-3 w-3 inline mr-1" />{issue.storeName} • {format(new Date(issue.createdAt), 'MMM d')}
@@ -351,19 +396,46 @@ const QualityIssueManagement: React.FC = () => {
 
       {/* Image Preview Modal */}
       <Dialog open={showImages} onOpenChange={setShowImages}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedIssue && (
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center justify-between">
                   <span>#{selectedIssue.orderNumber} - {selectedIssue.storeName}</span>
-                  <Badge variant="outline">{issueTypes[selectedIssue.issueType]}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{issueTypes[selectedIssue.issueType]}</Badge>
+                    {selectedIssue.status === 'approved' && <Badge className="bg-green-100 text-green-700">✓ Approved</Badge>}
+                    {selectedIssue.status === 'partially_approved' && <Badge className="bg-orange-100 text-orange-700">Partial</Badge>}
+                    {selectedIssue.status === 'rejected' && <Badge className="bg-red-100 text-red-700">Rejected</Badge>}
+                    {selectedIssue.status === 'pending' && <Badge className="bg-yellow-100 text-yellow-700">Pending</Badge>}
+                  </div>
                 </DialogTitle>
               </DialogHeader>
               
               <div className="space-y-4">
+                {/* Basic Info */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="bg-muted/50 p-3 rounded-lg">
+                    <p className="text-muted-foreground text-xs mb-1">Issue Type</p>
+                    <p className="font-medium">{issueTypes[selectedIssue.issueType] || selectedIssue.issueType}</p>
+                  </div>
+                  <div className="bg-muted/50 p-3 rounded-lg">
+                    <p className="text-muted-foreground text-xs mb-1">Requested Action</p>
+                    <p className="font-medium">{requestedActions[selectedIssue.requestedAction] || selectedIssue.requestedAction}</p>
+                  </div>
+                  <div className="bg-muted/50 p-3 rounded-lg">
+                    <p className="text-muted-foreground text-xs mb-1">Created</p>
+                    <p className="font-medium">{format(new Date(selectedIssue.createdAt), 'MMM d, yyyy h:mm a')}</p>
+                  </div>
+                  <div className="bg-muted/50 p-3 rounded-lg">
+                    <p className="text-muted-foreground text-xs mb-1">Status</p>
+                    <p className="font-medium capitalize">{selectedIssue.status.replace('_', ' ')}</p>
+                  </div>
+                </div>
+
                 {/* Description */}
                 <div className="bg-muted/50 p-3 rounded-lg">
+                  <p className="text-muted-foreground text-xs mb-1">Description</p>
                   <p className="text-sm">{selectedIssue.description}</p>
                 </div>
 
@@ -395,6 +467,55 @@ const QualityIssueManagement: React.FC = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Messages Section */}
+                <div>
+                  <p className="font-medium mb-2 text-sm">Messages:</p>
+                  {selectedIssue.communications && selectedIssue.communications.length > 0 ? (
+                    <div className="space-y-2 max-h-48 overflow-y-auto mb-3">
+                      {selectedIssue.communications.map((comm, i) => (
+                        <div 
+                          key={i} 
+                          className={`p-3 rounded-lg text-sm ${
+                            comm.sender === 'store' 
+                              ? 'bg-blue-50 border-l-4 border-blue-400' 
+                              : 'bg-gray-50 border-l-4 border-gray-400'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-medium text-xs uppercase">
+                              {comm.sender === 'store' ? '🏪 Store' : '👤 Admin'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(comm.timestamp), 'MMM d, h:mm a')}
+                            </span>
+                          </div>
+                          <p>{comm.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mb-3">No messages yet</p>
+                  )}
+                  
+                  {/* Admin Message Input */}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Type a message to store..."
+                      value={adminMessage}
+                      onChange={e => setAdminMessage(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                      className="flex-1"
+                    />
+                    <Button 
+                      size="sm" 
+                      onClick={handleSendMessage}
+                      disabled={!adminMessage.trim() || sendingMessage}
+                    >
+                      {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
 
                 {/* Resolution */}
                 {selectedIssue.resolution && (

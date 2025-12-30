@@ -145,10 +145,37 @@ exports.resolveIssue = async (req, res) => {
     issue.approvedAmount = approvedAmount;
     issue.resolution = resolution;
 
-    // If approved and createCreditMemo is true, create a credit memo
-    if (createCreditMemo && approvedAmount > 0) {
-      // Credit memo creation logic can be added here
-      // For now, just mark it in the resolution
+    // If approved and requestedAction is "credit", add credit to store's balance
+    if ((status === 'approved' || status === 'partially_approved') && approvedAmount > 0 && issue.requestedAction === 'credit') {
+      const store = await Auth.findById(issue.storeId);
+      if (store) {
+        const balanceBefore = store.creditBalance || 0;
+        const balanceAfter = balanceBefore + approvedAmount;
+
+        // Update store's credit balance
+        store.creditBalance = balanceAfter;
+
+        // Add to credit history
+        store.creditHistory = store.creditHistory || [];
+        store.creditHistory.push({
+          type: 'credit_issued',
+          amount: approvedAmount,
+          reference: issue._id.toString(),
+          referenceModel: 'QualityIssue',
+          reason: `Quality issue credit - ${issue.issueType}: ${issue.description.substring(0, 100)}`,
+          balanceBefore,
+          balanceAfter,
+          performedBy: req.user?.id || req.user?._id,
+          performedByName: req.user?.name || 'Admin',
+          createdAt: new Date()
+        });
+
+        await store.save();
+
+        issue.resolution = `${resolution} Credit of $${approvedAmount.toFixed(2)} added to store balance.`;
+      }
+    } else if (createCreditMemo && approvedAmount > 0) {
+      // For non-credit actions (refund, replacement, etc.) with credit memo
       issue.resolution = `${resolution} Credit memo for $${approvedAmount.toFixed(2)} will be applied.`;
     }
 

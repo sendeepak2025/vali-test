@@ -118,6 +118,9 @@ const QualityIssueReport: React.FC<QualityIssueReportProps> = ({ orders, onRefre
       });
       if (response.ok) {
         const data = await response.json();
+        console.log(
+          data, "issue Data"
+        )
         setIssues(data.issues || []);
       }
     } catch (error) {
@@ -302,11 +305,18 @@ const QualityIssueReport: React.FC<QualityIssueReportProps> = ({ orders, onRefre
   });
 
   // Get recent orders for selection (last 30 days, delivered/completed)
+  // Exclude orders that already have an approved/partially_approved quality issue
+  const ordersWithApprovedIssues = issues
+    .filter(issue => issue.status === 'approved' || issue.status === 'partially_approved')
+    .map(issue => issue.orderId);
+
   const eligibleOrders = orders.filter(order => {
     const orderDate = new Date(order.date || order.createdAt);
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    return orderDate >= thirtyDaysAgo && ['delivered', 'completed', 'shipped'].includes(order.status);
+    const orderId = order._id || order.id;
+    const hasApprovedIssue = ordersWithApprovedIssues.includes(orderId);
+    return orderDate >= thirtyDaysAgo && ['delivered', 'completed', 'shipped'].includes(order.status) && !hasApprovedIssue;
   });
 
   return (
@@ -571,9 +581,9 @@ const QualityIssueReport: React.FC<QualityIssueReportProps> = ({ orders, onRefre
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="refund">Full Refund</SelectItem>
+                        {/* <SelectItem value="refund">Full Refund</SelectItem> */}
                         <SelectItem value="credit">Store Credit</SelectItem>
-                        <SelectItem value="adjustment">Price Adjustment</SelectItem>
+                        {/* <SelectItem value="adjustment">Price Adjustment</SelectItem> */}
                       </SelectContent>
                     </Select>
                   </div>
