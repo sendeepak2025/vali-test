@@ -155,9 +155,6 @@ const [preOrderNum, setPreOrderNum] = useState("");
         // Use the purchasedProductIds from backend
         const productIds = new Set(response.purchasedProductIds || []);
         setPurchasedProductIds(productIds);
-        
-        console.log(`✅ Fetched ${response.orders?.length || 0} latest orders`);
-        console.log(`📦 Found ${productIds.size} unique purchased products`);
       }
     } catch (error) {
       console.error("Error fetching user orders:", error);
@@ -188,7 +185,6 @@ const [preOrderNum, setPreOrderNum] = useState("");
     const fetchTmplate = async () => {
       try {
         const tempLate = await getSinglePriceAPI(templateId)
-        console.log(tempLate)
         // Template already has products with prices set (aPrice, bPrice, cPrice, restaurantPrice)
         if (tempLate && tempLate.products) {
           // Just ensure id field exists, don't override prices
@@ -426,7 +422,6 @@ const [preOrderNum, setPreOrderNum] = useState("");
       return `${randomNumber}`;
   };
   const ONo = generateOrderNumber()
-console.log(ONo)
 
     const order = {
       id: `${Math.floor(Math.random() * 10000)
@@ -449,12 +444,8 @@ console.log(ONo)
 
       shippingAddress: nextWeek ? billingAddress : sameAsBilling ? billingAddress : shippingAddress,
     }
-console.log(order)
-
 
 const orderRes = await createPreOrderAPI(order, token)
-
-console.log(orderRes)
 
 setPreOrderNum(orderRes.preOrderNumber)
     if(nextWeek){
@@ -479,7 +470,6 @@ setPreOrderNum(orderRes.preOrderNumber)
         date: order.date,
         shippinCost: calculateShipping(),
       }
-console.log(invoiceData)
 exportInvoiceToPDF({
   id: orderRes.preOrderNumber as any,
   clientId: (orderRes.store as any)._id,

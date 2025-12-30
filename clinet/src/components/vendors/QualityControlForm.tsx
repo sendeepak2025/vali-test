@@ -369,7 +369,6 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
   const addApprovedItemsToInventory = async (approvedItems: ExtendedPurchaseItem[]) => {
     try {
       // In a real app, this would make API calls to update inventory
-      console.log('Adding approved items to inventory:', approvedItems);
       
       // For each approved item, we would typically:
       // 1. Check if product already exists in inventory
@@ -379,8 +378,6 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
       for (const item of approvedItems) {
         // Simulate API call to add/update inventory
         await new Promise(resolve => setTimeout(resolve, 300));
-        
-        console.log(`Added ${item.quantity} ${item.unit} of ${item.productName} to inventory`);
         
         // Show toast for each item added
         toast({
@@ -423,10 +420,6 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
     if (approvedItems.length > 0) {
      
       const success = await addApprovedItemsToInventory(approvedItems);
-    
-      
-
-      console.log(approvedItems)
       
       if (!success) {
         // If inventory update failed, stop the submission process
@@ -471,9 +464,6 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
       : items.every(item => item.qualityStatus === 'rejected')
         ? 'rejected'
         : 'partially-approved';
-    
-    // Log the final status (in a real app, this would be saved to the backend)
-    console.log(`Purchase #${purchaseId} final status: ${newStatus}`);
   };
   
   // Handle creating credit memo from suggestion

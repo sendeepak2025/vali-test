@@ -63,7 +63,7 @@ exports.updateContact = async (req, res) => {
     await contact.save();
     res.json({ success: true, message: "Contact updated successfully", contact });
   } catch (error) {
-    console.log(error)
+    console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

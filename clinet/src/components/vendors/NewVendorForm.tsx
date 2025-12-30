@@ -43,7 +43,6 @@ const NewVendorForm = () => {
   
     try {
       const res = await getSingleVendorAPI(id, token);
-      console.log(res);
   
       setName(res.name || '');
       setType(res.type || 'supplier');

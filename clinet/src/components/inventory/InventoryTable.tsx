@@ -247,7 +247,6 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
     const response = await getSingleProductOrderAPI(id, startDate, endDate);
     if (!response) return;
 
-    console.log("Fetched Order Data:", response);
     setProductOrderData(response);
     setOrderDetails(true);
   };
@@ -398,7 +397,6 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
       { orderId, productId, quantity: newQty },
       token
     );
-    console.log(newQty, orderId, productId);
     fetchProducts();
   };
   return (

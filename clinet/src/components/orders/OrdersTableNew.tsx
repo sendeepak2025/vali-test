@@ -172,7 +172,6 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
   // Fetch orders function
   const fetchOrders = async () => {
     if (!token) {
-      console.log("No token available - user may not be logged in")
       setLoading(false)
       return
     }
@@ -188,9 +187,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
       if (startDate) params.append("startDate", startDate)
       if (endDate) params.append("endDate", endDate)
 
-      console.log("Fetching orders with params:", params.toString())
       const response = await getAllOrderAPI(token, params.toString())
-      console.log("Orders API response:", response)
       
       if (response?.orders && Array.isArray(response.orders)) {
         const formatted = response.orders.map((order: any) => ({
@@ -215,9 +212,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
         // Extract unique states
         const states = [...new Set(formatted.map((o: any) => o.storeState).filter(Boolean))]
         setAvailableStates(states.sort())
-        console.log("Orders loaded:", formatted.length)
       } else {
-        console.log("No orders in response or invalid format")
         setOrders([])
         setTotalPages(1)
       }

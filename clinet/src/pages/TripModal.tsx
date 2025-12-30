@@ -19,8 +19,6 @@ interface TripModalProps {
 }
 
 const TripModal = ({ isOpen, onClose, editData, fetchTrips }: TripModalProps) => {
-  console.log(editData, "trip data")
-
   const token = useSelector((state: RootState) => state.auth.token);
 
   const [formData, setFormData] = useState({
@@ -64,12 +62,8 @@ const TripModal = ({ isOpen, onClose, editData, fetchTrips }: TripModalProps) =>
 
 const calculateWeightForSelectedOrders = async (selectedIds: string[]) => {
   try {
-    console.log("🟢 [calculateWeightForSelectedOrders] selectedIds:", selectedIds);
-
     const result = await calculateTripWeightAPI(selectedIds, token);
     if (!result) return;
-
-    console.log("🧩 API Raw Result:", result);
 
     // ✅ Update overall totals
     setFormData((prev) => ({
@@ -85,11 +79,9 @@ const calculateWeightForSelectedOrders = async (selectedIds: string[]) => {
       capacity_m3: o.totalVolumeM3 || 0,
     })) || [];
 
-    console.log("✅ [Updated Orders for State]:", updatedOrders);
-
     setSelectedOrdersDetails(updatedOrders);
   } catch (error) {
-    console.error("❌ [calculateWeightForSelectedOrders] Error:", error);
+    console.error("Error calculating weight:", error);
   }
 };
 

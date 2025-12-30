@@ -3,8 +3,6 @@ const mailSender = require("../utils/mailSender");
 
 exports.priceListSend = async (req, res) => {
   try {
-      console.log(req.body);
-      
       const { data, subject, message, cc, bcc } = req.body;
       const file = req.files?.attachments;
 
@@ -34,13 +32,12 @@ exports.priceListSend = async (req, res) => {
 
       const response = await mailSender(data, subject, html, file, cc, bcc);
 
-      console.log(response);
       return res.status(200).json({
           success: true,
           message: "Message Sent Successfully!"
       });
   } catch (error) {
-      console.log(error);
+      console.error(error);
       return res.status(500).json({
           success: false,
           message: "Error in sending email"
@@ -180,10 +177,6 @@ const url = `${process.env.CLIENT_URL}/store/mobile`;
 
         // ❌ MAIL SENDING DISABLED
         // await mailSender(store.email, subject, html, null, null, null);
-
-        console.log(
-          `DEBUG ONLY → Email NOT sent to ${store.storeName} (${store.email}) | cat=${catValue} | url=${url}`
-        );
 
         successCount++;
 

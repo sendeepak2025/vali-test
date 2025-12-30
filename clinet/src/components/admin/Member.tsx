@@ -39,7 +39,6 @@ const Member = () => {
     setLoading(true);
     try {
       const data = await getAllMembersAPI();
-      console.log(data);
 
       // Filter members with role "member"
       const filteredData = data.filter((member) => member.role === "member");

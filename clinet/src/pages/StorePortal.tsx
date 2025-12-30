@@ -366,9 +366,9 @@ const StorePortal = () => {
               <TabsContent value="orders" className="space-y-4">
                 <OrderHistory 
                   orders={orders}
-                  onViewOrder={(id) => console.log(`View order ${id}`)}
+                  onViewOrder={(id) => {}}
                   onViewInvoice={handleViewInvoice}
-                  onReorder={(id) => console.log(`Reorder ${id}`)}
+                  onReorder={(id) => {}}
                 />
               </TabsContent>
               

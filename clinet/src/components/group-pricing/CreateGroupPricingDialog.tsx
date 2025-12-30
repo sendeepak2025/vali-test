@@ -115,17 +115,14 @@ export function CreateGroupPricingDialog({ onSubmit, initialData }: CreateGroupP
   });
 
   useEffect(()=>{
-  console.log(form.getValues())
 
 },[initialData])
 
   const fetchData = async () => {
-    console.log("Starting fetchData in CreateGroupPricingDialog");
     setLoading(true);
     try {
 
 
-      console.log("Fetching data for group pricing...");
       const [productsResponse, groupsResponse, pharmaciesResponse] = await Promise.all([
         await getAllProductAPI(),
         await getAllStoresAPI() ,
@@ -135,11 +132,6 @@ export function CreateGroupPricingDialog({ onSubmit, initialData }: CreateGroupP
  // supabase.from("products").select("id, name, base_price, product_sizes(*)"),
         // supabase.from("profiles").select("id, first_name, last_name"),
         // supabase.from("profiles").select("id, first_name, last_name").eq("type", "pharmacy")
-      console.log("API Responses:", {
-        products: productsResponse,
-        groups: groupsResponse,
-        pharmacies: pharmaciesResponse
-      });
 
       const formattedGroups = groupsResponse?.map((group: any) => ({
         ...group,
@@ -176,8 +168,6 @@ const groupedProductSizes = Object.keys(groupedByCategory).map(category => ({
   }))
 }));
 
-      
-      console.log(groupedProductSizes);
       setProductsSizes(groupedProductSizes);
       
 
@@ -185,11 +175,6 @@ const groupedProductSizes = Object.keys(groupedByCategory).map(category => ({
       
       setGroups(formattedGroups);
       setPharmacies(formattedPharmacies);
-      console.log("Data fetched successfully:", {
-        products: productsResponse?.length,
-        groups: formattedGroups.length,
-        pharmacies: formattedPharmacies.length
-      });
     } catch (error: any) {
       console.error("Error in fetchData:", error);
       toast({
@@ -204,7 +189,6 @@ const groupedProductSizes = Object.keys(groupedByCategory).map(category => ({
 
 
   const handleSubmit = async (values: FormValues) => {
-    console.log("Starting handleSubmit with values:", values);
     setLoading(true);
 
     try {
@@ -223,8 +207,6 @@ const groupedProductSizes = Object.keys(groupedByCategory).map(category => ({
         updated_at: new Date().toISOString(),
       };
 
-      console.log("Saving group pricing data:", initialData);
-      
       if (!initialData) {
         await creatGroupPricingAPI(groupPricingData,token)
 

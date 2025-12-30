@@ -28,7 +28,7 @@ const ProductDetails: React.FC<ProductDetailsProps> = ({
 }) => {
   const [isCustomCategory, setIsCustomCategory] = useState(false);
   const [customCategory, setCustomCategory] = useState("");
-console.log(isEditProduct)
+
   return (
     <div className="space-y-4">
       <TextField

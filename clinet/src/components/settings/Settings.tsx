@@ -48,7 +48,6 @@ export default function SettingsPage() {
       setIsSidebarOpen(!isSidebarOpen);
     };
 
-  console.log(user)
   if (!user) return <div className="text-center py-20 text-muted-foreground">User not found.</div>
 
   const storeForm = useForm<StoreSettingsValues>({
@@ -80,7 +79,6 @@ export default function SettingsPage() {
   const onUpdateSettings = async (values: StoreSettingsValues) => {
     setIsUpdating(true)
     try {
-      console.log(values)
       await updateStoreAPI(user._id,values,token)
      
     } catch (error) {

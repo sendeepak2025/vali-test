@@ -61,7 +61,6 @@ const StoreOrderHistory: React.FC<StoreOrderHistoryProps> = ({ orders }) => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   
-  console.log(orders)
   // Filter orders based on search term and status
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.orderId.toLowerCase().includes(searchTerm.toLowerCase());

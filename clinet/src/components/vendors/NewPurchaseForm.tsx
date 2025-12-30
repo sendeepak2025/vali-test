@@ -72,7 +72,6 @@ const NewPurchaseForm = () => {
   const fetchProducts = async () => {
     try {
       const response = await getAllProductAPI()
-      console.log(response)
 
       if (response) {
         const updatedProducts = response.map((product) => ({
@@ -90,7 +89,6 @@ const NewPurchaseForm = () => {
 
   const fetchVendors = async () => {
     const response = await getAllVendorsAPI()
-    console.log(response)
 
     const formattedData = (response?.data || []).map((vendor) => ({
       ...vendor,
@@ -161,7 +159,6 @@ const NewPurchaseForm = () => {
     }
 
     const updatedItems = [...items]
-    console.log(product)
     updatedItems[index] = {
       ...updatedItems[index],
       productId,

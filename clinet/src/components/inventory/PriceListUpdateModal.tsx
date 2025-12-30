@@ -66,7 +66,6 @@ useEffect(() => {
       }));
 
       setProduct(transformedProducts);
-      console.log("Transformed Products:", transformedProducts);
     } catch (err) {
       console.error("Error fetching products:", err);
     }
@@ -112,8 +111,6 @@ useEffect(() => {
       newPrices[product.id] = newPrice;
     });
     
-    console.log(filteredProducts)
-    
     setEditedPrices(newPrices);
     setIsDirty(true);
   };
@@ -154,7 +151,6 @@ useEffect(() => {
     // SUDO implement the server for change the pricing 
 
   await updateProductPrice(editedPrices,token)
-    console.log(editedPrices)
     Object.entries(editedPrices).forEach(([id, newPrice]) => {
       const index = products.findIndex(p => p.id === id);
       if (index !== -1) {

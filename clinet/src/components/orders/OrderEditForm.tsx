@@ -88,7 +88,6 @@ const OrderEditForm: React.FC<OrderEditFormProps> = ({
     const token = useSelector((state: RootState) => state.auth?.token ?? null);
 
   const { id } = useParams();
-  console.log(order);
   // Define default values for the form
   const defaultValues: OrderFormValues = {
     store: order?.store || "",
@@ -217,14 +216,12 @@ const OrderEditForm: React.FC<OrderEditFormProps> = ({
   const fetchProducts = async () => {
     try {
       const response = await getAllProductAPI();
-      console.log(response);
       if (response) {
         const updatedProducts = response.map((product) => ({
           ...product,
           id: product._id,
           lastUpdated: product?.updatedAt,
         }));
-        console.log(updatedProducts);
         setProducts(updatedProducts);
       }
     } catch (error) {

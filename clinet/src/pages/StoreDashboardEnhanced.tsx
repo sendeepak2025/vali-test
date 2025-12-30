@@ -60,12 +60,9 @@ const StoreDashboardEnhanced = () => {
       try {
         // Fetch orders for this store - API already filters by store
         const ordersRes = await getAllOrderAPI(token)
-        console.log("Orders response:", ordersRes)
         
         // Use the orders directly from API response since it's already filtered
         const storeOrders = ordersRes?.orders || []
-        console.log("Store orders:", storeOrders)
-        console.log("First order structure:", storeOrders[0])
         setOrders(storeOrders)
 
         // Fetch products
@@ -77,7 +74,7 @@ const StoreDashboardEnhanced = () => {
           const statementRes = await getStatement(user._id, token)
           setStatement(statementRes)
         } catch (e) {
-          console.log("Statement not available")
+          // Statement not available
         }
       } catch (error) {
         console.error("Error fetching data:", error)

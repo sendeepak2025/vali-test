@@ -64,7 +64,6 @@ const ContactsList = () => {
     if (data.id) {
       // Edit existing contact
       const response = await updateContactCrmAPI(data.id, data);
-      console.log(response);
       if (response) {
         toast.success(response?.message);
         setIsDialogOpen(false);

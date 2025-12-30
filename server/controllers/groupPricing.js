@@ -5,7 +5,6 @@ exports.createGroupPricing = async (req, res) => {
     try {
         const { name, storeId, product_arrayjson } = req.body;
 
-        console.log(req.body)
         const newGroupPricing = await GroupPricing.create({
             name,
             storeId,

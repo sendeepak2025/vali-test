@@ -118,8 +118,6 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
   
-    console.log(cart);
-  
     let discountPercentage: number | undefined = undefined;
   
     // Pehle cart me item dhoondo

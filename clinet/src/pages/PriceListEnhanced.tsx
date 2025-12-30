@@ -204,7 +204,6 @@ const PriceListEnhanced = () => {
       const query = `page=${targetPage}&limit=${PAGE_SIZE}`
       const response = await getAllPriceListAPI(query)
       if (response) {
-        console.log(response, "template")
         setTemplates(response.data || [])
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)

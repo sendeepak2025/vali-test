@@ -16,7 +16,6 @@ const StorePreOrders = () => {
 
 const fetchOrders = async (page = 1, searchQuery = "") => {
   if (!token) {
-    console.log("Missing token");
     return;
   }
   setLoading(true);
@@ -25,11 +24,7 @@ const fetchOrders = async (page = 1, searchQuery = "") => {
     queryParams.append("page", page.toString());
     if (searchQuery) queryParams.append("search", searchQuery);
 
-    console.log("Fetching preorders with params:", queryParams.toString());
-
     const data = await getAllPreOrderAPI(token, queryParams.toString());
-
-    console.log("Received preorders:", data.preOrders?.length);
 
     // Filter orders where confirmed === false
     const unconfirmedOrders = (data.preOrders || []).filter(

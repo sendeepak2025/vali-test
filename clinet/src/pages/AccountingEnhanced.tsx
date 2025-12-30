@@ -343,7 +343,6 @@ const AccountingContent = () => {
     setVendorInvoicesLoading(true)
     try {
       const result = await getVendorAccountingSummaryAPI(vendorId, token)
-      console.log("Vendor accounting result:", result) // Debug log
       if (result?.orders && result.orders.length > 0) {
         // Map orders to invoice format for dropdown
         const mappedOrders = result.orders.map((order: any) => ({
@@ -354,10 +353,8 @@ const AccountingContent = () => {
           paymentStatus: order.paymentStatus,
           purchaseDate: order.purchaseDate
         }))
-        console.log("Mapped vendor invoices:", mappedOrders) // Debug log
         setVendorInvoices(mappedOrders)
       } else {
-        console.log("No orders found for vendor") // Debug log
         setVendorInvoices([])
       }
     } catch (error) {

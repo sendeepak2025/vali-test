@@ -180,8 +180,6 @@ const Inventory = () => {
       // Replace this with your actual paginated API call
       const response = await getAllProductSummaryAPI(`?${queryParams.toString()}&hard=${hard}`)
 
-      console.log("Paginated response:", response)
-
       if (response) {
         const updatedProducts = (response.products || response.data || response).map((product) => ({
           ...product,
@@ -192,7 +190,6 @@ const Inventory = () => {
         }))
 
         setProducts(updatedProducts)
-        console.log(response)
         // Update pagination info from response
         setPagination((prev) => ({
           ...prev,
@@ -305,7 +302,6 @@ const Inventory = () => {
   const getAllCategories = async () => {
     try {
       const response = await dispatch(getAllCategoriesAPI())
-      console.log("Categories:", response)
       // Ensure we're setting an array of category objects
       setCategories(Array.isArray(response) ? response : [])
     } catch (error) {
@@ -401,7 +397,6 @@ const Inventory = () => {
 
     const headers = ["product name", "Purchased", "Sell", "Remaining", "Price"];
     // Map your product data to match the CSV headers
-    console.log(products)
     const csvData = products.map(product => {
       // Assuming 'product' has properties like 'name', 'purchased', 'sold', 'quantity', 'price'
       // You may need to adjust these property names based on your actual Product type structure

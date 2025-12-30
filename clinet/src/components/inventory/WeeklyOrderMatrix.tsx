@@ -342,7 +342,6 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   // Listen for order/preorder changes from other components
   useEffect(() => {
     const unsubscribe = orderEvents.onAnyOrderChange((data) => {
-      console.log("Order/PreOrder change detected, refreshing matrix...", data);
       // Small delay to ensure backend has processed the change
       setTimeout(() => {
         fetchMatrixData(currentPage, searchTerm);

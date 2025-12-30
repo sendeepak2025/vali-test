@@ -106,7 +106,6 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
   const [bolNumber, setBolNumber] = useState(
     `BOL-${Math.floor(100000 + Math.random() * 900000)}`
   );
-  console.log(order);
   const form = useForm<BolFormValues>({
     resolver: zodResolver(bolSchema),
     defaultValues: {
@@ -135,7 +134,6 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
   });
 
   const handleGenerateBOL = (data: BolFormValues) => {
-    console.log("BOL data:", data);
 
     setBolGenerated(true);
     toast({

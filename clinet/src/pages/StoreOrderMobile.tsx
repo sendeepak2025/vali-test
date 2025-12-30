@@ -125,7 +125,7 @@ const StoreOrderMobile = () => {
               return
             }
           } catch (e) {
-            console.log("No active template found, using all products")
+            // No active template found, using all products
           }
           
           // Fallback to all products
@@ -212,7 +212,7 @@ const StoreOrderMobile = () => {
               const lastOrder = ordersRes.orders[0]
               setLastWeekOrder(lastOrder.items || [])
             }
-          } catch (e) { console.log("No recent orders") }
+          } catch (e) { /* No recent orders */ }
 
           // Fetch user preorders
           await fetchUserPreOrders(user._id)
@@ -328,7 +328,7 @@ const StoreOrderMobile = () => {
         const lastOrder = ordersRes.orders[0]
         setLastWeekOrder(lastOrder.items || [])
       }
-    } catch (e) { console.log("No recent orders") }
+    } catch (e) { /* No recent orders */ }
 
     // Fetch user preorders
     await fetchUserPreOrders(response._id)

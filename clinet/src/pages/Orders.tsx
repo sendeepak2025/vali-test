@@ -28,11 +28,11 @@ const Orders = () => {
 
   // Placeholder functions for OrdersTableNew props
   const handleDelete = (id: string) => {
-    console.log("Order deleted:", id);
+    // Order deleted
   };
 
   const handlePayment = (id: string, paymentMethod: any) => {
-    console.log("Payment updated:", id, paymentMethod);
+    // Payment updated
   };
 
   return (

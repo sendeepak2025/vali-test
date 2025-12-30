@@ -65,7 +65,6 @@ const AddProductForm: React.FC<AddProductFormProps> = ({
   });
 
   const[loading,setLoading] = useState(false)
-console.log(isEditProduct)
 
   const fetchProductDetails = async () => {
     if (!isEditProduct || !editProduct) return;
@@ -74,8 +73,6 @@ console.log(isEditProduct)
     try {
       const response = await getSingleProductAPI(editProduct);
       if (response) {
-        console.log(response);
-  
         form.reset({
           name: response.name || "",
           category: response.category || "",
@@ -107,7 +104,7 @@ console.log(isEditProduct)
         });
       }
     } catch (error) {
-      console.log("Error fetching product details:", error);
+      // Error fetching product details
     }
     
     setLoading(false);
@@ -126,7 +123,6 @@ console.log(isEditProduct)
 
   const getAllCategories = async () => {
     const response = await dispatch(getAllCategoriesAPI());
-    console.log(response);
     setCategories(response || []);
   };
 
@@ -134,7 +130,6 @@ console.log(isEditProduct)
     getAllCategories();
   }, []);
   const onSubmit = async (data: FormValues) => {
-console.log(data)
     if(isEditProduct){
       await updateProductAPI(editProduct,data, token);
       onSuccess();
@@ -142,7 +137,6 @@ console.log(data)
     }else{
 
      const res =  await createProductAPI(data, token);
-     console.log(res)
      if(res){
       
     onSuccess();

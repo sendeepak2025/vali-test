@@ -76,7 +76,6 @@ export const StatementFilterPopup = ({
       }
 
       const response = await getStatement(url, token);
-      console.log(response);
       if (response) {
         await generateStatementPDF(response, vendor);
         onClose();

@@ -61,7 +61,6 @@ const NewOrder = () => {
         setStoreLoading(true);
 
         const res = await getUserAPI({ id });
-        console.log(res);
         if (res) {
           setShippinC(res.shippingCost)
 
@@ -94,8 +93,6 @@ const NewOrder = () => {
   }
 
   const handleSubmitOrder = async (data: any) => {
-    // In a real app, this would save the order to the database
-    console.log(data);
     const requiredFields = ["name", "email", "phone", "address", "city", "postalCode", "country"];
     const checkEmptyFields = (address: any) =>
       requiredFields.some((field) => !address?.[field]);
@@ -135,15 +132,6 @@ const NewOrder = () => {
       return calculateSubtotal() + calculateShipping();
     };
 
-    // const calculateTotal = () => {
-    //   const items: Item[] = data?.items || []; // Ensure data.items is an array
-    //   return items.reduce((total: number, item: Item) => {
-    //     return total + item.quantity * item.unitPrice;
-    //   }, 0);
-    // };
-
-    console.log(calculateTotal()); // Call the function to get the result
-
     const order = {
       orderNumber: orderNumber || null,
       createdAt: createdAt ? new Date(createdAt).toISOString() : new Date().toISOString(),
@@ -157,16 +145,12 @@ const NewOrder = () => {
       shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
     };
 
-    console.log(order);
-
    const res = await createOrderAPI(order, token);
 
    
 if(res){
-  console.log("PROCEESD")
   navigate("/admin/orders");
 }
-    console.log(res)
   };
 
   const handleCancel = () => {

@@ -43,7 +43,6 @@ const StoreFront = () => {
   const fetchOrders = async () => {
     try {
       const res = await getAllOrderAPI(token);
-      console.log(res);
       const formattedOrders = res.map(order => ({
         orderId: order?.orderNumber || `#${order._id.toString().slice(-5)}`,
         date: new Date(order.createdAt).toLocaleDateString(), // Formatting date
@@ -62,16 +61,13 @@ const StoreFront = () => {
     fetchOrders(); // Call the function
   }, [token]);
 
-console.log(user)
 useEffect(() => {
   const fetchData = async () => {
     try {
       const data = await getAllGroupPricingAPI();
-      console.log('Group Pricing Data:', data);
 
       const productsResponse = await fetch(`${BASE_URL}/product/getAll`);
       const productsData = await productsResponse.json();
-      console.log('Products Data:', productsData);
 
       if (productsData.success) {
         const updatedProducts = productsData.products.map(product => {

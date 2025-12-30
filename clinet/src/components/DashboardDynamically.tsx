@@ -34,7 +34,6 @@ const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
     const fetchDashboardData = async () => {
       try {
         const response = await getDashboardData();
-        console.log(response)
         if (response?.success) {
           setDashboardData(response.data);
         } else {
@@ -59,7 +58,6 @@ const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
     setPendingLoading(true);
     try {
       const response = await getPendingData(); // your API call
-      console.log(response)
       if (response?.success) {
         setPendingData(response.data);
       } else {
@@ -77,7 +75,6 @@ const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null)
    const fetchUserDetailsOrder = async (id: any) => {
     try {
       const res = await userWithOrderDetails(id)
-      console.log(res)
       setSelectedUserData(res)
       setUserDetailsOpen(true)
     } catch (error) {

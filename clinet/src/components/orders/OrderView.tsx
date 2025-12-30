@@ -99,7 +99,6 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
     }
   }, 0);
 
-  console.log(order)
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">

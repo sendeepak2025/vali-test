@@ -72,7 +72,6 @@ export function PaymentStatusPopup({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
 
-  console.log(paymentOrder);
   useEffect(() => {
     // Reset form when dialog opens or paymentOrder changes
     setPaymentMethod("cash");
@@ -175,7 +174,6 @@ export function PaymentStatusPopup({
         ...(paymentMethod === "cheque" && { notes }),
       };
 
-      console.log(paymentData);
       if (purchase) {
         await updatePurchaseOrderPaymentAPI(paymentData, token, id);
       } else {

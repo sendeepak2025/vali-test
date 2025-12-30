@@ -50,7 +50,6 @@ const AccountingStoreTable = ({ loading, groups }: any) => {
   const fetchUserDetailsOrder = async (id: any) => {
     try {
       const res = await userWithOrderDetails(id);
-      console.log(res);
       setSelectedUserData(res);
       setUserDetailsOpen(true);
     } catch (error) {
@@ -61,7 +60,6 @@ const AccountingStoreTable = ({ loading, groups }: any) => {
       });
     }
   };
-  console.log(groups, "groups");
   return (
     <div className="p-4 overflow-x-auto bg-white rounded-lg shadow-sm">
       <div className="flex justify-between items-center mb-4">

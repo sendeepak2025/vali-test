@@ -103,7 +103,6 @@ const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({ open, onClose, 
   const volumeDiscountSavings = subtotal - discountedTotal
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
   
-  console.log(user)
   // Calculate progress to next tier
   const getNextTierInfo = () => {
     if (discountTier.tier === 0) {
@@ -190,9 +189,6 @@ const ShoppingCartDrawer: React.FC<ShoppingCartDrawerProps> = ({ open, onClose, 
       specialRequests,
       shippinCost:calculateShipping()
     }
-
-    console.log(order)
-
 
     await createOrderAPI(order, token)
     

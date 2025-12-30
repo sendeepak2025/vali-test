@@ -18,8 +18,6 @@ export function ProductSelection({ form, products }: ProductSelectionProps) {
   // ✅ Ensure form state is updated correctly
   useEffect(() => {
     form.setValue("product_arrayjson", selectedProducts, { shouldValidate: true });
-
-    console.log(form.getValues())
   }, [selectedProducts, form]);
 
   // ✅ Handle Product Change

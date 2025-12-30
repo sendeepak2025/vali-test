@@ -163,7 +163,6 @@ const DealsBoard = () => {
     setDeals([...deals, newDeal]);
 
     const response = await createDealCrmAPI(data);
-    console.log(response);
 
     dealForm.reset();
 
@@ -190,8 +189,6 @@ const DealsBoard = () => {
   }, []);
   // Handle email form submission
   const onSubmitEmail = (data) => {
-    console.log("Sending email:", data);
-
     // In a real application, this would make an API call to a backend service
     // For now, we'll just simulate success
     setTimeout(() => {
@@ -453,10 +450,6 @@ const DealsBoard = () => {
                                   e.preventDefault();
                                   // Set the selected deal for editing
                                   const dealToEdit = { ...deal }; // Create a copy to ensure we have all properties
-                                  console.log(
-                                    "Setting selected deal for edit:",
-                                    dealToEdit
-                                  );
                                   setSelectedDeal(dealToEdit);
                                   // Set form values from the selected deal
                                   dealForm.reset({
@@ -493,10 +486,6 @@ const DealsBoard = () => {
                                       if (!selectedDeal) return;
 
                                       try {
-                                        console.log(
-                                          "Selected deal for update:",
-                                          selectedDeal
-                                        );
                                         const formData = {
                                           ...data,
                                         };

@@ -86,7 +86,6 @@ export default function CreditMemoList({ open, onClose, order, token }: CreditMe
     setLoading(true)
     try {
       const memos = await getCreditMemosByOrderId(order._id || order.id, token)
-      console.log(memos)
       setCreditMemos(memos)
     } catch (error) {
       console.error("Error fetching credit memos:", error)

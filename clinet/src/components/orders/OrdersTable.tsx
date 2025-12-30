@@ -473,7 +473,6 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
 
       // Make API call with query parameters
       const response = await getAllOrderAPI(token, params.toString())
-      console.log(response)
       if (response && Array.isArray(response.orders)) {
         setOrders(
           response.orders.map((order) => ({
@@ -588,7 +587,6 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
 
       if (confirmed.isConfirmed) {
         const deletedOrder = await deleteOrderAPI(id, token, reason)
-        console.log(reason)
 
         if (deletedOrder) {
           onDelete(id)
@@ -1049,7 +1047,6 @@ const OrdersTable: React.FC<OrdersTableProps> = ({
   const fetchUserDetailsOrder = async (id: any) => {
     try {
       const res = await userWithOrderDetails(id)
-      console.log(res)
       setSelectedUserData(res)
       setUserDetailsOpen(true)
     } catch (error) {

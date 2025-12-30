@@ -127,7 +127,6 @@ export function VendorSelect({
 
   // Handle vendor selection - direct click handler
   const handleSelectVendor = (vendorId: string) => {
-    console.log("VendorSelect: Selecting vendor:", vendorId)
     onValueChange(vendorId)
     setOpen(false)
   }

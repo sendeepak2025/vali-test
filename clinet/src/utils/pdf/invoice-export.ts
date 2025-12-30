@@ -97,7 +97,7 @@ export const exportInvoiceToPDF = (
         }
         doc.addImage(logoUrl, "PNG", PAGE_WIDTH / 2 - 10, 8, 0, 18);
       } catch (e) {
-        console.log("Logo not loaded");
+        // Logo not loaded
       }
     }
 

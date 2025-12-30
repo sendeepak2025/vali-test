@@ -1148,7 +1148,7 @@ const UserDetailsModal = ({
         totalAmount={totalAmount}
         id={orderIdDB}
         fetchOrders={() => fetchUserDetailsOrder(userData._id)}
-        onPayment={() => console.log("hello")}
+        onPayment={() => {}}
         paymentOrder={paymentOrder}
         purchase={vendor}
       />

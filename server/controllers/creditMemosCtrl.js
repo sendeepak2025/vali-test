@@ -84,7 +84,7 @@ const applyStoreCreditToOrder = async (storeId, orderId, amount, userId, userNam
 exports.createCreditMemo = async (req, res) => {
   try {
     const { files, body } = req;
-console.log(files)
+
     // Parse credit memo data
     const creditMemoData = JSON.parse(body.creditMemoData);
     const creditItems = [];
@@ -119,7 +119,6 @@ console.log(files)
         ...itemData,
         uploadedFiles: uploadedFiles,
       });
-      console.log(uploadedFiles)
     }
 
     // Save credit memo
@@ -345,9 +344,6 @@ exports.updateCreditMemo = async (req, res) => {
 
     const creditMemoData = JSON.parse(body.creditMemoData);
     const updatedItems = [];
-
-    console.log("BODY", req.body);
-    console.log("FILES", req.files);
 
     for (let i = 0; ; i++) {
       const itemKey = `items[${i}]`;
@@ -621,7 +617,6 @@ exports.getStoreCreditInfo = async (req, res) => {
           }
         } catch (err) {
           // If order not found, continue without order number
-          console.log("Order not found for credit history entry:", entry.reference);
         }
       }
       

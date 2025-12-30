@@ -204,7 +204,6 @@ const ProductFormTabs: React.FC<ProductFormTabsProps> = ({
   units ,
   isEditProduct
 }) => {
-  console.log(isEditProduct)
   return (
     <Tabs defaultValue="basic" className="w-full">
       <TabsList className="grid w-full grid-cols-4 mb-4">

@@ -28,7 +28,6 @@ const VendorsList = () => {
   useEffect(() => {
     const fetchVendors = async () => {
       const response = await getAllVendorsAPI();
-      console.log(response)
       setVendors(response?.data || []);
     };
     fetchVendors();
@@ -101,7 +100,6 @@ const VendorsList = () => {
    const fetchUserDetailsOrder = async (id: any) => {
       try {
         const res = await vendorWithOrderDetails(id)
-        console.log(res)
         const transformed = transformVendorWithOrders(res)
     setSelectedUserData(transformed)
         setUserDetailsOpen(true)

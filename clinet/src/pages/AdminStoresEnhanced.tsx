@@ -314,7 +314,6 @@ const AdminStoresEnhanced = () => {
         }
         
         if (response.filters?.uniqueStates) {
-          console.log(response.filters?.uniqueStates, "test")
           setUniqueStates(response.filters.uniqueStates)
         }
       }

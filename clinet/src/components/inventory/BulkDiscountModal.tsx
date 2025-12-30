@@ -107,8 +107,6 @@ const BulkDiscountModal: React.FC<BulkDiscountModalProps> = ({
     
     const updatedProducts = [...products];
     
-
-    console.log(discounts)
     await updateBulkDiscount(discounts,filteredProducts,token)
     return
     filteredProducts.forEach(product => {

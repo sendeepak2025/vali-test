@@ -79,7 +79,7 @@ const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
         const statementRes = await getStatement(user._id, token)
         setStatement(statementRes?.statement || null)
       } catch (e) {
-        console.log("Statement not available")
+        // Statement not available
       }
     } catch (error) {
       console.error("Error fetching data:", error)

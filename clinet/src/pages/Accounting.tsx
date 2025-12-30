@@ -36,9 +36,6 @@ const Accounting = () => {
 
       setAllStores(formattedData);
       setFilteredStores(formattedData);
-
-      // 👇 only first two
-      console.log("first two stores:", formattedData.slice(0, 2));
     } catch (error) {
       console.error("Error fetching members:", error);
     } finally {

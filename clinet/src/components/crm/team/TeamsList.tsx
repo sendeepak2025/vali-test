@@ -94,7 +94,6 @@ const TeamMemberForm = ({ member, onSubmit, onCancel }: any) => {
 
   const handleSubmit = async(e: React.FormEvent) => {
     e.preventDefault();
-    console.log(formData.id)
     if(formData.id){
 await updateTeamCrmAPI(formData.id,formData)
     }else{

@@ -23,7 +23,6 @@ function CategoriesManagement({ onclose, isopen }) {
     setLoading(true);
     try {
     const res = await dispatch(getAllCategoriesAPI());
-      console.log(res)
       if (res) {
         setCategories(res || []);
       }
@@ -70,7 +69,6 @@ function CategoriesManagement({ onclose, isopen }) {
         setOpenForm(false);
         loadCategories();
       } else {
-        console.log(res)
         // Swal.fire("Error", res?.message || "Something went wrong", "error");
       }
     } catch (error) {

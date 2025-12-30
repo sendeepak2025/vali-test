@@ -55,7 +55,6 @@ const ViewPurchaseOrder =()=> {
         setLoading(true)
         const response = await getSinglePurchaseOrderAPI(id)
 
-        console.log(response)
         if (response) {
           setPurchaseOrder(response)
         }

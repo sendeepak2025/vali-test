@@ -34,7 +34,6 @@ if(res){
   const fetchUserDetailsOrder = async (id: any) => {
     try {
       const res = await userWithOrderDetails(id)
-      console.log(res)
       setSelectedUserData(res)
       setUserDetailsOpen(true)
     } catch (error) {

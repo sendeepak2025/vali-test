@@ -28,7 +28,6 @@ export const useMapOperations = (): MapOperations => {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       // Here you would normally call your route optimization service
-      console.log('Optimizing route for', stores.length, 'stores');
       
     } finally {
       setIsCalculating(false);

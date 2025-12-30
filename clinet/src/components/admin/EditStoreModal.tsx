@@ -72,7 +72,6 @@ const StoreEditModal = ({ storeId, isOpen, onClose, onSuccess }: StoreEditModalP
     setIsFetching(true)
     try {
       const storeData = await getUserAPI({ id })
-      console.log(storeData)
       if (storeData) {
         form.reset({
           storeName: storeData.storeName || "",

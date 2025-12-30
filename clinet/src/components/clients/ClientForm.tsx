@@ -51,7 +51,6 @@ const ClientForm: React.FC<ClientFormProps> = ({ initialData, onSubmit }) => {
 
   const handleSubmit = (data: ClientFormValues) => {
     const currentDate = new Date().toISOString().split("T")[0];
-    console.log(data);
 
     return;
     const clientData: Omit<Client, "id"> = {

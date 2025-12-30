@@ -105,7 +105,6 @@ const PurchasesList = () => {
       }
 
       const res = await getAllPurchaseOrdersAPI(params.toString());
-      console.log(res);
       if (res.orders) {
         const transformed = res.orders.map((order) => ({
           ...order,
@@ -146,7 +145,6 @@ const PurchasesList = () => {
     return matchesSearch && matchesStatus;
   });
 
-  console.log(filteredPurchases);
   const getStatusBadge = (status) => {
     const variants = {
       pending: {
@@ -209,7 +207,6 @@ const PurchasesList = () => {
 
   const handleUploadInvoice = (purchaseId) => {
     // In a real app, this would open a file upload dialog
-    console.log(`Upload invoice for purchase ${purchaseId}`);
     // Mock updating the invoice status
     const purchaseIndex = purchaseOrders.findIndex((p) => p.id === purchaseId);
     if (purchaseIndex !== -1) {
@@ -560,7 +557,7 @@ const PurchasesList = () => {
         totalAmount={totalAmount}
         id={orderIdDB}
         fetchOrders={fetchPurchase}
-        onPayment={() => console.log("ONPAYMENT")}
+        onPayment={() => {}}
         paymentOrder={paymentOrder}
         purchase={true}
       />

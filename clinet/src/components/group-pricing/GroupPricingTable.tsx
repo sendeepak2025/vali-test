@@ -28,7 +28,6 @@ export function GroupPricingTable({}: GroupPricingTableProps) {
   const { toast } = useToast();
 
   const fetchGroupPricings = async () => {
-    console.log("Starting fetchGroupPricings");
     if (!loading) setLoading(true);
     try {
     
@@ -41,14 +40,8 @@ export function GroupPricingTable({}: GroupPricingTableProps) {
       const count  = 0
 
      
-console.log(data)
       setGroupPricings(data || []);
       setTotalPages(Math.ceil((count || 0) / rowsPerPage));
-      
-      console.log("Successfully updated state with:", {
-        pricingsCount: data?.length,
-        totalPages: Math.ceil((count || 0) / rowsPerPage)
-      });
     } catch (error: any) {
       console.error("Error in fetchGroupPricings:", error);
       toast({
@@ -64,7 +57,6 @@ console.log(data)
   };
 
   const handleDelete = async (id: string) => {
-    console.log("Starting handleDelete for id:", id);
     try {
       // const { error } = await supabase
       //   .from("group_pricing")
@@ -89,7 +81,6 @@ console.log(data)
   };
 
   const handleDeactivate = async (id: string) => {
-    console.log("Starting handleDeactivate for id:", id);
     try {
       // const { error } = await supabase
       //   .from("group_pricing")
@@ -126,7 +117,7 @@ console.log(data)
       </div>
     );
   }
-console.log(groupPricings)
+
   return (
     <div className="rounded-md p-4">
       <GroupPricingHeader loading={loading} onRefresh={fetchGroupPricings} />

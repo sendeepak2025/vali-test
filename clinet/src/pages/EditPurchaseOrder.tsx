@@ -72,7 +72,6 @@ const EditPurchaseOrderForm = () => {
       try {
         setLoading(true)
         const response = await getSinglePurchaseOrderAPI(id)
-        console.log(response)
 
         if (response) {
           setVendorId(response.vendorId?._id || response.vendorId)

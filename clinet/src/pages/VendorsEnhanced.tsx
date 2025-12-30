@@ -401,10 +401,7 @@ const VendorManagementContent = () => {
       if (invoiceStatusFilter !== "all") params.status = invoiceStatusFilter
       if (invoiceVendorFilter && invoiceVendorFilter !== "all") params.vendorId = invoiceVendorFilter
       if (invoiceSearch) params.search = invoiceSearch
-      console.log("fetchInvoices called - invoiceVendorFilter:", invoiceVendorFilter)
-      console.log("Fetching invoices with params:", params)
       const data = await getAllInvoicesAPI(params, token)
-      console.log("Invoices received:", data?.invoices?.length)
       setInvoices(data?.invoices || [])
     } catch (error) {
       console.error("Error fetching invoices:", error)
@@ -518,7 +515,6 @@ const VendorManagementContent = () => {
       if (disputeVendorFilter !== "all") params.vendorId = disputeVendorFilter
       if (disputeSearch) params.search = disputeSearch
       const data = await getAllVendorDisputesAPI(params, token)
-      console.log(data, "disputed data")
       setDisputes(data?.disputes || [])
     } catch (error) {
       console.error("Error fetching disputes:", error)
@@ -2663,7 +2659,6 @@ const VendorManagementContent = () => {
                   <VendorSelect
                     value={invoiceVendorFilter}
                     onValueChange={(val) => {
-                      console.log("VendorsEnhanced: Invoice vendor filter changed to:", val)
                       setInvoiceVendorFilter(val)
                     }}
                     placeholder="Vendor"

@@ -42,7 +42,6 @@ const Navbar: React.FC<NavbarProps> = ({
   const user = useSelector((state: RootState) => state.auth?.user ?? null);
   const { totalItems } = useCart();
 
- console.log(user, "user")
   return (
     <header className="sticky top-0 z-30 bg-background border-b">
       <div className="flex h-16 items-center px-4 md:px-6">

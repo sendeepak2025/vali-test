@@ -375,13 +375,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
   const updateShipping = async (cost: number, plates: number) => {
     // Agar shipping cost aur pallet pehle se set hai to API call skip karo
     if (orderSingle.shippinCost && (orderSingle as any).plateCount) {
-      console.log("Shipping and pallet already set, skipping update");
       setShowShipping(false);
       return;
     }
-
-    console.log("Shipping cost:", cost);
-    console.log("Plate count:", plates);
 
     const form = {
       orderId: order._id,
@@ -392,8 +388,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     const response = await updateOrderShippingAPI(form, token);
 
     if (response) {
-      console.log("Shipping updated successfully:", response);
-
       const updatedOrder = response;
 
       if (updatedOrder?.orderNumber) {
@@ -404,15 +398,12 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
         }));
         setShowShipping(false);
       }
-    } else {
-      console.log("Failed to update shipping");
     }
   };
 
   const handleDownload = () => {
     setDownloadLoading(true);
     try {
-      console.log(order);
       exportInvoiceToPDF(
         {
           id: order.orderNumber as any,

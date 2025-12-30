@@ -87,7 +87,6 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   const [showBolDialog, setShowBolDialog] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
-  console.log(order, "order")
   
   // Helper to format shipping address
   const getDeliveryAddress = () => {
@@ -241,7 +240,6 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
   
   const handleSubmit = (data: TransportationFormValues) => {
     // In a real app, this would save the transportation receipt data
-    console.log("Transportation receipt data:", data);
     
     setReceiptGenerated(true);
     toast({
@@ -283,7 +281,7 @@ doc.addImage(
   logoHeight
 );        // doc.addImage(logoUrl, "PNG", MARGIN, 12, 22, 16, undefined, 'FAST');
       } catch (e) {
-        console.log("Logo not loaded");
+        // Logo not loaded
       }
       
       // Header text (after logo)
