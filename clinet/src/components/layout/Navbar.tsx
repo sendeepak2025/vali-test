@@ -120,9 +120,9 @@ const Navbar: React.FC<NavbarProps> = ({
               >
                 <Avatar className="h-8 w-8 bg-black ">
                   <AvatarFallback>
-                    {user && user.role !== "admin"
-                      ? (user.storeName || user.name)?.slice(0, 2).toUpperCase()
-                      : "AD"}
+                    {user?.email 
+                      ? user.email.split('@')[0].slice(0, 2).toUpperCase()
+                      : "U"}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -131,10 +131,12 @@ const Navbar: React.FC<NavbarProps> = ({
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {/* <DropdownMenuItem onClick={() => navigate("/settings")}>
-                Settings
-              </DropdownMenuItem>
-              <DropdownMenuItem>Help Center</DropdownMenuItem> */}
+              {user?.email && (
+                <div className="px-2 py-1.5 text-sm">
+                  <p className="font-medium">{user.email.split('@')[0]}</p>
+                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                </div>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => disptach(logout(navigate))}>
                 <div className="cursor-pointer">
