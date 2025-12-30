@@ -1343,7 +1343,18 @@ const updatePaymentDetails = async (req, res) => {
       ...(method === "creditcard" ? { transactionId } : {}),
       ...(method === "cash" ? { notes } : {}),
       ...(method === "cheque" ? { notes } : {}),
-      paymentDate: new Date(), // Yaha backend me hi current date daal do
+      paymentDate: new Date(),
+    };
+
+    // Create payment history entry
+    const paymentHistoryEntry = {
+      amount: parseFloat(amountPaid) || 0,
+      method,
+      transactionId: method === "creditcard" ? transactionId : undefined,
+      notes: notes || undefined,
+      paymentDate: new Date(),
+      recordedBy: req.user?.id || req.user?._id,
+      recordedByName: req.user?.name || req.user?.storeName || req.user?.email,
     };
 
     const updatedOrder = await orderModel.findByIdAndUpdate(
@@ -1352,6 +1363,7 @@ const updatePaymentDetails = async (req, res) => {
         paymentDetails,
         paymentStatus: paymentType === "full" ? "paid" : "partial",
         paymentAmount: amountPaid,
+        $push: { paymentHistory: paymentHistoryEntry },
       },
       { new: true }
     );
@@ -1388,6 +1400,7 @@ const markOrderAsUnpaid = async (req, res) => {
         paymentStatus: "pending",
         paymentDetails: null,
         paymentAmount: 0,
+        paymentHistory: [], // Clear payment history when marking as unpaid
       },
       { new: true }
     );

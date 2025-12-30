@@ -105,6 +105,20 @@ const orderSchema = new mongoose.Schema(
     paymentDetails: {
       type: paymentDetailsSchema,
     },
+    // Payment history to track all payments
+    paymentHistory: [{
+      amount: { type: Number, required: true },
+      method: { 
+        type: String, 
+        enum: ["cash", "creditcard", "cheque"],
+        required: true 
+      },
+      transactionId: { type: String },
+      notes: { type: String },
+      paymentDate: { type: Date, default: Date.now },
+      recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: "auth" },
+      recordedByName: { type: String },
+    }],
     isDelete: {
       type: Boolean,
       default: false,

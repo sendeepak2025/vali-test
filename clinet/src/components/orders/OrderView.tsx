@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Clock, Package, Truck, CheckCircle2, XCircle, CreditCard, MapPin } from 'lucide-react';
+import { Clock, Package, Truck, CheckCircle2, XCircle, CreditCard, MapPin, DollarSign, Banknote } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Order } from '@/types';
 import { Link } from 'react-router-dom';
@@ -279,27 +279,35 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
               : formatCurrency(order.total)}</span>
           </div>
           
-          {/* Credit Applied Section */}
-          {(order as any).creditApplied > 0 && (
-            <>
-              <div className="flex justify-between text-green-600">
-                <span className="flex items-center gap-1">
-                  <CreditCard className="h-4 w-4" />
-                  Credit Memo Applied
-                </span>
-                <span>-{formatCurrency((order as any).creditApplied)}</span>
-              </div>
-              <div className="flex justify-between font-medium text-lg">
-                <span>Amount Due</span>
-                <span>{formatCurrency(Math.max(0, order.total - (order as any).creditApplied))}</span>
-              </div>
-            </>
+          {/* Paid Amount - Show if any payment made */}
+          {parseFloat((order as any).paymentAmount || 0) > 0 && (
+            <div className="flex justify-between text-green-600">
+              <span className="flex items-center gap-1">
+                <DollarSign className="h-4 w-4" />
+                Paid Amount
+              </span>
+              <span>-{formatCurrency(parseFloat((order as any).paymentAmount || 0))}</span>
+            </div>
           )}
           
-          {/* Credit Applications History */}
+          {/* Amount Due - Only based on actual payment, not credit memo */}
+          <div className="flex justify-between font-medium text-lg">
+            <span>Amount Due</span>
+            <span className={parseFloat((order as any).paymentAmount || 0) >= order.total ? "text-green-600" : "text-red-600"}>
+              {formatCurrency(Math.max(0, order.total - parseFloat((order as any).paymentAmount || 0)))}
+            </span>
+          </div>
+          
+          {/* Credit Memo History - Only for display, not affecting Amount Due */}
           {(order as any).creditApplications && (order as any).creditApplications.length > 0 && (
             <div className="mt-3 p-3 bg-green-50 rounded-md border border-green-200">
-              <h4 className="text-sm font-medium text-green-800 mb-2">Credit Memo History</h4>
+              <h4 className="text-sm font-medium text-green-800 mb-2 flex items-center gap-1">
+                <CreditCard className="h-4 w-4" />
+                Credit Memo History
+              </h4>
+              <p className="text-xs text-green-600 mb-2">
+                (Credit added to store balance, not deducted from order)
+              </p>
               <div className="space-y-1">
                 {(order as any).creditApplications.map((app: any, idx: number) => (
                   <div key={idx} className="flex justify-between text-sm text-green-700">
@@ -307,9 +315,47 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
                       {app.creditMemoNumber || 'Credit Applied'} 
                       {app.reason && <span className="text-xs text-green-600 ml-1">({app.reason})</span>}
                     </span>
-                    <span>-{formatCurrency(app.amount)}</span>
+                    <span>+{formatCurrency(app.amount)} to store credit</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Payment History Section */}
+          {(order as any).paymentHistory && (order as any).paymentHistory.length > 0 && (
+            <div className="mt-3 p-3 bg-blue-50 rounded-md border border-blue-200">
+              <h4 className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-1">
+                <Banknote className="h-4 w-4" />
+                Payment History
+              </h4>
+              <div className="space-y-2">
+                {(order as any).paymentHistory.map((payment: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-start text-sm border-b border-blue-100 pb-2 last:border-0 last:pb-0">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-blue-800 capitalize flex items-center gap-1">
+                        {payment.method === 'cash' && <DollarSign className="h-3 w-3" />}
+                        {payment.method === 'creditcard' && <CreditCard className="h-3 w-3" />}
+                        {payment.method === 'cheque' && '🏦'}
+                        {payment.method}
+                      </span>
+                      <span className="text-xs text-blue-600">
+                        {payment.paymentDate ? formatDate(payment.paymentDate) : 'N/A'}
+                      </span>
+                      {payment.notes && (
+                        <span className="text-xs text-blue-500 mt-1">Note: {payment.notes}</span>
+                      )}
+                      {payment.transactionId && (
+                        <span className="text-xs text-blue-500">Txn: {payment.transactionId}</span>
+                      )}
+                    </div>
+                    <span className="font-semibold text-blue-800">{formatCurrency(payment.amount)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 pt-2 border-t border-blue-200 flex justify-between font-medium text-blue-800">
+                <span>Total Paid</span>
+                <span>{formatCurrency((order as any).paymentHistory.reduce((sum: number, p: any) => sum + (p.amount || 0), 0))}</span>
               </div>
             </div>
           )}

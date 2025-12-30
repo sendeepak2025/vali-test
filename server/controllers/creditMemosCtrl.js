@@ -462,13 +462,10 @@ exports.processCreditMemo = async (req, res) => {
     let creditBalanceUpdate = null;
     let orderUpdate = null;
 
-    // Update the order to reflect the credit memo amount
+    // Get order details for reference (but don't modify order total/amount due)
     const order = await Order.findById(creditMemo.orderId).session(session);
     if (order) {
-      const currentCreditApplied = parseFloat(order.creditApplied || 0);
-      order.creditApplied = currentCreditApplied + creditMemo.totalAmount;
-      
-      // Add to credit applications history
+      // Only track credit memo history in order, don't affect amount due calculation
       if (!order.creditApplications) {
         order.creditApplications = [];
       }
@@ -481,38 +478,27 @@ exports.processCreditMemo = async (req, res) => {
         reason: creditMemo.reason || "Credit memo processed"
       });
 
-      // Recalculate payment status
-      const totalPaid = parseFloat(order.paymentAmount || 0);
-      const totalCredit = parseFloat(order.creditApplied || 0);
-      const orderTotal = order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);
-      
-      if (totalPaid + totalCredit >= orderTotal) {
-        order.paymentStatus = "paid";
-      } else if (totalPaid + totalCredit > 0) {
-        order.paymentStatus = "partial";
-      }
+      // NOTE: We do NOT update creditApplied or recalculate payment status
+      // Credit memo amount goes to store credit balance, not deducted from order
 
       await order.save({ session });
       orderUpdate = {
-        creditApplied: order.creditApplied,
-        paymentStatus: order.paymentStatus,
-        orderNumber: order.orderNumber
+        orderNumber: order.orderNumber,
+        creditMemoTracked: true
       };
     }
 
-    // If refund method is store_credit, update the store's credit balance
-    if (creditMemo.refundMethod === "store_credit") {
-      creditBalanceUpdate = await updateStoreCreditBalance(
-        creditMemo.customerId,
-        creditMemo.totalAmount,
-        creditMemo._id,
-        creditMemo.creditMemoNumber,
-        creditMemo.reason,
-        req.user?.id || req.user?._id,
-        req.user?.name || req.user?.storeName || req.user?.email,
-        session
-      );
-    }
+    // Add credit memo amount to store's credit balance (always, not just for store_credit refund method)
+    creditBalanceUpdate = await updateStoreCreditBalance(
+      creditMemo.customerId,
+      creditMemo.totalAmount,
+      creditMemo._id,
+      creditMemo.creditMemoNumber,
+      creditMemo.reason,
+      req.user?.id || req.user?._id,
+      req.user?.name || req.user?.storeName || req.user?.email,
+      session
+    );
 
     await session.commitTransaction();
 
