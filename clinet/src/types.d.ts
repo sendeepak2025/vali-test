@@ -108,6 +108,16 @@ export interface Order {
     creditMemoNumber?: string;
     reason?: string;
   }[];
+  // 🆕 Payment history support
+  paymentHistory?: {
+    amount: number;
+    method: 'cash' | 'creditcard' | 'cheque';
+    transactionId?: string;
+    notes?: string;
+    paymentDate?: string;
+    recordedBy?: string;
+    recordedByName?: string;
+  }[];
 
 
 }

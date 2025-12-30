@@ -570,9 +570,9 @@ exports.applyStoreCredit = async (req, res) => {
     const currentCreditApplied = parseFloat(order.creditApplied || 0);
     order.creditApplied = currentCreditApplied + amount;
     
-    // Recalculate payment status if needed
+    // Recalculate payment status - use order.total directly
     const totalPaid = parseFloat(order.paymentAmount || 0) + parseFloat(order.creditApplied || 0);
-    const orderTotal = order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);
+    const orderTotal = order.total || order.items.reduce((sum, item) => sum + (item.total || 0), 0) + (order.shippinCost || 0);
     
     if (totalPaid >= orderTotal) {
       order.paymentStatus = "paid";

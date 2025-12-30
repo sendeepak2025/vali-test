@@ -1337,6 +1337,30 @@ const updatePaymentDetails = async (req, res) => {
       });
     }
 
+    // Get current order to check credit applied
+    const currentOrder = await orderModel.findById(orderId);
+    if (!currentOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    // Calculate actual payment status based on total paid + credit applied
+    const totalPaid = parseFloat(amountPaid || 0) + parseFloat(currentOrder.creditApplied || 0);
+    const orderTotal = currentOrder.total || 0;
+    
+    // Calculate the individual payment amount (new total - previous total)
+    const previousPaymentAmount = parseFloat(currentOrder.paymentAmount || 0);
+    const individualPaymentAmount = parseFloat(amountPaid || 0) - previousPaymentAmount;
+    
+    let calculatedPaymentStatus = "pending";
+    if (totalPaid >= orderTotal) {
+      calculatedPaymentStatus = "paid";
+    } else if (totalPaid > 0) {
+      calculatedPaymentStatus = "partial";
+    }
+
     // Prepare paymentDetails object
     const paymentDetails = {
       method,
@@ -1346,9 +1370,9 @@ const updatePaymentDetails = async (req, res) => {
       paymentDate: new Date(),
     };
 
-    // Create payment history entry
+    // Create payment history entry with INDIVIDUAL payment amount (not cumulative)
     const paymentHistoryEntry = {
-      amount: parseFloat(amountPaid) || 0,
+      amount: individualPaymentAmount > 0 ? individualPaymentAmount : parseFloat(amountPaid) || 0,
       method,
       transactionId: method === "creditcard" ? transactionId : undefined,
       notes: notes || undefined,
@@ -1361,19 +1385,12 @@ const updatePaymentDetails = async (req, res) => {
       orderId,
       {
         paymentDetails,
-        paymentStatus: paymentType === "full" ? "paid" : "partial",
+        paymentStatus: calculatedPaymentStatus,
         paymentAmount: amountPaid,
         $push: { paymentHistory: paymentHistoryEntry },
       },
       { new: true }
     );
-
-    if (!updatedOrder) {
-      return res.status(404).json({
-        success: false,
-        message: "Order not found",
-      });
-    }
 
     return res.status(200).json({
       success: true,

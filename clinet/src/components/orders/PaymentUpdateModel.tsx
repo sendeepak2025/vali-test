@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, DollarSign, CreditCard, FileText, X } from "lucide-react";
+import { Check, DollarSign, CreditCard, FileText, X, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,28 +14,39 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import type { RootState } from "@/redux/store";
 import { useSelector } from "react-redux";
 import { updateOrderPaymentAPI } from "@/services2/operations/order";
 import { updatePurchaseOrderPaymentAPI } from "@/services2/operations/purchaseOrder";
+import { getStoreCreditInfoAPI, applyStoreCreditAPI } from "@/services2/operations/creditMemo";
 import type { Order } from "@/lib/data";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+interface PaymentHistory {
+  amount: number;
+  method: "cash" | "creditcard" | "cheque";
+  transactionId?: string;
+  notes?: string;
+  paymentDate?: string;
+}
 
 interface PaymentStatusPopupProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   fetchOrders: () => void;
   onPayment: (id: string, paymentMethod: any) => void;
-  paymentOrder: Order;
+  paymentOrder: Order & { 
+    store?: string | { _id: string }; 
+    creditApplied?: number;
+    paymentHistory?: PaymentHistory[];
+  };
   orderId: string;
   id: string;
   purchase?: boolean;
-
   totalAmount: number;
 }
 
@@ -49,6 +60,8 @@ interface PaymentData {
   amountPaid: number;
 }
 
+type PaymentMethodType = "cash" | "creditcard" | "cheque" | "storecredit";
+
 export function PaymentStatusPopup({
   open,
   onOpenChange,
@@ -60,342 +73,451 @@ export function PaymentStatusPopup({
   onPayment,
   paymentOrder,
 }: PaymentStatusPopupProps) {
-  const [paymentMethod, setPaymentMethod] = useState<
-    "cash" | "creditcard" | "cheque"
-  >("cash");
-  const [paymentType, setPaymentType] = useState<"full" | "partial" | "paid">(
-    "full"
-  );
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("cash");
   const [transactionId, setTransactionId] = useState("");
   const [notes, setNotes] = useState("");
-  const [amountPaid, setAmountPaid] = useState<number>(totalAmount);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const token = useSelector((state: RootState) => state.auth?.token ?? null);
 
+  // Store credit states
+  const [creditBalance, setCreditBalance] = useState(0);
+  const [loadingCredit, setLoadingCredit] = useState(false);
+
+  // Get store ID from paymentOrder
+  const storeId = typeof paymentOrder?.store === 'object' 
+    ? paymentOrder?.store?._id 
+    : paymentOrder?.store;
+
+  // Calculate previously paid amount and credit applied
+  const previouslyPaid = parseFloat(String(paymentOrder?.paymentAmount || 0));
+  const previousCreditApplied = parseFloat(String(paymentOrder?.creditApplied || 0));
+  const totalPreviouslyPaid = previouslyPaid + previousCreditApplied;
+  
+  // Calculate payment breakdown by method from paymentHistory
+  const paymentHistory = paymentOrder?.paymentHistory || [];
+  
+  // Sum individual payment amounts by method
+  const cashPaid = paymentHistory
+    .filter(p => p.method === "cash")
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+  const cardPaid = paymentHistory
+    .filter(p => p.method === "creditcard")
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+  const chequePaid = paymentHistory
+    .filter(p => p.method === "cheque")
+    .reduce((sum, p) => sum + (p.amount || 0), 0);
+  
+  // Total from history
+  const totalFromHistory = cashPaid + cardPaid + chequePaid;
+  
+  // If history total doesn't match paymentAmount, show fallback (for old data)
+  const showBreakdown = paymentHistory.length > 0 && Math.abs(totalFromHistory - previouslyPaid) < 0.01;
+  
+  // Calculate due amount
+  const dueAmount = Math.max(0, totalAmount - totalPreviouslyPaid);
+
+  // Max credit that can be used
+  const maxCreditUsable = Math.min(creditBalance, dueAmount);
+
+  // Fetch credit balance when modal opens
   useEffect(() => {
-    // Reset form when dialog opens or paymentOrder changes
+    const fetchCreditBalance = async () => {
+      if (open && storeId && token && !purchase) {
+        setLoadingCredit(true);
+        try {
+          const creditInfo = await getStoreCreditInfoAPI(storeId, token);
+          setCreditBalance(creditInfo?.creditBalance || 0);
+        } catch (error) {
+          console.error("Error fetching credit balance:", error);
+          setCreditBalance(0);
+        } finally {
+          setLoadingCredit(false);
+        }
+      }
+    };
+    fetchCreditBalance();
+  }, [open, storeId, token, purchase]);
+
+  useEffect(() => {
+    // Reset form when dialog opens
     setPaymentMethod("cash");
-    setPaymentType("full");
     setTransactionId("");
     setNotes("");
-    setAmountPaid(totalAmount);
+    setPaymentAmount(dueAmount);
+  }, [open, dueAmount]);
 
-    if (
-      paymentOrder?.paymentStatus === "paid" ||
-      paymentOrder?.paymentStatus === "partial"
-    ) {
-      setPaymentMethod(paymentOrder?.paymentDetails?.method as any || "cash");
-      setTransactionId(paymentOrder?.paymentDetails?.transactionId || "");
-      setNotes(paymentOrder?.paymentDetails?.notes || "");
-      setPaymentType(
-        paymentOrder?.paymentStatus === "paid"
-          ? "full"
-          : paymentOrder?.paymentStatus || "full"
-      );
-
-      // Ensure amount paid doesn't exceed total amount
-      const savedAmount =
-        paymentOrder?.paymentDetails?.amountPaid || totalAmount;
-      setAmountPaid(Number(paymentOrder?.paymentAmount) || totalAmount);
-    }
-  }, [paymentOrder, open, totalAmount]);
-
-  // Update amount paid when payment type changes
+  // Update payment amount when method changes
   useEffect(() => {
-    if (paymentType === "paid") {
-      setAmountPaid(totalAmount);
-    } else if (amountPaid > totalAmount) {
-      // Ensure amount doesn't exceed total when switching to partial
-      setAmountPaid(totalAmount);
+    if (paymentMethod === "storecredit") {
+      setPaymentAmount(maxCreditUsable);
+    } else {
+      setPaymentAmount(dueAmount);
     }
-  }, [paymentType, totalAmount]);
+  }, [paymentMethod, dueAmount, maxCreditUsable]);
 
   const handleSubmit = async () => {
     try {
-      // setIsSubmitting(true)
+      setIsSubmitting(true);
 
-      // Validate form based on payment method
-      if (paymentMethod === "cash" && !notes.trim()) {
-        toast({
-          title: "Notes required",
-          description: "Please provide notes for cash payment",
-          variant: "destructive",
-        });
+      if (dueAmount <= 0) {
+        toast({ title: "No payment due", description: "This order is already fully paid", variant: "destructive" });
+        setIsSubmitting(false);
         return;
       }
 
-      if (paymentMethod === "creditcard" && !transactionId.trim()) {
-        toast({
-          title: "Transaction ID required",
-          description: "Please provide transaction ID for credit card payment",
-          variant: "destructive",
-        });
+      if (paymentAmount <= 0) {
+        toast({ title: "Invalid amount", description: "Please enter a valid payment amount", variant: "destructive" });
+        setIsSubmitting(false);
         return;
       }
 
-      // Validate payment amount
-      if (!amountPaid || amountPaid <= 0) {
-        toast({
-          title: "Invalid amount",
-          description: "Please enter a valid payment amount greater than 0",
-          variant: "destructive",
-        });
+      if (paymentAmount > dueAmount) {
+        toast({ title: "Invalid amount", description: "Payment amount cannot exceed due amount", variant: "destructive" });
+        setIsSubmitting(false);
         return;
       }
 
-      if (amountPaid > totalAmount) {
-        toast({
-          title: "Invalid payment amount",
-          description: "Payment amount cannot exceed the total amount",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // For partial payments, ensure amount is less than total
-      if (paymentType === "partial" && amountPaid >= totalAmount) {
-        toast({
-          title: "Invalid partial payment",
-          description:
-            "For partial payment, amount should be less than the total amount",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const paymentData: PaymentData = {
-        orderId,
-        id,
-        method: paymentMethod,
-        paymentType: paymentType,
-        amountPaid: paymentType === "full" ? totalAmount : amountPaid,
-        ...(paymentMethod === "creditcard" && { transactionId }),
-        ...(paymentMethod === "cash" && { notes }),
-        ...(paymentMethod === "cheque" && { notes }),
-      };
-
-      if (purchase) {
-        await updatePurchaseOrderPaymentAPI(paymentData, token, id);
+      // Validate based on payment method
+      if (paymentMethod === "storecredit") {
+        if (paymentAmount > maxCreditUsable) {
+          toast({ title: "Insufficient credit", description: `Maximum credit available is $${maxCreditUsable.toFixed(2)}`, variant: "destructive" });
+          setIsSubmitting(false);
+          return;
+        }
+        // Apply store credit
+        const creditResult = await applyStoreCreditAPI(storeId, id, paymentAmount, token);
+        if (!creditResult) {
+          setIsSubmitting(false);
+          return;
+        }
       } else {
-        await updateOrderPaymentAPI(paymentData, token, id);
+        // Cash/Card/Cheque payment
+        if (paymentMethod === "cash" && !notes.trim()) {
+          toast({ title: "Notes required", description: "Please provide notes for cash payment", variant: "destructive" });
+          setIsSubmitting(false);
+          return;
+        }
+        if (paymentMethod === "creditcard" && !transactionId.trim()) {
+          toast({ title: "Transaction ID required", description: "Please provide transaction ID", variant: "destructive" });
+          setIsSubmitting(false);
+          return;
+        }
+
+        const newTotalPaid = previouslyPaid + paymentAmount;
+        const isFullyPaid = (newTotalPaid + previousCreditApplied) >= totalAmount;
+        
+        const paymentData: PaymentData = {
+          orderId,
+          id,
+          method: paymentMethod as "cash" | "creditcard" | "cheque",
+          paymentType: isFullyPaid ? "full" : "partial",
+          amountPaid: newTotalPaid,
+          ...(paymentMethod === "creditcard" && { transactionId }),
+          ...(paymentMethod === "cash" && { notes }),
+          ...(paymentMethod === "cheque" && { notes }),
+        };
+
+        if (purchase) {
+          await updatePurchaseOrderPaymentAPI(paymentData, token, id);
+        } else {
+          await updateOrderPaymentAPI(paymentData, token, id);
+        }
       }
 
+      const methodLabel = paymentMethod === "storecredit" ? "Store Credit" : 
+                          paymentMethod === "creditcard" ? "Card" : 
+                          paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1);
+      
       toast({
-        title: "Payment status updated",
-        description: `Order #${orderId} payment has been updated successfully.`,
+        title: "Payment recorded",
+        description: `$${paymentAmount.toFixed(2)} paid via ${methodLabel}`,
       });
 
-      // Reset form
-      onPayment(id, paymentData);
-      fetchOrders(); // Refresh the orders list
-
-      setTransactionId("");
-      setNotes("");
+      onPayment(id, { method: paymentMethod, amount: paymentAmount });
+      fetchOrders();
       onOpenChange(false);
     } catch (error) {
-      toast({
-        title: "Update failed",
-        description: "Failed to update payment status. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Update failed", description: "Failed to update payment. Please try again.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleAmountChange = (value: string) => {
-    const amount = Number.parseFloat(value);
-    if (isNaN(amount)) {
-      setAmountPaid(0);
-      return;
-    }
-
-    // Ensure amount doesn't exceed total
-    setAmountPaid(Math.min(amount, totalAmount));
+  const getMaxAmount = () => {
+    if (paymentMethod === "storecredit") return maxCreditUsable;
+    return dueAmount;
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-<DialogContent className="sm:max-w-[450px] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-500" />
-            Update Payment Status
+            Record Payment
           </DialogTitle>
-          <DialogDescription>
-            Update payment details for order #{orderId}
-          </DialogDescription>
+          <DialogDescription>Record payment for order #{orderId}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-5 py-4">
-          {/* Order Summary Card */}
+        <div className="grid gap-4 py-4">
+          {/* Order Summary */}
           <Card className="bg-muted/40">
             <CardContent className="p-4">
-              <div className="flex justify-between items-center mb-2">
+              <div className="flex justify-between items-center mb-3">
                 <h3 className="font-medium">Order Summary</h3>
-                <Badge
-                  variant={
-                    paymentOrder?.paymentStatus === "paid"
-                      ? "success"
-                      : "outline"
-                  }
-                >
-                  {paymentOrder?.paymentStatus === "paid" ? "Paid" : "Unpaid"}
+                <Badge variant={dueAmount <= 0 ? "success" : totalPreviouslyPaid > 0 ? "secondary" : "outline"}>
+                  {dueAmount <= 0 ? "Paid" : totalPreviouslyPaid > 0 ? "Partial" : "Unpaid"}
                 </Badge>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="text-muted-foreground">Order ID:</div>
-                <div className="font-medium">{orderId}</div>
-                <div className="text-muted-foreground">Total Amount:</div>
-                <div className="font-medium text-green-600">
-                  ${totalAmount.toFixed(2)}
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Order ID:</span>
+                  <span className="font-medium">{orderId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Amount:</span>
+                  <span className="font-medium">${totalAmount.toFixed(2)}</span>
+                </div>
+                {previouslyPaid > 0 && (
+                  <>
+                    {showBreakdown ? (
+                      <>
+                        {cashPaid > 0 && (
+                          <div className="flex justify-between text-green-600">
+                            <span>Cash Paid:</span>
+                            <span>-${cashPaid.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {cardPaid > 0 && (
+                          <div className="flex justify-between text-blue-600">
+                            <span>Card Paid:</span>
+                            <span>-${cardPaid.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {chequePaid > 0 && (
+                          <div className="flex justify-between text-orange-600">
+                            <span>Cheque Paid:</span>
+                            <span>-${chequePaid.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex justify-between text-green-600">
+                        <span>Previously Paid:</span>
+                        <span>-${previouslyPaid.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+                {previousCreditApplied > 0 && (
+                  <div className="flex justify-between text-purple-600">
+                    <span>Credit Applied:</span>
+                    <span>-${previousCreditApplied.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-semibold pt-2 border-t">
+                  <span>Due Amount:</span>
+                  <span className={dueAmount > 0 ? "text-red-600" : "text-green-600"}>${dueAmount.toFixed(2)}</span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Payment Type Selection */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Payment Type</Label>
-            <RadioGroup
-              value={paymentType}
-              onValueChange={(value) =>
-                setPaymentType(value as "full" | "partial")
-              }
-              className="flex gap-4"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="full" id="full" />
-                <Label htmlFor="full">Full Payment</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="partial" id="partial" />
-                <Label htmlFor="partial">Partial Payment</Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          {/* Payment Amount */}
-          <div className="space-y-2">
-            <Label htmlFor="amount-paid" className="text-sm font-medium">
-              Amount Paid
-            </Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                $
-              </span>
-              <Input
-                id="amount-paid"
-                type="number"
-                value={amountPaid}
-                onChange={(e) => handleAmountChange(e.target.value)}
-                className="pl-8"
-                placeholder="Enter amount"
-                max={totalAmount}
-                min={0}
-                step="0.01"
-                disabled={paymentType === "full"}
-              />
-            </div>
-            {paymentType === "partial" && (
-              <p className="text-xs text-muted-foreground">
-                Amount must be less than ${totalAmount.toFixed(2)}
-              </p>
-            )}
-          </div>
-
-          {/* Payment Method */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Payment Method</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {/* Cash Option */}
-              <div
-                className={cn(
-                  "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
-                  paymentMethod === "cash"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "hover:bg-muted/50"
-                )}
-                onClick={() => setPaymentMethod("cash")}
-              >
-                <DollarSign
-                  className={cn(
-                    "h-5 w-5 mb-1",
-                    paymentMethod === "cash" ? "text-primary" : ""
-                  )}
-                />
-                <span className="text-sm">Cash</span>
-              </div>
-
-              {/* Credit Card Option */}
-              <div
-                className={cn(
-                  "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
-                  paymentMethod === "creditcard"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "hover:bg-muted/50"
-                )}
-                onClick={() => setPaymentMethod("creditcard")}
-              >
-                <CreditCard
-                  className={cn(
-                    "h-5 w-5 mb-1",
-                    paymentMethod === "creditcard" ? "text-primary" : ""
-                  )}
-                />
-                <span className="text-sm">Credit Card</span>
-              </div>
-
-              {/* Cheque Option */}
-              <div
-                className={cn(
-                  "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
-                  paymentMethod === "cheque"
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "hover:bg-muted/50"
-                )}
-                onClick={() => setPaymentMethod("cheque")}
-              >
-                <FileText
-                  className={cn(
-                    "h-5 w-5 mb-1",
-                    paymentMethod === "cheque" ? "text-primary" : ""
-                  )}
-                />
-                <span className="text-sm">Cheque</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Transaction ID for Credit Card */}
-          {paymentMethod === "creditcard" && (
-            <div className="space-y-2">
-              <Label htmlFor="transaction-id" className="text-sm font-medium">
-                Transaction ID
-              </Label>
-              <Input
-                id="transaction-id"
-                value={transactionId}
-                onChange={(e) => setTransactionId(e.target.value)}
-                placeholder="Enter transaction ID"
-              />
-            </div>
+          {/* Already Paid Message */}
+          {dueAmount <= 0 && (
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-green-700">
+                  <Check className="h-5 w-5" />
+                  <p className="font-medium">This order is fully paid!</p>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
-          {/* Notes for Cash or Cheque */}
-          {(paymentMethod === "cash" || paymentMethod === "cheque") && (
-            <div className="space-y-2">
-              <Label htmlFor="notes" className="text-sm font-medium">
-                Notes
-              </Label>
-              <Textarea
-                id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={`Enter ${paymentMethod} payment details`}
-                rows={3}
-              />
-            </div>
+          {/* Payment Section */}
+          {dueAmount > 0 && (
+            <>
+              {/* Payment Method Selection */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Payment Method</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {/* Cash */}
+                  <div
+                    className={cn(
+                      "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
+                      paymentMethod === "cash" ? "border-green-500 bg-green-50 text-green-700" : "hover:bg-muted/50"
+                    )}
+                    onClick={() => setPaymentMethod("cash")}
+                  >
+                    <DollarSign className={cn("h-5 w-5 mb-1", paymentMethod === "cash" ? "text-green-600" : "")} />
+                    <span className="text-xs">Cash</span>
+                  </div>
+                  
+                  {/* Card */}
+                  <div
+                    className={cn(
+                      "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
+                      paymentMethod === "creditcard" ? "border-blue-500 bg-blue-50 text-blue-700" : "hover:bg-muted/50"
+                    )}
+                    onClick={() => setPaymentMethod("creditcard")}
+                  >
+                    <CreditCard className={cn("h-5 w-5 mb-1", paymentMethod === "creditcard" ? "text-blue-600" : "")} />
+                    <span className="text-xs">Card</span>
+                  </div>
+                  
+                  {/* Cheque */}
+                  <div
+                    className={cn(
+                      "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
+                      paymentMethod === "cheque" ? "border-orange-500 bg-orange-50 text-orange-700" : "hover:bg-muted/50"
+                    )}
+                    onClick={() => setPaymentMethod("cheque")}
+                  >
+                    <FileText className={cn("h-5 w-5 mb-1", paymentMethod === "cheque" ? "text-orange-600" : "")} />
+                    <span className="text-xs">Cheque</span>
+                  </div>
+                  
+                  {/* Store Credit - Only show if available */}
+                  {!purchase && creditBalance > 0 && (
+                    <div
+                      className={cn(
+                        "flex flex-col items-center p-3 border rounded-md cursor-pointer transition-colors",
+                        paymentMethod === "storecredit" ? "border-purple-500 bg-purple-50 text-purple-700" : "hover:bg-muted/50"
+                      )}
+                      onClick={() => setPaymentMethod("storecredit")}
+                    >
+                      <Wallet className={cn("h-5 w-5 mb-1", paymentMethod === "storecredit" ? "text-purple-600" : "")} />
+                      <span className="text-xs">Credit</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Show credit balance info */}
+                {!purchase && creditBalance > 0 && paymentMethod !== "storecredit" && (
+                  <p className="text-xs text-purple-600">Store credit available: ${creditBalance.toFixed(2)}</p>
+                )}
+                {loadingCredit && <p className="text-xs text-muted-foreground">Loading credit...</p>}
+              </div>
+
+              {/* Payment Details Card */}
+              <Card className={cn(
+                "border",
+                paymentMethod === "cash" ? "border-green-200 bg-green-50/50" :
+                paymentMethod === "creditcard" ? "border-blue-200 bg-blue-50/50" :
+                paymentMethod === "cheque" ? "border-orange-200 bg-orange-50/50" :
+                "border-purple-200 bg-purple-50/50"
+              )}>
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex items-center gap-2">
+                    {paymentMethod === "cash" && <DollarSign className="h-5 w-5 text-green-600" />}
+                    {paymentMethod === "creditcard" && <CreditCard className="h-5 w-5 text-blue-600" />}
+                    {paymentMethod === "cheque" && <FileText className="h-5 w-5 text-orange-600" />}
+                    {paymentMethod === "storecredit" && <Wallet className="h-5 w-5 text-purple-600" />}
+                    <div>
+                      <p className="font-medium">
+                        {paymentMethod === "cash" && "Cash Payment"}
+                        {paymentMethod === "creditcard" && "Card Payment"}
+                        {paymentMethod === "cheque" && "Cheque Payment"}
+                        {paymentMethod === "storecredit" && "Store Credit Payment"}
+                      </p>
+                      {paymentMethod === "storecredit" && (
+                        <p className="text-xs text-purple-600">Available: ${creditBalance.toFixed(2)}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Amount Input */}
+                  <div className="space-y-2">
+                    <Label htmlFor="payment-amount" className="text-sm">Amount</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                      <Input
+                        id="payment-amount"
+                        type="number"
+                        value={paymentAmount}
+                        onChange={(e) => {
+                          const val = Math.min(Math.max(0, parseFloat(e.target.value) || 0), getMaxAmount());
+                          setPaymentAmount(val);
+                        }}
+                        className="pl-8"
+                        max={getMaxAmount()}
+                        min={0}
+                        step="0.01"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {paymentMethod === "storecredit" 
+                        ? `Max: $${maxCreditUsable.toFixed(2)} (credit balance)`
+                        : `Due: $${dueAmount.toFixed(2)}`
+                      }
+                    </p>
+                  </div>
+
+                  {/* Transaction ID for Card */}
+                  {paymentMethod === "creditcard" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="transaction-id" className="text-sm">Transaction ID</Label>
+                      <Input
+                        id="transaction-id"
+                        value={transactionId}
+                        onChange={(e) => setTransactionId(e.target.value)}
+                        placeholder="Enter transaction ID"
+                      />
+                    </div>
+                  )}
+
+                  {/* Notes for Cash or Cheque */}
+                  {(paymentMethod === "cash" || paymentMethod === "cheque") && (
+                    <div className="space-y-2">
+                      <Label htmlFor="notes" className="text-sm">Notes</Label>
+                      <Textarea
+                        id="notes"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder={`Enter ${paymentMethod} payment details`}
+                        rows={2}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Payment Summary */}
+              {paymentAmount > 0 && (
+                <Card className="bg-slate-50 border-slate-200">
+                  <CardContent className="p-4">
+                    <h4 className="font-medium mb-2">Payment Summary</h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          {paymentMethod === "cash" && "Cash:"}
+                          {paymentMethod === "creditcard" && "Card:"}
+                          {paymentMethod === "cheque" && "Cheque:"}
+                          {paymentMethod === "storecredit" && "Store Credit:"}
+                        </span>
+                        <span className={cn(
+                          "font-medium",
+                          paymentMethod === "cash" ? "text-green-600" :
+                          paymentMethod === "creditcard" ? "text-blue-600" :
+                          paymentMethod === "cheque" ? "text-orange-600" :
+                          "text-purple-600"
+                        )}>
+                          ${paymentAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t">
+                        <span className="text-muted-foreground">Remaining Due:</span>
+                        <span className={Math.max(0, dueAmount - paymentAmount) > 0 ? "text-red-600 font-medium" : "text-green-600 font-medium"}>
+                          ${Math.max(0, dueAmount - paymentAmount).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
           )}
         </div>
 
@@ -404,14 +526,22 @@ export function PaymentStatusPopup({
             <X className="mr-2 h-4 w-4" />
             Cancel
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="gap-2"
-          >
-            <Check className="h-4 w-4" />
-            {isSubmitting ? "Updating..." : "Update Payment"}
-          </Button>
+          {dueAmount > 0 && (
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || paymentAmount <= 0}
+              className={cn(
+                "gap-2",
+                paymentMethod === "cash" ? "bg-green-600 hover:bg-green-700" :
+                paymentMethod === "creditcard" ? "bg-blue-600 hover:bg-blue-700" :
+                paymentMethod === "cheque" ? "bg-orange-600 hover:bg-orange-700" :
+                "bg-purple-600 hover:bg-purple-700"
+              )}
+            >
+              <Check className="h-4 w-4" />
+              {isSubmitting ? "Processing..." : `Pay $${paymentAmount.toFixed(2)}`}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -27,6 +27,7 @@ interface Order {
   orderNumber?: string
   total?: number
   paymentAmount?: string | number
+  creditApplied?: number
   paymentStatus?: string
   createdAt?: string
 }
@@ -113,7 +114,8 @@ export function RecordPaymentModal({
       .reduce((sum, order) => {
         const orderTotal = order.total || 0
         const paidAmount = parseFloat(String(order.paymentAmount || 0))
-        return sum + (orderTotal - paidAmount)
+        const creditApplied = parseFloat(String(order.creditApplied || 0))
+        return sum + (orderTotal - paidAmount - creditApplied)
       }, 0)
   }
 
@@ -130,7 +132,8 @@ export function RecordPaymentModal({
         .reduce((sum, order) => {
           const orderTotal = order.total || 0
           const paidAmount = parseFloat(String(order.paymentAmount || 0))
-          return sum + (orderTotal - paidAmount)
+          const creditApplied = parseFloat(String(order.creditApplied || 0))
+          return sum + (orderTotal - paidAmount - creditApplied)
         }, 0)
       
       setPaymentAmount(newTotal.toFixed(2))
@@ -145,7 +148,8 @@ export function RecordPaymentModal({
     const total = unpaidOrders.reduce((sum, order) => {
       const orderTotal = order.total || 0
       const paidAmount = parseFloat(String(order.paymentAmount || 0))
-      return sum + (orderTotal - paidAmount)
+      const creditApplied = parseFloat(String(order.creditApplied || 0))
+      return sum + (orderTotal - paidAmount - creditApplied)
     }, 0)
     setPaymentAmount(total.toFixed(2))
   }

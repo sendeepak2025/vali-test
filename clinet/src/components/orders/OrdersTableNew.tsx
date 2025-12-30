@@ -947,10 +947,10 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
                     <TableCell className="font-medium">
                       <div className="flex flex-col">
                         <span>{formatCurrency(order.isDelete ? order.deleted?.amount : order.total)}</span>
-                        {/* Show paid amount for partial payments */}
-                        {order.paymentStatus === "partial" && parseFloat((order as any).paymentAmount || 0) > 0 && (
+                        {/* Show paid amount for partial payments (cash/card + credit applied) */}
+                        {order.paymentStatus === "partial" && (parseFloat((order as any).paymentAmount || 0) + parseFloat((order as any).creditApplied || 0)) > 0 && (
                           <span className="text-xs text-green-600 flex items-center gap-1">
-                            Paid: {formatCurrency(parseFloat((order as any).paymentAmount || 0))}
+                            Paid: {formatCurrency(parseFloat((order as any).paymentAmount || 0) + parseFloat((order as any).creditApplied || 0))}
                           </span>
                         )}
                         {(order as any).creditApplications && (order as any).creditApplications.length > 0 && (

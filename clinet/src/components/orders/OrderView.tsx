@@ -279,7 +279,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
               : formatCurrency(order.total)}</span>
           </div>
           
-          {/* Paid Amount - Show if any payment made */}
+          {/* Paid Amount - Show if any payment made (cash/card/cheque) */}
           {parseFloat((order as any).paymentAmount || 0) > 0 && (
             <div className="flex justify-between text-green-600">
               <span className="flex items-center gap-1">
@@ -290,11 +290,22 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
             </div>
           )}
           
-          {/* Amount Due - Only based on actual payment, not credit memo */}
+          {/* Credit Applied - Show if any credit was applied */}
+          {parseFloat((order as any).creditApplied || 0) > 0 && (
+            <div className="flex justify-between text-purple-600">
+              <span className="flex items-center gap-1">
+                <CreditCard className="h-4 w-4" />
+                Credit Applied
+              </span>
+              <span>-{formatCurrency(parseFloat((order as any).creditApplied || 0))}</span>
+            </div>
+          )}
+          
+          {/* Amount Due - Based on actual payment + credit applied */}
           <div className="flex justify-between font-medium text-lg">
             <span>Amount Due</span>
-            <span className={parseFloat((order as any).paymentAmount || 0) >= order.total ? "text-green-600" : "text-red-600"}>
-              {formatCurrency(Math.max(0, order.total - parseFloat((order as any).paymentAmount || 0)))}
+            <span className={(parseFloat((order as any).paymentAmount || 0) + parseFloat((order as any).creditApplied || 0)) >= order.total ? "text-green-600" : "text-red-600"}>
+              {formatCurrency(Math.max(0, order.total - parseFloat((order as any).paymentAmount || 0) - parseFloat((order as any).creditApplied || 0)))}
             </span>
           </div>
           
@@ -323,14 +334,14 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
           )}
 
           {/* Payment History Section */}
-          {(order as any).paymentHistory && (order as any).paymentHistory.length > 0 && (
+          {((order as any).paymentHistory && (order as any).paymentHistory.length > 0) || parseFloat((order as any).creditApplied || 0) > 0 ? (
             <div className="mt-3 p-3 bg-blue-50 rounded-md border border-blue-200">
               <h4 className="text-sm font-medium text-blue-800 mb-2 flex items-center gap-1">
                 <Banknote className="h-4 w-4" />
                 Payment History
               </h4>
               <div className="space-y-2">
-                {(order as any).paymentHistory.map((payment: any, idx: number) => (
+                {(order as any).paymentHistory?.map((payment: any, idx: number) => (
                   <div key={idx} className="flex justify-between items-start text-sm border-b border-blue-100 pb-2 last:border-0 last:pb-0">
                     <div className="flex flex-col">
                       <span className="font-medium text-blue-800 capitalize flex items-center gap-1">
@@ -352,13 +363,29 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, open, onCl
                     <span className="font-semibold text-blue-800">{formatCurrency(payment.amount)}</span>
                   </div>
                 ))}
+                {/* Show Credit Applied in Payment History */}
+                {parseFloat((order as any).creditApplied || 0) > 0 && (
+                  <div className="flex justify-between items-start text-sm border-b border-purple-100 pb-2 last:border-0 last:pb-0 bg-purple-50 -mx-3 px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-purple-800 capitalize flex items-center gap-1">
+                        <CreditCard className="h-3 w-3" />
+                        Store Credit
+                      </span>
+                      <span className="text-xs text-purple-600">Applied from credit balance</span>
+                    </div>
+                    <span className="font-semibold text-purple-800">{formatCurrency(parseFloat((order as any).creditApplied || 0))}</span>
+                  </div>
+                )}
               </div>
               <div className="mt-2 pt-2 border-t border-blue-200 flex justify-between font-medium text-blue-800">
                 <span>Total Paid</span>
-                <span>{formatCurrency((order as any).paymentHistory.reduce((sum: number, p: any) => sum + (p.amount || 0), 0))}</span>
+                <span>{formatCurrency(
+                  ((order as any).paymentHistory?.reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0) + 
+                  parseFloat((order as any).creditApplied || 0)
+                )}</span>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Notes */}
