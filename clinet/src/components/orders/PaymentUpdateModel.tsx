@@ -266,7 +266,7 @@ export function PaymentStatusPopup({
             <CardContent className="p-4">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="font-medium">Order Summary</h3>
-                <Badge variant={dueAmount <= 0 ? "success" : totalPreviouslyPaid > 0 ? "secondary" : "outline"}>
+                <Badge variant={dueAmount <= 0 ? "default" : totalPreviouslyPaid > 0 ? "secondary" : "outline"} className={dueAmount <= 0 ? "bg-green-600" : ""}>
                   {dueAmount <= 0 ? "Paid" : totalPreviouslyPaid > 0 ? "Partial" : "Unpaid"}
                 </Badge>
               </div>
@@ -485,38 +485,32 @@ export function PaymentStatusPopup({
               </Card>
 
               {/* Payment Summary */}
-              {paymentAmount > 0 && (
-                <Card className="bg-slate-50 border-slate-200">
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-2">Payment Summary</h4>
-                    <div className="space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          {paymentMethod === "cash" && "Cash:"}
-                          {paymentMethod === "creditcard" && "Card:"}
-                          {paymentMethod === "cheque" && "Cheque:"}
-                          {paymentMethod === "storecredit" && "Store Credit:"}
-                        </span>
-                        <span className={cn(
-                          "font-medium",
-                          paymentMethod === "cash" ? "text-green-600" :
-                          paymentMethod === "creditcard" ? "text-blue-600" :
-                          paymentMethod === "cheque" ? "text-orange-600" :
-                          "text-purple-600"
-                        )}>
-                          ${paymentAmount.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between pt-1 border-t">
-                        <span className="text-muted-foreground">Remaining Due:</span>
-                        <span className={Math.max(0, dueAmount - paymentAmount) > 0 ? "text-red-600 font-medium" : "text-green-600 font-medium"}>
-                          ${Math.max(0, dueAmount - paymentAmount).toFixed(2)}
-                        </span>
-                      </div>
+              <Card className="bg-slate-50 border-slate-200">
+                <CardContent className="p-4">
+                  <h4 className="font-medium mb-2">Payment Summary</h4>
+                  <div className="space-y-1 text-sm">
+                    {/* Total Amount */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total Amount:</span>
+                      <span className="font-medium">${totalAmount.toFixed(2)}</span>
                     </div>
-                  </CardContent>
-                </Card>
-              )}
+                    
+                    {/* Already Paid */}
+                    <div className="flex justify-between text-green-600">
+                      <span>Paid:</span>
+                      <span>-${totalPreviouslyPaid.toFixed(2)}</span>
+                    </div>
+                    
+                    {/* Remaining */}
+                    <div className="flex justify-between pt-1 border-t">
+                      <span className="font-medium">Remaining:</span>
+                      <span className={dueAmount > 0 ? "text-red-600 font-medium" : "text-green-600 font-medium"}>
+                        ${dueAmount.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </>
           )}
         </div>
