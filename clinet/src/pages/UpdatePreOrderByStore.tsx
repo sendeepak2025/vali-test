@@ -62,6 +62,7 @@ import { getSinglePreOrderAPI, updatePreOrderAPI } from "@/services2/operations/
 import { cn } from "@/lib/utils"
 
 type SalesMode = "case" | "unit" | "both"
+type PriceCategory = "aPrice" | "bPrice" | "cPrice" | "restaurantPrice"
 
 interface ProductType {
   id: string
@@ -69,12 +70,32 @@ interface ProductType {
   name: string
   price: number
   pricePerBox: number
+  aPrice?: number
+  bPrice?: number
+  cPrice?: number
+  restaurantPrice?: number
   shippinCost: number
   category?: string
   image?: string
   stock?: number
   shortCode?: string
   salesMode?: SalesMode
+}
+
+interface PriceListProduct {
+  id: string
+  _id?: string
+  name: string
+  category?: string
+  aPrice?: number
+  bPrice?: number
+  cPrice?: number
+  restaurantPrice?: number
+  price?: number
+  pricePerBox?: number
+  salesMode?: SalesMode
+  image?: string
+  shippinCost?: number
 }
 
 interface OrderItem {
@@ -110,6 +131,11 @@ interface Order {
   billingAddress: AddressType
   shipping: number
   total: number
+  priceListId?: {
+    _id: string
+    name: string
+    products: PriceListProduct[]
+  } | null
 }
 
 const UpdatePreOrderByStore = () => {
@@ -129,6 +155,9 @@ const UpdatePreOrderByStore = () => {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
   const [orderStatus, setOrderStatus] = useState("pending")
   const [orderDate, setOrderDate] = useState("")
+  
+  // Price category from store
+  const [storePriceCategory, setStorePriceCategory] = useState<PriceCategory>("aPrice")
 
   // Product modal states
   const [showProductModal, setShowProductModal] = useState(false)
@@ -171,6 +200,24 @@ const UpdatePreOrderByStore = () => {
     })
     return map
   }, [products])
+
+  // Helper function to get correct price based on store's price category
+  const getProductPrice = useCallback((product: ProductType | PriceListProduct, pricingType: "box" | "unit" = "box"): number => {
+    if (pricingType === "unit") {
+      return product.price || 0
+    }
+    
+    // Get price based on store's price category
+    const categoryPrice = product[storePriceCategory as keyof typeof product] as number | undefined
+    
+    // If category price is set and > 0, use it
+    if (categoryPrice && categoryPrice > 0) {
+      return categoryPrice
+    }
+    
+    // Fallback to aPrice or pricePerBox
+    return product.aPrice || product.pricePerBox || 0
+  }, [storePriceCategory])
 
   // Parse quick add input
   const parseQuickAddInput = useCallback((input: string) => {
@@ -246,6 +293,9 @@ const UpdatePreOrderByStore = () => {
       item => item.productId === product.id && item.pricingType === quickAddPricingType
     )
     
+    // Get correct price based on store's price category
+    const unitPrice = getProductPrice(product, quickAddPricingType)
+    
     if (existingIndex >= 0) {
       const updated = [...orderItems]
       updated[existingIndex].quantity += quickAddQuantity
@@ -255,7 +305,7 @@ const UpdatePreOrderByStore = () => {
         productId: product.id,
         productName: product.name,
         quantity: quickAddQuantity,
-        unitPrice: quickAddPricingType === "box" ? product.pricePerBox : product.price,
+        unitPrice: unitPrice,
         pricingType: quickAddPricingType,
         shippinCost: product.shippinCost || 0,
         shortCode: product.shortCode
@@ -272,7 +322,7 @@ const UpdatePreOrderByStore = () => {
     setQuickAddPreview(null)
     setQuickAddQuantity(1)
     quickAddRef.current?.focus()
-  }, [quickAddPreview, quickAddQuantity, quickAddPricingType, orderItems, toast])
+  }, [quickAddPreview, quickAddQuantity, quickAddPricingType, orderItems, toast, getProductPrice])
 
   // Keyboard shortcut
   useEffect(() => {
@@ -294,13 +344,42 @@ const UpdatePreOrderByStore = () => {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const productsData = await getAllProductAPI()
-        const formattedProducts: ProductType[] = productsData.map((p: any, index: number) => ({
-          ...p,
-          id: p._id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
-        }))
+        // First fetch the pre-order to get priceListId and store info
+        const res = await getSinglePreOrderAPI(id, token)
+        
+        // Set store's price category
+        const storeCategory = res?.store?.priceCategory || "aPrice"
+        setStorePriceCategory(storeCategory as PriceCategory)
+        
+        // Check if preorder has a price list linked
+        let formattedProducts: ProductType[] = []
+        
+        if (res?.priceListId && res.priceListId.products && res.priceListId.products.length > 0) {
+          // Use products from the linked price list
+          formattedProducts = res.priceListId.products.map((p: any, index: number) => ({
+            ...p,
+            id: p.id || p._id,
+            _id: p.id || p._id,
+            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+            salesMode: p.salesMode || "case",
+            // Use price from price list based on store's category
+            pricePerBox: p[storeCategory] || p.aPrice || p.pricePerBox || 0,
+            price: p.price || 0,
+            shippinCost: p.shippinCost || 0
+          }))
+        } else {
+          // Fallback to all products if no price list linked
+          const productsData = await getAllProductAPI()
+          formattedProducts = productsData.map((p: any, index: number) => ({
+            ...p,
+            id: p._id,
+            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+            salesMode: p.salesMode || "both",
+            // Use price based on store's category
+            pricePerBox: p[storeCategory] || p.aPrice || p.pricePerBox || 0
+          }))
+        }
+        
         setProducts(formattedProducts)
 
         const uniqueCategories: string[] = formattedProducts
@@ -309,8 +388,6 @@ const UpdatePreOrderByStore = () => {
           .filter((cat, index, arr) => arr.indexOf(cat) === index)
           .sort()
         setCategories(uniqueCategories)
-
-        const res = await getSinglePreOrderAPI(id, token)
         
         setShippingAddress(res?.shippingAddress || {
           name: "", email: "", phone: "", address: "", city: "", postalCode: "", country: ""
@@ -338,6 +415,7 @@ const UpdatePreOrderByStore = () => {
           billingAddress: res.billingAddress,
           shipping: res.shippinCost || 0,
           total: res.total,
+          priceListId: res.priceListId || null,
         }
 
         setOrder(formattedOrder)

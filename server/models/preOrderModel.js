@@ -76,6 +76,10 @@ const preOrderSchema = new mongoose.Schema(
     preOrderNumber: {
       type: String,
     },
+    priceListId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PriceListTemplate",
+    },
     shippinCost: {
       type: Number,
       default: 0,

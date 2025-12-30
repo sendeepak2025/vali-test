@@ -42,7 +42,7 @@ const Navbar: React.FC<NavbarProps> = ({
   const user = useSelector((state: RootState) => state.auth?.user ?? null);
   const { totalItems } = useCart();
 
- 
+ console.log(user, "user")
   return (
     <header className="sticky top-0 z-30 bg-background border-b">
       <div className="flex h-16 items-center px-4 md:px-6">
@@ -131,13 +131,15 @@ const Navbar: React.FC<NavbarProps> = ({
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate("/settings")}>
+              {/* <DropdownMenuItem onClick={() => navigate("/settings")}>
                 Settings
               </DropdownMenuItem>
-              <DropdownMenuItem>Help Center</DropdownMenuItem>
+              <DropdownMenuItem>Help Center</DropdownMenuItem> */}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => disptach(logout(navigate))}>
-                Logout
+                <div className="cursor-pointer">
+                  Logout
+                </div>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

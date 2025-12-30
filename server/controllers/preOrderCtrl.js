@@ -27,6 +27,7 @@ const createPreOrderCtrl = async (req, res) => {
       shippingAddress,
       orderType = "PreOrder",
       createdAt,
+      priceListId,
 
     } = req.body;
 
@@ -48,6 +49,7 @@ const createPreOrderCtrl = async (req, res) => {
       shippingAddress,
       orderType,
       preOrderNumber,
+      priceListId: priceListId || null,
       createdAt: createdAt ? new Date(createdAt) : undefined,
     });
 
@@ -153,7 +155,8 @@ const getSinglePreOrderCtrl = async (req, res) => {
     const { id } = req.params;
 
     const order = await PreOrder.findById(id)
-      .populate("store", "storeName ownerName");   // ⬅️ storeName populate
+      .populate("store", "storeName ownerName priceCategory")
+      .populate("priceListId");   // ⬅️ populate price list
 
     return res.status(200).json({
       success: true,

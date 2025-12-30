@@ -445,6 +445,7 @@ console.log(ONo)
       billingAddress,
       orderType:nextWeek ? "NextWeek" :"Regural",
       // orderNumber :ONo,
+      priceListId: templateId || null,
 
       shippingAddress: nextWeek ? billingAddress : sameAsBilling ? billingAddress : shippingAddress,
     }

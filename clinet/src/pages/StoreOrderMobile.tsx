@@ -491,7 +491,8 @@ const StoreOrderMobile = () => {
         date: new Date().toISOString(), clientId: storeInfo._id, clientName: storeInfo.storeName,
         items: orderedProducts, total: cartTotal, status: "pending", paymentStatus: "pending",
         subtotal: cartTotal, shippinCost: 0, store: storeInfo._id, billingAddress,
-        shippingAddress: finalShipping, orderType: isNextWeek ? "NextWeek" : "Regular"
+        shippingAddress: finalShipping, orderType: isNextWeek ? "NextWeek" : "Regular",
+        priceListId: template?._id && template._id !== "all-products" ? template._id : null
       }
       
       const orderRes = await createPreOrderAPI(order, token)
