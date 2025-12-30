@@ -362,12 +362,12 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
   const filteredTransactions = getFilteredTransactions()
 
   return (
-    <div className="space-y-6 ">
+    <div className="space-y-4 w-full max-w-full overflow-x-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row  justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <div>
-          <h2 className="text-xl font-bold">Account Statement</h2>
-          {storeName && <p className="text-muted-foreground">{storeName}</p>}
+          <h2 className="text-lg font-bold">Account Statement</h2>
+          {storeName && <p className="text-sm text-muted-foreground">{storeName}</p>}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={fetchAllData}>
@@ -382,45 +382,45 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-muted-foreground">Total Invoiced</p>
-            <p className="text-xl font-bold">{formatCurrency(summary.totalInvoiced)}</p>
+            <p className="text-lg font-bold">{formatCurrency(summary.totalInvoiced)}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-muted-foreground">Total Paid</p>
-            <p className="text-xl font-bold text-green-600">{formatCurrency(summary.totalPaid)}</p>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(summary.totalPaid)}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-muted-foreground">Credits Issued</p>
-            <p className="text-xl font-bold text-purple-600">{formatCurrency(summary.creditBalance)}</p>
+            <p className="text-lg font-bold text-purple-600">{formatCurrency(summary.creditBalance)}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-muted-foreground">Adjustments</p>
-            <p className={`text-xl font-bold ${summary.totalAdjustments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`text-lg font-bold ${summary.totalAdjustments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {summary.totalAdjustments >= 0 ? '+' : ''}{formatCurrency(summary.totalAdjustments)}
             </p>
           </CardContent>
         </Card>
         <Card className="border-2 border-blue-200 bg-blue-50/50">
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-blue-700">Outstanding Balance</p>
-            <p className={`text-xl font-bold ${summary.currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <p className={`text-lg font-bold ${summary.currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
               {formatCurrency(summary.currentBalance)}
             </p>
           </CardContent>
         </Card>
         <Card className="border-2 border-green-200 bg-green-50/50">
-          <CardContent className="p-4">
+          <CardContent className="p-3">
             <p className="text-xs text-green-700">Available Credit</p>
-            <p className="text-xl font-bold text-green-600">{formatCurrency(summary.creditBalance)}</p>
+            <p className="text-lg font-bold text-green-600">{formatCurrency(summary.creditBalance)}</p>
           </CardContent>
         </Card>
       </div>
@@ -454,13 +454,13 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
       </div>
 
       {/* Transactions Table */}
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Transaction History</CardTitle>
           <CardDescription>{filteredTransactions.length} transactions</CardDescription>
         </CardHeader>
-        <CardContent className="p-0">
-          <Table>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table className="min-w-[700px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -533,7 +533,8 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <Table>
+            <div className="overflow-x-auto">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -567,6 +568,7 @@ export default function AccountStatement({ storeId, storeName, isStoreView = fal
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}

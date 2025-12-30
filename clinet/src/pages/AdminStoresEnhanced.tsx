@@ -1279,7 +1279,7 @@ const AdminStoresEnhanced = () => {
 
       {/* Store Detail Modal */}
       <Dialog open={storeDetailOpen} onOpenChange={setStoreDetailOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden">
+        <DialogContent className="w-[95vw] max-w-5xl max-h-[90vh] overflow-hidden p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
@@ -1297,7 +1297,7 @@ const AdminStoresEnhanced = () => {
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
             </div>
           ) : selectedStore && (
-            <Tabs defaultValue="overview" className="w-full">
+            <Tabs defaultValue="overview" className="w-full overflow-hidden">
               <TabsList className="grid w-full grid-cols-8 mb-4">
                 <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
                 <TabsTrigger value="analytics" className="text-xs">Analytics</TabsTrigger>
@@ -1309,7 +1309,7 @@ const AdminStoresEnhanced = () => {
                 <TabsTrigger value="followups" className="text-xs">Follow-ups</TabsTrigger>
               </TabsList>
 
-              <div className="max-h-[55vh] overflow-y-auto pr-2">
+              <div className="max-h-[55vh] overflow-y-auto overflow-x-hidden">
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-0">
                   {/* Quick Actions */}
