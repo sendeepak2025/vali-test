@@ -504,6 +504,68 @@ const emailTemplates = {
       <p>Welcome aboard!<br>The Vali Produce Team</p>
     </div>
   `, 'Welcome to Vali Produce'),
+
+  /**
+   * New price list notification email
+   */
+  NEW_PRICE_LIST: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #10b981, #059669);">
+      <h1>📋 New Price List Available!</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'Valued Customer'}</strong>,</p>
+      
+      <div class="success-box">
+        <p>A new price list has been published and is now available for you!</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Price List:</strong> ${data.priceListName}</p>
+        ${data.description ? `<p><strong>Description:</strong> ${data.description}</p>` : ''}
+        <p><strong>Published On:</strong> ${data.publishedDate || new Date().toLocaleDateString()}</p>
+        <p><strong>Total Products:</strong> ${data.productCount || 0} items</p>
+      </div>
+      
+      <p>Check out the latest prices and place your orders today!</p>
+      
+      <a href="${data.priceListUrl || (process.env.CLIENT_URL + '/store/mobile')}" class="button">View Price List</a>
+      
+      <p>Thank you for your continued business!</p>
+      
+      <p>Best regards,<br>The Vali Produce Team</p>
+    </div>
+  `, 'New Price List Available'),
+
+  /**
+   * Price list updated notification email
+   */
+  PRICE_LIST_UPDATED: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+      <h1>📋 Price List Updated!</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'Valued Customer'}</strong>,</p>
+      
+      <div class="warning-box">
+        <p>Our price list has been updated with new prices!</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Price List:</strong> ${data.priceListName}</p>
+        ${data.description ? `<p><strong>Description:</strong> ${data.description}</p>` : ''}
+        <p><strong>Updated On:</strong> ${data.updatedDate || new Date().toLocaleDateString()}</p>
+        <p><strong>Total Products:</strong> ${data.productCount || 0} items</p>
+      </div>
+      
+      <p>Please review the updated prices before placing your next order.</p>
+      
+      <a href="${data.priceListUrl || (process.env.CLIENT_URL + '/store/mobile')}" class="button">View Updated Prices</a>
+      
+      <p>Thank you for your continued business!</p>
+      
+      <p>Best regards,<br>The Vali Produce Team</p>
+    </div>
+  `, 'Price List Updated'),
 };
 
 module.exports = emailTemplates;

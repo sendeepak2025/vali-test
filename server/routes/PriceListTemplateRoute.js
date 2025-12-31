@@ -7,5 +7,6 @@ router.get("/getAll", priceListTemplateController.getAllPriceListTemplates);
 router.get("/get/:id", priceListTemplateController.getPriceListTemplateById);
 router.put("/update/:id", priceListTemplateController.updatePriceListTemplate);
 router.delete("/delete/:id", priceListTemplateController.deletePriceListTemplate);
+router.post("/send-notification/:id", priceListTemplateController.sendPriceListNotification);
 
 module.exports = router
