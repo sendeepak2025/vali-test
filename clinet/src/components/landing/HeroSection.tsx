@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 const HERO_IMAGES = {
   // Main showcase images (larger, prominent)
   main: [
-    { id: 'tomato', src: '/hero/tomato.png', alt: 'Fresh Tomatoes', fallback: 'https://images.unsplash.com/photo-1546470427-0d4db154ceb8?w=200&h=200&fit=crop' },
+    { id: 'tomato', src: '/hero/tomato.png', alt: 'Fresh Tomatoes', fallback: 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&h=300&fit=crop' },
     { id: 'lettuce', src: '/hero/lettuce.png', alt: 'Fresh Lettuce', fallback: 'https://images.unsplash.com/photo-1622206151226-18ca2c9ab4a1?w=200&h=200&fit=crop' },
     { id: 'carrot', src: '/hero/carrot.png', alt: 'Fresh Carrots', fallback: 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=200&h=200&fit=crop' },
   ],
