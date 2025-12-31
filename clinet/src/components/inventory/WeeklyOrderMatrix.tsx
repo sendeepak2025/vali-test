@@ -536,6 +536,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           
           setChangedCells(prev => new Set(prev).add(cellKey));
           toast.success(response.preOrderHandled ? "PreOrder converted!" : "Updated", { autoClose: 1000 });
+          
+          // Auto-refresh after every 5 updates to ensure data accuracy
+          if (changedCells.size > 0 && (changedCells.size + 1) % 5 === 0) {
+            setTimeout(() => fetchMatrixData(currentPage, searchTerm), 1000);
+          }
         }
       }
     } catch (error) {
@@ -544,7 +549,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     } finally {
       setSavingCell(null);
     }
-  }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek]);
+  }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek, changedCells.size, currentPage, searchTerm, fetchMatrixData]);
 
   // Calculate totals - only from visible store data for this page
   const totals = useMemo(() => {
