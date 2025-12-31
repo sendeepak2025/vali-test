@@ -25,6 +25,8 @@ const {
     getOrderMatrixDataCtrl,
     updateOrderMatrixItemCtrl,
     updatePreOrderMatrixItemCtrl,
+    confirmPreOrdersCtrl,
+    getPendingPreOrdersForReviewCtrl,
     getRegionalOrderTrends
 
 } = require("../controllers/orderCtrl");
@@ -57,6 +59,10 @@ router.get("/latest/:storeId", getUserLatestOrdersCtrl);
 router.get("/matrix", auth, getOrderMatrixDataCtrl);
 router.post("/matrix/update", auth, updateOrderMatrixItemCtrl);
 router.post("/matrix/preorder", auth, updatePreOrderMatrixItemCtrl);
+
+// PreOrder Confirm APIs
+router.get("/matrix/preorders/pending", auth, getPendingPreOrdersForReviewCtrl);
+router.post("/matrix/preorders/confirm", auth, confirmPreOrdersCtrl);
 
 // Regional Order Trends for warehouse planning
 router.get("/regional-trends", auth, getRegionalOrderTrends);

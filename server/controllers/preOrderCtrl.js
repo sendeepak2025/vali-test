@@ -67,7 +67,7 @@ const createPreOrderCtrl = async (req, res) => {
           storeDetails.email,
           "order_created",
           "PreOrder Created",
-          `Your preorder #${newPreOrder.preOrderNumber} has been created. Total: $${newPreOrder.total.toFixed(2)}`,
+          `Your preorder #${newPreOrder.preOrderNumber} has been created. Total: ${newPreOrder.total.toFixed(2)}`,
           "PREORDER_CREATED",
           {
             ownerName: storeDetails.ownerName || storeDetails.storeName,
@@ -279,7 +279,7 @@ const updatePreOrderCtrl = async (req, res) => {
           storeDetails.email,
           "order_updated",
           "PreOrder Updated",
-          `Your preorder #${updated.preOrderNumber} has been updated. Total: $${updated.total.toFixed(2)}`,
+          `Your preorder #${updated.preOrderNumber} has been updated. Total: ${updated.total.toFixed(2)}`,
           "PREORDER_UPDATED",
           {
             ownerName: storeDetails.ownerName || storeDetails.storeName,
@@ -336,15 +336,43 @@ const confirmOrderCtrl = async (req, res) => {
       return res.status(400).json({ success: false, message: "PreOrder is already confirmed" });
     }
 
+    // --- Deduplicate items by productId (merge quantities if same product) ---
+    const itemsMap = new Map();
+    for (const item of pre.items) {
+      const productId = (item.productId || item.product)?.toString();
+      if (!productId) continue;
+      
+      if (itemsMap.has(productId)) {
+        // Same product exists, add quantity
+        const existing = itemsMap.get(productId);
+        existing.quantity += item.quantity || 0;
+      } else {
+        // New product, add to map
+        itemsMap.set(productId, {
+          productId: productId,
+          name: item.name || item.productName,
+          productName: item.productName || item.name,
+          quantity: item.quantity || 0,
+          unitPrice: item.unitPrice || 0,
+          pricingType: item.pricingType || "box",
+          product: productId
+        });
+      }
+    }
+    
+    // Convert map back to array
+    const deduplicatedItems = Array.from(itemsMap.values());
+    console.log(`PreOrder ${pre.preOrderNumber}: Original items: ${pre.items.length}, Deduplicated: ${deduplicatedItems.length}`);
+
     // --- Calculate Pallet Data ---
     let totalPallets = 0;
     let totalBoxes = 0;
     const palletBreakdown = {};
     
-    // Get product IDs from items
-    const productIds = pre.items
+    // Get product IDs from deduplicated items
+    const productIds = deduplicatedItems
       .filter(item => item.pricingType === "box")
-      .map(item => item.productId || item.product);
+      .map(item => item.productId);
     
     // Fetch products with pallet capacity
     const products = await Product.find({ _id: { $in: productIds } })
@@ -360,9 +388,9 @@ const confirmOrderCtrl = async (req, res) => {
     });
     
     // Calculate pallets for each item
-    pre.items.forEach(item => {
+    deduplicatedItems.forEach(item => {
       if (item.pricingType === "box" && item.quantity > 0) {
-        const productId = (item.productId || item.product)?.toString();
+        const productId = item.productId?.toString();
         const casesPerPallet = productPalletMap[productId];
         
         totalBoxes += item.quantity;
@@ -392,10 +420,10 @@ const confirmOrderCtrl = async (req, res) => {
     };
     pre.plateCount = totalPallets;
 
-    // --- Prepare fake req.body for createOrderCtrl ---
+    // --- Prepare fake req.body for createOrderCtrl with deduplicated items ---
     const fakeReq = {
       body: {
-        items: pre.items,
+        items: deduplicatedItems, // Use deduplicated items
         status: "Processing",
         total: pre.total,
         clientId: { value: pre.store },
@@ -458,7 +486,7 @@ const confirmOrderCtrl = async (req, res) => {
           storeDetails.email,
           "order_created",
           "PreOrder Confirmed",
-          `Your preorder #${pre.preOrderNumber} has been confirmed and converted to order #${createdOrderData.orderNumber}. Total: $${pre.total.toFixed(2)}`,
+          `Your preorder #${pre.preOrderNumber} has been confirmed and converted to order #${createdOrderData.orderNumber}. Total: ${pre.total.toFixed(2)}`,
           "PREORDER_CONFIRMED",
           {
             ownerName: storeDetails.ownerName || storeDetails.storeName,
@@ -466,8 +494,8 @@ const confirmOrderCtrl = async (req, res) => {
             preOrderNumber: pre.preOrderNumber,
             orderNumber: createdOrderData.orderNumber,
             total: pre.total.toFixed(2),
-            itemCount: pre.items.length,
-            items: pre.items,
+            itemCount: deduplicatedItems.length,
+            items: deduplicatedItems,
             orderDate: new Date().toLocaleDateString(),
             orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
           },

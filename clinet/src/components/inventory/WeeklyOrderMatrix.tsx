@@ -19,6 +19,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Download,
   RefreshCw,
   Search,
@@ -47,9 +55,10 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  CheckCheck,
 } from "lucide-react";
 import { toast } from "react-toastify";
-import { getOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI } from "@/services2/operations/order";
+import { getOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { orderEvents } from "@/utils/orderEvents";
@@ -285,6 +294,12 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   
   // Track changes
   const [changedCells, setChangedCells] = useState<Set<string>>(new Set());
+  
+  // PreOrder Confirm Modal State
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingPreOrders, setPendingPreOrders] = useState<any[]>([]); // Grouped PreOrders
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [selectedPreOrders, setSelectedPreOrders] = useState<Set<string>>(new Set());
   
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -556,13 +571,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     let orderTotal = 0, stockTotal = 0, preOrderTotal = 0, pendingReqTotal = 0, purchaseTotal = 0;
     matrixData.forEach(row => {
       // Calculate order total from store orders (visible stores only for accuracy)
-      const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.currentQty || 0), 0);
+      const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.currentQty || 0), 0) as number;
       orderTotal += rowOrderTotal;
       stockTotal += row.totalStock || 0;
       
       // PreOrder and Pending should also be calculated from store orders
-      const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.preOrderQty || 0), 0);
-      const rowPendingReqTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.pendingReq || 0), 0);
+      const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.preOrderQty || 0), 0) as number;
+      const rowPendingReqTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.pendingReq || 0), 0) as number;
       preOrderTotal += rowPreOrderTotal;
       pendingReqTotal += rowPendingReqTotal;
       purchaseTotal += row.totalPurchase || 0;
@@ -614,6 +629,79 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
     return set.size;
   }, [matrixData]);
+
+  // Fetch Pending PreOrders for Review
+  const fetchPendingPreOrders = useCallback(async () => {
+    setConfirmLoading(true);
+    try {
+      const response = await getPendingPreOrdersAPI(token, weekOffset);
+      if (response?.success) {
+        // Use groupedPreOrders for PreOrder-wise display
+        const grouped = response.groupedPreOrders || response.preOrders || [];
+        setPendingPreOrders(grouped);
+        // Select all by default
+        const allIds = new Set<string>(grouped.map((p: any) => p._id as string));
+        setSelectedPreOrders(allIds);
+        setShowConfirmModal(true);
+      }
+    } catch (error) {
+      console.error("Error fetching pending preorders:", error);
+      toast.error("Failed to fetch pending preorders");
+    } finally {
+      setConfirmLoading(false);
+    }
+  }, [token, weekOffset]);
+
+  // Handle Confirm PreOrders
+  const handleConfirmPreOrders = useCallback(async () => {
+    if (selectedPreOrders.size === 0) {
+      toast.error("Please select at least one PreOrder to confirm");
+      return;
+    }
+    
+    setConfirmLoading(true);
+    try {
+      const response = await confirmPreOrdersAPI({
+        preOrderIds: Array.from(selectedPreOrders),
+        weekOffset
+      }, token);
+      
+      if (response?.success) {
+        setShowConfirmModal(false);
+        setPendingPreOrders([]);
+        setSelectedPreOrders(new Set());
+        // Refresh matrix data
+        fetchMatrixData(currentPage, searchTerm);
+      }
+    } catch (error) {
+      console.error("Error confirming preorders:", error);
+      toast.error("Failed to confirm preorders");
+    } finally {
+      setConfirmLoading(false);
+    }
+  }, [selectedPreOrders, weekOffset, token, currentPage, searchTerm, fetchMatrixData]);
+
+  // Toggle PreOrder selection
+  const togglePreOrderSelection = (preOrderId: string) => {
+    setSelectedPreOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(preOrderId)) {
+        newSet.delete(preOrderId);
+      } else {
+        newSet.add(preOrderId);
+      }
+      return newSet;
+    });
+  };
+
+  // Select/Deselect all PreOrders
+  const toggleSelectAll = () => {
+    if (selectedPreOrders.size === pendingPreOrders.length) {
+      setSelectedPreOrders(new Set());
+    } else {
+      setSelectedPreOrders(new Set(pendingPreOrders.map(p => p._id)));
+    }
+  };
 
   // Get mode display info
   const getModeInfo = () => {
@@ -685,6 +773,24 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 <Lock className="h-3 w-3 mr-1" />
                 {isPastWeek ? "Past Week" : matrixMode === "ORDER" && !isCurrentWeek ? "Future Week" : "Read Only"}
               </Badge>
+            )}
+            
+            {/* Confirm PreOrders Button */}
+            {matrixMode === "PREORDER" && (isCurrentWeek || isFutureWeek) && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={fetchPendingPreOrders}
+                disabled={confirmLoading}
+                className="ml-2 bg-green-600 hover:bg-green-700"
+              >
+                {confirmLoading ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <CheckCheck className="h-3 w-3 mr-1" />
+                )}
+                Confirm PreOrders
+              </Button>
             )}
           </div>
           
@@ -954,9 +1060,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             <tbody>
               {matrixData.map((row) => {
                 // Calculate row totals from store orders
-                const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0);
-                const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0);
-                const rowPendingReq = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0);
+                const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0) as number;
+                const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0) as number;
+                const rowPendingReq = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0) as number;
                 const status = (row.totalPurchase || 0) >= rowPendingReq ? "OK" : "NEED";
                 
                 return (
@@ -1065,11 +1171,283 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           </Button>
         </div>
         {matrixContent}
+        
+        {/* PreOrder Confirm Modal */}
+        <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CheckCheck className="h-5 w-5 text-green-600" />
+                Confirm PreOrders
+              </DialogTitle>
+              <DialogDescription>
+                Review and confirm pending PreOrders for {weekRange ? `${weekRange.start} - ${weekRange.end}` : 'this week'}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex-1 overflow-auto">
+              {pendingPreOrders.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No pending PreOrders found for this week</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Select All */}
+                  <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedPreOrders.size === pendingPreOrders.length}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="font-medium">Select All ({pendingPreOrders.length} PreOrders)</span>
+                    </label>
+                    <Badge variant="outline">
+                      {selectedPreOrders.size} selected
+                    </Badge>
+                  </div>
+                  
+                  {/* PreOrders List - Grouped by PreOrder */}
+                  <div className="space-y-3">
+                    {pendingPreOrders.map((preOrder) => (
+                      <div 
+                        key={preOrder._id} 
+                        className={`border rounded-lg overflow-hidden ${selectedPreOrders.has(preOrder._id) ? 'border-green-500 bg-green-50' : 'border-gray-200'}`}
+                      >
+                        {/* PreOrder Header */}
+                        <div className="flex items-center justify-between p-3 bg-gray-100 border-b">
+                          <label className="flex items-center gap-3 cursor-pointer flex-1">
+                            <input
+                              type="checkbox"
+                              checked={selectedPreOrders.has(preOrder._id)}
+                              onChange={() => togglePreOrderSelection(preOrder._id)}
+                              className="w-4 h-4 rounded"
+                            />
+                            <div>
+                              <div className="font-medium text-sm flex items-center gap-2">
+                                <Store className="h-4 w-4 text-blue-600" />
+                                {preOrder.store?.name || 'Unknown Store'}
+                                <Badge variant="outline" className="text-xs">
+                                  #{preOrder.preOrderNumber || 'N/A'}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {preOrder.store?.city}, {preOrder.store?.state} • {preOrder.itemCount || preOrder.items?.length || 0} items
+                              </div>
+                            </div>
+                          </label>
+                          <div className="text-right">
+                            <div className="font-bold text-green-600">${(preOrder.total || 0).toFixed(2)}</div>
+                          </div>
+                        </div>
+                        
+                        {/* PreOrder Items */}
+                        <div className="p-2">
+                          <table className="w-full text-sm">
+                            <thead className="text-xs text-gray-500">
+                              <tr>
+                                <th className="p-1 text-left">Product</th>
+                                <th className="p-1 text-center">Qty</th>
+                                <th className="p-1 text-right">Price</th>
+                                <th className="p-1 text-right">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(preOrder.items || []).map((item: any, idx: number) => (
+                                <tr key={idx} className="border-t border-gray-100">
+                                  <td className="p-1 font-medium">{item.productName || 'Unknown'}</td>
+                                  <td className="p-1 text-center text-orange-600 font-bold">{item.quantity}</td>
+                                  <td className="p-1 text-right">${(item.unitPrice || 0).toFixed(2)}</td>
+                                  <td className="p-1 text-right font-medium">${(item.total || (item.quantity * item.unitPrice) || 0).toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Summary */}
+                  <div className="p-3 bg-gray-100 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">Total Selected ({selectedPreOrders.size} PreOrders):</span>
+                      <span className="font-bold text-lg text-green-600">
+                        ${pendingPreOrders
+                          .filter(p => selectedPreOrders.has(p._id))
+                          .reduce((sum, p) => sum + (p.total || 0), 0)
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setShowConfirmModal(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmPreOrders}
+                disabled={confirmLoading || selectedPreOrders.size === 0}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {confirmLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCheck className="h-4 w-4 mr-2" />
+                )}
+                Confirm {selectedPreOrders.size} PreOrders
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
 
-  return matrixContent;
+  return (
+    <>
+      {matrixContent}
+      
+      {/* PreOrder Confirm Modal */}
+      <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCheck className="h-5 w-5 text-green-600" />
+              Confirm PreOrders
+            </DialogTitle>
+            <DialogDescription>
+              Review and confirm pending PreOrders for {weekRange ? `${weekRange.start} - ${weekRange.end}` : 'this week'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto">
+            {pendingPreOrders.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No pending PreOrders found for this week</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Select All */}
+                <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedPreOrders.size === pendingPreOrders.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span className="font-medium">Select All ({pendingPreOrders.length} PreOrders)</span>
+                  </label>
+                  <Badge variant="outline">
+                    {selectedPreOrders.size} selected
+                  </Badge>
+                </div>
+                
+                {/* PreOrders List - Grouped by PreOrder */}
+                <div className="space-y-3">
+                  {pendingPreOrders.map((preOrder) => (
+                    <div 
+                      key={preOrder._id} 
+                      className={`border rounded-lg overflow-hidden ${selectedPreOrders.has(preOrder._id) ? 'border-green-500 bg-green-50' : 'border-gray-200'}`}
+                    >
+                      {/* PreOrder Header */}
+                      <div className="flex items-center justify-between p-3 bg-gray-100 border-b">
+                        <label className="flex items-center gap-3 cursor-pointer flex-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedPreOrders.has(preOrder._id)}
+                            onChange={() => togglePreOrderSelection(preOrder._id)}
+                            className="w-4 h-4 rounded"
+                          />
+                          <div>
+                            <div className="font-medium text-sm flex items-center gap-2">
+                              <Store className="h-4 w-4 text-blue-600" />
+                              {preOrder.store?.name || 'Unknown Store'}
+                              <Badge variant="outline" className="text-xs">
+                                #{preOrder.preOrderNumber || 'N/A'}
+                              </Badge>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {preOrder.store?.city}, {preOrder.store?.state} • {preOrder.itemCount || preOrder.items?.length || 0} items
+                            </div>
+                          </div>
+                        </label>
+                        <div className="text-right">
+                          <div className="font-bold text-green-600">${(preOrder.total || 0).toFixed(2)}</div>
+                        </div>
+                      </div>
+                      
+                      {/* PreOrder Items */}
+                      <div className="p-2">
+                        <table className="w-full text-sm">
+                          <thead className="text-xs text-gray-500">
+                            <tr>
+                              <th className="p-1 text-left">Product</th>
+                              <th className="p-1 text-center">Qty</th>
+                              <th className="p-1 text-right">Price</th>
+                              <th className="p-1 text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(preOrder.items || []).map((item: any, idx: number) => (
+                              <tr key={idx} className="border-t border-gray-100">
+                                <td className="p-1 font-medium">{item.productName || 'Unknown'}</td>
+                                <td className="p-1 text-center text-orange-600 font-bold">{item.quantity}</td>
+                                <td className="p-1 text-right">${(item.unitPrice || 0).toFixed(2)}</td>
+                                <td className="p-1 text-right font-medium">${(item.total || (item.quantity * item.unitPrice) || 0).toFixed(2)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Summary */}
+                <div className="p-3 bg-gray-100 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Total Selected ({selectedPreOrders.size} PreOrders):</span>
+                    <span className="font-bold text-lg text-green-600">
+                      ${pendingPreOrders
+                        .filter(p => selectedPreOrders.has(p._id))
+                        .reduce((sum, p) => sum + (p.total || 0), 0)
+                        .toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setShowConfirmModal(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConfirmPreOrders}
+              disabled={confirmLoading || selectedPreOrders.size === 0}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {confirmLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCheck className="h-4 w-4 mr-2" />
+              )}
+              Confirm {selectedPreOrders.size} PreOrders
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 };
 
 export default WeeklyOrderMatrix;

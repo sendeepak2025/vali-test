@@ -3285,7 +3285,8 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
         const preOrderQty = item.quantity || 0;
         const currentQty = matrixData[productId].storeOrders[storeId].currentQty || 0;
-        const pendingReq = Math.max(0, preOrderQty - currentQty);
+        // REQ = PreOrder quantity (not minus current order)
+        const pendingReq = preOrderQty;
 
         matrixData[productId].storeOrders[storeId].preOrderQty += preOrderQty;
         matrixData[productId].storeOrders[storeId].pendingReq = pendingReq;
@@ -3865,6 +3866,261 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
   }
 };
 
+// Confirm PreOrders for a specific week - Uses existing confirmOrderCtrl for each PreOrder
+const confirmPreOrdersCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0, storeId, preOrderIds } = req.body;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the target week
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    console.log(`Confirming PreOrders - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
+
+    // Build query for PreOrders
+    let query = {
+      confirmed: { $ne: true },
+      isDelete: { $ne: true },
+      status: "pending"
+    };
+
+    // If specific preOrderIds provided, use them
+    if (preOrderIds && Array.isArray(preOrderIds) && preOrderIds.length > 0) {
+      query._id = { $in: preOrderIds };
+    } else {
+      // Otherwise, use week-based filtering
+      query.$or = [
+        { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+        { 
+          createdAt: { $gte: monday, $lte: sunday },
+          expectedDeliveryDate: { $exists: false }
+        },
+        { 
+          createdAt: { $gte: monday, $lte: sunday },
+          expectedDeliveryDate: null
+        }
+      ];
+    }
+
+    // If storeId provided, confirm only that store's PreOrders
+    if (storeId) {
+      query.store = storeId;
+    }
+
+    // Find all pending PreOrders for the target week
+    const preOrders = await PreOrderModel.find(query).populate("store", "storeName ownerName");
+
+    if (preOrders.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No pending PreOrders found for this week",
+        confirmedCount: 0,
+        preOrders: [],
+        createdOrders: []
+      });
+    }
+
+    // Import confirmOrderCtrl from preOrderCtrl
+    const { confirmOrderCtrl } = require("./preOrderCtrl");
+
+    // Confirm each PreOrder using existing confirmOrderCtrl
+    const confirmedPreOrders = [];
+    const createdOrders = [];
+    const errors = [];
+
+    for (const preOrder of preOrders) {
+      try {
+        // Create fake req/res to call confirmOrderCtrl
+        let responseData = null;
+        let responseStatus = 200;
+
+        const fakeReq = {
+          params: { id: preOrder._id.toString() }
+        };
+
+        const fakeRes = {
+          status: function(code) {
+            responseStatus = code;
+            return this;
+          },
+          json: function(data) {
+            responseData = data;
+            return this;
+          }
+        };
+
+        await confirmOrderCtrl(fakeReq, fakeRes);
+
+        if (responseStatus === 200 && responseData?.success) {
+          confirmedPreOrders.push({
+            _id: preOrder._id,
+            preOrderNumber: preOrder.preOrderNumber,
+            store: preOrder.store?.storeName || "Unknown",
+            itemCount: preOrder.items.length,
+            total: preOrder.total
+          });
+
+          if (responseData.order) {
+            createdOrders.push({
+              _id: responseData.order._id,
+              orderNumber: responseData.order.orderNumber,
+              store: preOrder.store?.storeName || "Unknown",
+              total: responseData.order.total,
+              palletInfo: responseData.palletInfo
+            });
+          }
+        } else {
+          errors.push({
+            preOrderId: preOrder._id,
+            preOrderNumber: preOrder.preOrderNumber,
+            store: preOrder.store?.storeName,
+            error: responseData?.message || "Failed to confirm",
+            insufficientStock: responseData?.insufficientStock
+          });
+        }
+      } catch (err) {
+        console.error(`Error confirming PreOrder ${preOrder._id}:`, err);
+        errors.push({
+          preOrderId: preOrder._id,
+          preOrderNumber: preOrder.preOrderNumber,
+          store: preOrder.store?.storeName,
+          error: err.message
+        });
+      }
+    }
+
+    console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}`);
+
+    return res.status(200).json({
+      success: true,
+      message: `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`,
+      confirmedCount: confirmedPreOrders.length,
+      preOrders: confirmedPreOrders,
+      createdOrders: createdOrders,
+      errors: errors.length > 0 ? errors : undefined,
+      weekRange: {
+        start: monday.toISOString(),
+        end: sunday.toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("Error confirming preorders:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error confirming preorders",
+      error: error.message
+    });
+  }
+};
+
+// Get pending PreOrders for review before confirmation
+const getPendingPreOrdersForReviewCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0 } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the target week
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // Find all pending PreOrders for the target week
+    const preOrders = await PreOrderModel.find({
+      $or: [
+        { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+        { 
+          createdAt: { $gte: monday, $lte: sunday },
+          expectedDeliveryDate: { $exists: false }
+        },
+        { 
+          createdAt: { $gte: monday, $lte: sunday },
+          expectedDeliveryDate: null
+        }
+      ],
+      confirmed: { $ne: true },
+      isDelete: { $ne: true },
+      status: "pending"
+    }).populate("store", "storeName ownerName city state");
+
+    // Flatten items from all PreOrders for easier review
+    const flattenedItems = [];
+    for (const po of preOrders) {
+      for (const item of po.items) {
+        flattenedItems.push({
+          _id: po._id, // PreOrder ID for confirmation
+          preOrderNumber: po.preOrderNumber,
+          store: {
+            _id: po.store?._id,
+            storeName: po.store?.storeName,
+            ownerName: po.store?.ownerName,
+            city: po.store?.city,
+            state: po.store?.state
+          },
+          product: {
+            _id: item.productId,
+            name: item.productName || item.name || "Unknown Product"
+          },
+          quantity: item.quantity,
+          unitPrice: item.unitPrice || 0,
+          total: (item.unitPrice || 0) * (item.quantity || 0),
+          createdAt: po.createdAt,
+          expectedDeliveryDate: po.expectedDeliveryDate
+        });
+      }
+    }
+
+    // Also return grouped by PreOrder for summary
+    const formattedPreOrders = preOrders.map(po => ({
+      _id: po._id,
+      preOrderNumber: po.preOrderNumber,
+      store: {
+        _id: po.store?._id,
+        name: po.store?.storeName,
+        owner: po.store?.ownerName,
+        city: po.store?.city,
+        state: po.store?.state
+      },
+      items: po.items.map(item => ({
+        productId: item.productId,
+        productName: item.productName || item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: (item.unitPrice || 0) * (item.quantity || 0)
+      })),
+      itemCount: po.items.length,
+      total: po.total,
+      createdAt: po.createdAt,
+      expectedDeliveryDate: po.expectedDeliveryDate
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: `Found ${formattedPreOrders.length} pending PreOrder(s)`,
+      preOrders: flattenedItems, // Flattened items for table display
+      groupedPreOrders: formattedPreOrders, // Grouped by PreOrder
+      totalPreOrders: formattedPreOrders.length,
+      totalItems: flattenedItems.length,
+      weekRange: {
+        start: monday.toISOString(),
+        end: sunday.toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error("Error getting pending preorders:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error getting pending preorders",
+      error: error.message
+    });
+  }
+};
+
 // Regional Order Trends - Weekly order analysis by state/region for warehouse planning
 const getRegionalOrderTrends = async (req, res) => {
   try {
@@ -4190,5 +4446,7 @@ module.exports = {
   getOrderMatrixDataCtrl,
   updateOrderMatrixItemCtrl,
   updatePreOrderMatrixItemCtrl,
+  confirmPreOrdersCtrl,
+  getPendingPreOrdersForReviewCtrl,
   getRegionalOrderTrends
 };

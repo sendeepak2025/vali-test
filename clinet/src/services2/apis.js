@@ -117,6 +117,10 @@ export const order = {
   GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
   UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
   UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",
+  
+  // PreOrder Confirm APIs
+  GET_PENDING_PREORDERS: BASE_URL + "/order/matrix/preorders/pending",
+  CONFIRM_PREORDERS: BASE_URL + "/order/matrix/preorders/confirm",
 
   // Regional Order Trends
   GET_REGIONAL_ORDER_TRENDS: BASE_URL + "/order/regional-trends",

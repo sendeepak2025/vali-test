@@ -863,3 +863,63 @@ export const getRegionalOrderTrendsAPI = async (token, weeks = 4) => {
     };
   }
 };
+
+
+// Get Pending PreOrders for Review
+export const getPendingPreOrdersAPI = async (token, weekOffset = 0) => {
+  try {
+    const response = await apiConnector(
+      "GET",
+      `${order.GET_PENDING_PREORDERS}?weekOffset=${weekOffset}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to fetch pending preorders");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("getPendingPreOrdersAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to fetch pending preorders");
+    return {
+      success: false,
+      preOrders: [],
+      totalPreOrders: 0
+    };
+  }
+};
+
+// Confirm PreOrders
+export const confirmPreOrdersAPI = async (formData, token) => {
+  const toastId = toast.loading("Confirming PreOrders...");
+  
+  try {
+    const response = await apiConnector(
+      "POST",
+      order.CONFIRM_PREORDERS,
+      formData,
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to confirm preorders");
+    }
+
+    toast.success(response?.data?.message || "PreOrders confirmed successfully");
+    return response.data;
+
+  } catch (error) {
+    console.error("confirmPreOrdersAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to confirm preorders");
+    return null;
+  } finally {
+    toast.dismiss(toastId);
+  }
+};
