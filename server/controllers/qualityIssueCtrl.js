@@ -1,6 +1,8 @@
 const QualityIssue = require("../models/qualityIssueModel");
 const Order = require("../models/orderModle");
 const Auth = require("../models/authModel");
+const mailSender = require("../utils/mailSender");
+const emailTemplates = require("../templates/emails/emailTemplates");
 
 // Create a new quality issue (Store)
 exports.createQualityIssue = async (req, res) => {
@@ -136,6 +138,8 @@ exports.resolveIssue = async (req, res) => {
     const { id } = req.params;
     const { status, approvedAmount, resolution, createCreditMemo } = req.body;
 
+    console.log("Resolving quality issue:", { id, status, approvedAmount, resolution });
+
     const issue = await QualityIssue.findById(id);
     if (!issue) {
       return res.status(404).json({ success: false, message: "Issue not found" });
@@ -145,9 +149,12 @@ exports.resolveIssue = async (req, res) => {
     issue.approvedAmount = approvedAmount;
     issue.resolution = resolution;
 
+    // Get store details for email - fetch regardless of action type
+    const store = await Auth.findById(issue.storeId);
+    console.log("Store found:", store ? { email: store.email, storeName: store.storeName } : "No store found");
+
     // If approved and requestedAction is "credit", add credit to store's balance
     if ((status === 'approved' || status === 'partially_approved') && approvedAmount > 0 && issue.requestedAction === 'credit') {
-      const store = await Auth.findById(issue.storeId);
       if (store) {
         const balanceBefore = store.creditBalance || 0;
         const balanceAfter = balanceBefore + approvedAmount;
@@ -172,14 +179,67 @@ exports.resolveIssue = async (req, res) => {
 
         await store.save();
 
-        issue.resolution = `${resolution} Credit of $${approvedAmount.toFixed(2)} added to store balance.`;
+        issue.resolution = `${resolution} Credit of ${approvedAmount.toFixed(2)} added to store balance.`;
       }
     } else if (createCreditMemo && approvedAmount > 0) {
       // For non-credit actions (refund, replacement, etc.) with credit memo
-      issue.resolution = `${resolution} Credit memo for $${approvedAmount.toFixed(2)} will be applied.`;
+      issue.resolution = `${resolution} Credit memo for ${approvedAmount.toFixed(2)} will be applied.`;
     }
 
     await issue.save();
+
+    // Send email notification to store
+    if (store && store.email) {
+      console.log("Sending quality issue email to:", store.email, "Status:", status);
+      try {
+        const dashboardUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/store/quality-issues`;
+        
+        if (status === 'approved' || status === 'partially_approved') {
+          // Send approval email
+          console.log("Preparing approval email...");
+          const htmlContent = emailTemplates.QUALITY_ISSUE_APPROVED({
+            storeName: store.storeName || issue.storeName,
+            orderNumber: issue.orderNumber,
+            issueType: issue.issueType,
+            requestedAmount: issue.requestedAmount?.toFixed(2),
+            approvedAmount: approvedAmount?.toFixed(2),
+            resolution: issue.resolution,
+            requestedAction: issue.requestedAction,
+            dashboardUrl: dashboardUrl,
+          });
+
+          const emailResult = await mailSender(
+            store.email,
+            `✅ Quality Issue Approved - Order #${issue.orderNumber}`,
+            htmlContent
+          );
+          console.log(`Quality issue approval email sent to ${store.email}`, emailResult);
+        } else if (status === 'rejected') {
+          // Send rejection email
+          console.log("Preparing rejection email...");
+          const htmlContent = emailTemplates.QUALITY_ISSUE_REJECTED({
+            storeName: store.storeName || issue.storeName,
+            orderNumber: issue.orderNumber,
+            issueType: issue.issueType,
+            requestedAmount: issue.requestedAmount?.toFixed(2),
+            resolution: resolution,
+            dashboardUrl: dashboardUrl,
+          });
+
+          const emailResult = await mailSender(
+            store.email,
+            `❌ Quality Issue Update - Order #${issue.orderNumber}`,
+            htmlContent
+          );
+          console.log(`Quality issue rejection email sent to ${store.email}`, emailResult);
+        }
+      } catch (emailError) {
+        console.error("Failed to send quality issue email:", emailError);
+        // Don't fail the resolution if email fails
+      }
+    } else {
+      console.log("No store email found, skipping email notification");
+    }
 
     res.status(200).json({
       success: true,

@@ -566,6 +566,76 @@ const emailTemplates = {
       <p>Best regards,<br>The Vali Produce Team</p>
     </div>
   `, 'Price List Updated'),
+
+  /**
+   * Quality issue approved notification email
+   */
+  QUALITY_ISSUE_APPROVED: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #22c55e, #16a34a);">
+      <h1>✅ Quality Issue Approved</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'Valued Customer'}</strong>,</p>
+      
+      <div class="success-box">
+        <p>Your quality issue has been reviewed and approved!</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Order Number:</strong> ${data.orderNumber || 'N/A'}</p>
+        <p><strong>Issue Type:</strong> ${data.issueType || 'N/A'}</p>
+        <p><strong>Requested Amount:</strong> $${data.requestedAmount || '0.00'}</p>
+        <p><strong>Approved Amount:</strong> $${data.approvedAmount || '0.00'}</p>
+        <p><strong>Resolution:</strong> ${data.resolution || 'N/A'}</p>
+      </div>
+      
+      ${data.requestedAction === 'credit' ? `
+      <div class="success-box">
+        <p><strong>Credit Applied:</strong> $${data.approvedAmount || '0.00'} has been added to your store credit balance.</p>
+      </div>
+      ` : ''}
+      
+      <a href="${data.dashboardUrl || '#'}" class="button">View Details</a>
+      
+      <p>Thank you for bringing this to our attention.</p>
+      
+      <p>Best regards,<br>The Vali Produce Team</p>
+    </div>
+  `, 'Quality Issue Approved'),
+
+  /**
+   * Quality issue rejected notification email
+   */
+  QUALITY_ISSUE_REJECTED: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+      <h1>❌ Quality Issue Update</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.storeName || 'Valued Customer'}</strong>,</p>
+      
+      <div class="error-box">
+        <p>Your quality issue has been reviewed and could not be approved at this time.</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Order Number:</strong> ${data.orderNumber || 'N/A'}</p>
+        <p><strong>Issue Type:</strong> ${data.issueType || 'N/A'}</p>
+        <p><strong>Requested Amount:</strong> $${data.requestedAmount || '0.00'}</p>
+      </div>
+      
+      ${data.resolution ? `
+      <div class="warning-box">
+        <p><strong>Reason:</strong> ${data.resolution}</p>
+      </div>
+      ` : ''}
+      
+      <p>If you have any questions or would like to discuss this further, please contact us.</p>
+      
+      <a href="${data.dashboardUrl || '#'}" class="button">View Details</a>
+      
+      <p>Best regards,<br>The Vali Produce Team</p>
+    </div>
+  `, 'Quality Issue Update'),
 };
 
 module.exports = emailTemplates;

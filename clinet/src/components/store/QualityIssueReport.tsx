@@ -680,7 +680,7 @@ const QualityIssueReport: React.FC<QualityIssueReportProps> = ({ orders, onRefre
             <Button variant="outline" onClick={() => { resetForm(); setCreateModalOpen(false); }}>
               Cancel
             </Button>
-            <Button onClick={handleSubmitIssue} disabled={submitting || !issueType || !description || selectedItems.length === 0 || uploadedImages.length === 0}>
+            <Button onClick={handleSubmitIssue} >
               {submitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               Submit Issue
             </Button>
