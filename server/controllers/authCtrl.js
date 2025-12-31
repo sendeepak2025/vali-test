@@ -2779,7 +2779,130 @@ const resetPasswordCtrl = async (req, res) => {
   }
 };
 
+/**
+ * Admin creates a store directly (bypasses approval workflow)
+ * Sends welcome email to the store owner
+ */
+const adminCreateStoreCtrl = async (req, res) => {
+  try {
+    const {
+      email, phone, storeName, ownerName, address, city, state, zipCode, 
+      businessDescription, password, priceCategory = "aPrice",
+      legalBusinessName, businessType, taxId
+    } = req.body;
+    const adminId = req.user?.id;
 
+    // Validation
+    if (!email || !password || !storeName || !ownerName) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, password, store name, and owner name are required",
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await authModel.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "A user with this email already exists",
+      });
+    }
+
+    // Validate price category
+    const validCategories = ["aPrice", "bPrice", "cPrice", "restaurantPrice"];
+    if (!validCategories.includes(priceCategory)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid price category",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Prepare business info
+    const businessInfoData = {
+      legalBusinessName: legalBusinessName || storeName,
+      businessType,
+      taxId,
+    };
+
+    // Create store with approved status (admin-created stores are pre-approved)
+    const store = await authModel.create({
+      email,
+      phone,
+      storeName,
+      ownerName,
+      address,
+      city,
+      state,
+      zipCode,
+      businessDescription,
+      password: hashedPassword,
+      role: "store",
+      priceCategory,
+      businessInfo: businessInfoData,
+      approvalStatus: "approved",
+      approvedAt: new Date(),
+      approvedBy: adminId,
+      agreeTerms: true,
+    });
+
+    // Get category display name
+    const categoryNames = {
+      aPrice: "Category A",
+      bPrice: "Category B",
+      cPrice: "Category C",
+      restaurantPrice: "Restaurant"
+    };
+
+    // Send welcome email to the new store
+    try {
+      await notificationService.createNotificationWithEmail(
+        store._id,
+        store.email,
+        "store_created",
+        "Welcome to Vali Produce!",
+        `Your store ${storeName} has been created. You can now log in and start placing orders.`,
+        "STORE_CREATED",
+        {
+          ownerName,
+          storeName,
+          email,
+          priceCategory: categoryNames[priceCategory],
+          tempPassword: password, // Include temp password in email
+          loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/auth`,
+        },
+        { storeId: store._id, priceCategory },
+        "/dashboard"
+      );
+    } catch (notificationError) {
+      console.error("Error sending store creation email:", notificationError);
+      // Don't fail store creation if email fails
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Store created successfully",
+      store: {
+        _id: store._id,
+        storeName: store.storeName,
+        ownerName: store.ownerName,
+        email: store.email,
+        phone: store.phone,
+        priceCategory: store.priceCategory,
+        approvalStatus: store.approvalStatus,
+        createdAt: store.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating store:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error creating store",
+    });
+  }
+};
 
 
 module.exports = {
@@ -2822,6 +2945,8 @@ module.exports = {
   getPendingStoresCtrl,
   approveStoreCtrl,
   rejectStoreCtrl,
+  // Admin store creation
+  adminCreateStoreCtrl,
   // Password reset functions
   forgotPasswordCtrl,
   verifyResetTokenCtrl,

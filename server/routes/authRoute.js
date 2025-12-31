@@ -1,5 +1,5 @@
 const express = require("express")
-const { registerCtrl, loginCtrl, verifyLoginOtpCtrl, resendLoginOtpCtrl, sendStoreOrderOtpCtrl, verifyStoreOrderOtpCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, getPaginatedPaymentStoresCtrl, getStoreOrdersPaginatedCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, getAllStorePaymentsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
+const { registerCtrl, loginCtrl, verifyLoginOtpCtrl, resendLoginOtpCtrl, sendStoreOrderOtpCtrl, verifyStoreOrderOtpCtrl, updatePermitionCtrl, addMemberCtrl, getAllMemberCtrl, updateStoreCtrl, getAllStoreCtrl, getUserByEmailCtrl, fetchMyProfile, changePasswordCtrl, deleteStoreIfNoOrders, addChequeToStoreCtrl, editChequeCtrl, getChequesByStoreCtrl, deleteChequeCtrl, updateChequeStatusCtrl, getAllChequesCtrl, getStoreAnalyticsCtrl, getAllStoresAnalyticsCtrl, getPaginatedPaymentStoresCtrl, getStoreOrdersPaginatedCtrl, addCommunicationLogCtrl, getCommunicationLogsCtrl, addPaymentRecordCtrl, getPaymentRecordsCtrl, getAllStorePaymentsCtrl, sendPaymentReminderCtrl, sendStatementEmailCtrl, getStatementDataCtrl, getPendingStoresCtrl, approveStoreCtrl, rejectStoreCtrl, adminCreateStoreCtrl, forgotPasswordCtrl, verifyResetTokenCtrl, resetPasswordCtrl } = require("../controllers/authCtrl")
 const { auth, isAdmin } = require("../middleware/auth")
 const router = express.Router()
 
@@ -54,6 +54,7 @@ router.get("/store/:id/statement", getStatementDataCtrl)
 router.get("/pending-stores", auth, isAdmin, getPendingStoresCtrl)
 router.post("/approve/:id", auth, isAdmin, approveStoreCtrl)
 router.post("/reject/:id", auth, isAdmin, rejectStoreCtrl)
+router.post("/admin/create-store", auth, isAdmin, adminCreateStoreCtrl)
 
 
 module.exports = router

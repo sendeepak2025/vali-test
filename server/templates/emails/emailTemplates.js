@@ -424,6 +424,86 @@ const emailTemplates = {
       </div>
     </div>
   `, 'Order Verification Code'),
+
+  /**
+   * Admin alert for new store registration
+   */
+  REGISTRATION_ADMIN_ALERT: (data) => baseTemplate(`
+    <div class="header" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+      <h1>🏪 New Store Registration</h1>
+    </div>
+    <div class="content">
+      <p>A new store has registered and requires approval.</p>
+      
+      <div class="warning-box">
+        <p><strong>Action Required:</strong> Please review and approve/reject this registration.</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Registration Reference:</strong> ${data.registrationRef || 'N/A'}</p>
+        <p><strong>Store Name:</strong> ${data.storeName}</p>
+        <p><strong>Owner Name:</strong> ${data.ownerName}</p>
+        <p><strong>Email:</strong> ${data.email}</p>
+        <p><strong>Phone:</strong> ${data.phone || 'N/A'}</p>
+      </div>
+      
+      <h3 style="margin-top: 20px; color: #374151;">Business Address</h3>
+      <div class="info-box">
+        <p><strong>Address:</strong> ${data.address || 'N/A'}</p>
+        <p><strong>City:</strong> ${data.city || 'N/A'}</p>
+        <p><strong>State:</strong> ${data.state || 'N/A'}</p>
+        <p><strong>Zip Code:</strong> ${data.zipCode || 'N/A'}</p>
+      </div>
+      
+      ${data.businessDescription ? `
+      <h3 style="margin-top: 20px; color: #374151;">Business Description</h3>
+      <div class="info-box">
+        <p>${data.businessDescription}</p>
+      </div>
+      ` : ''}
+      
+      <a href="${data.dashboardUrl || '#'}" class="button">Review Registration</a>
+      
+      <p style="margin-top: 20px; color: #666; font-size: 14px;">Please review this registration at your earliest convenience.</p>
+    </div>
+  `, 'New Store Registration'),
+
+  /**
+   * Store created by admin - welcome email
+   */
+  STORE_CREATED: (data) => baseTemplate(`
+    <div class="header">
+      <h1>🎉 Welcome to Vali Produce!</h1>
+    </div>
+    <div class="content">
+      <p>Dear <strong>${data.ownerName || 'Store Owner'}</strong>,</p>
+      
+      <div class="success-box">
+        <p>Your store <strong>${data.storeName}</strong> has been created and is ready to use!</p>
+      </div>
+      
+      <div class="info-box">
+        <p><strong>Store Name:</strong> ${data.storeName}</p>
+        <p><strong>Email:</strong> ${data.email}</p>
+        <p><strong>Price Category:</strong> ${data.priceCategory || 'Standard'}</p>
+      </div>
+      
+      <p>You can now log in to your account and start placing orders.</p>
+      
+      ${data.tempPassword ? `
+      <div class="warning-box">
+        <p><strong>Your temporary password:</strong> ${data.tempPassword}</p>
+        <p>Please change your password after your first login.</p>
+      </div>
+      ` : ''}
+      
+      <a href="${data.loginUrl || '#'}" class="button">Login to Your Account</a>
+      
+      <p>If you have any questions, please don't hesitate to contact us.</p>
+      
+      <p>Welcome aboard!<br>The Vali Produce Team</p>
+    </div>
+  `, 'Welcome to Vali Produce'),
 };
 
 module.exports = emailTemplates;
