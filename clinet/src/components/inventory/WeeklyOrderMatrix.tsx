@@ -554,6 +554,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           
           setChangedCells(prev => new Set(prev).add(cellKey));
           toast.success("PreOrder updated", { autoClose: 1000 });
+          
+          // Auto-refresh after update
+          setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
         }
       } else {
         // ORDER Mode - Create/Update Order
@@ -617,10 +620,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           setChangedCells(prev => new Set(prev).add(cellKey));
           toast.success(response.preOrderHandled ? "PreOrder converted!" : "Updated", { autoClose: 1000 });
           
-          // Auto-refresh after every 5 updates to ensure data accuracy
-          if (changedCells.size > 0 && (changedCells.size + 1) % 5 === 0) {
-            setTimeout(() => fetchMatrixData(currentPage, searchTerm), 1000);
-          }
+          // Auto-refresh after update
+          setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
         }
       }
     } catch (error) {
@@ -690,6 +691,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         }
         
         toast.success("Incoming stock updated", { autoClose: 1000 });
+        
+        // Auto-refresh after update
+        setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
       }
     } catch (error) {
       console.error("Error updating incoming stock:", error);

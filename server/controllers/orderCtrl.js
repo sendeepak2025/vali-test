@@ -3163,8 +3163,6 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
     // Group incoming stock by product
     const incomingByProduct = {};
-    let hasUnlinkedIncoming = false;
-    const unlinkedIncomingItems = [];
 
     incomingStockData.forEach(item => {
       const productId = item.product?.toString();
@@ -3190,12 +3188,6 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
       if (item.status === "draft") {
         incomingByProduct[productId].allLinked = false;
-        hasUnlinkedIncoming = true;
-        unlinkedIncomingItems.push({
-          _id: item._id,
-          productId: productId,
-          quantity: item.quantity
-        });
       }
     });
 
@@ -3414,6 +3406,27 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
     // Convert to array format
     const matrixArray = Object.values(matrixData);
+
+    // Calculate hasUnlinkedIncoming ONLY for products in current page
+    let hasUnlinkedIncoming = false;
+    const unlinkedIncomingItems = [];
+    
+    matrixArray.forEach(row => {
+      // Only check products that have incoming stock > 0 and are not all linked
+      if (row.incomingStock > 0 && row.incomingAllLinked === false) {
+        hasUnlinkedIncoming = true;
+        // Get draft items from incomingItems
+        const draftItems = (row.incomingItems || []).filter(i => i.status === "draft");
+        draftItems.forEach(item => {
+          unlinkedIncomingItems.push({
+            _id: item._id,
+            productId: row.productId,
+            productName: row.productName,
+            quantity: item.quantity
+          });
+        });
+      }
+    });
 
     // Check if confirm is allowed
     const canConfirm = !hasUnlinkedIncoming;
