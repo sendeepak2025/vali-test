@@ -17,6 +17,57 @@ const notificationService = require("../services/notificationService");
 // High-value order threshold for admin alerts (configurable)
 const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
+// ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
+// const BASE_STOCK_DATE = new Date("2026-01-01T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2025-08-01T00:00:00.000Z");
+
+// ✅ Helper: Sum array by field
+const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
+
+// ✅ Helper: Filter array by date range
+const filterByDate = (arr, from, to) => {
+  if (!arr || arr.length === 0) return [];
+  return arr.filter(item => {
+    const d = new Date(item.date);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+};
+
+// ✅ Calculate ACTUAL STOCK (01-01-2026 se ab tak)
+const calculateActualStock = (product) => {
+  const now = new Date();
+  
+  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, now);
+  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, now);
+  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, now);
+  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, now);
+  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, now);
+
+  const trashBox = stockTrash.filter(t => t.type === "box").reduce((s, t) => s + (t.quantity || 0), 0);
+  const trashUnit = stockTrash.filter(t => t.type === "unit").reduce((s, t) => s + (t.quantity || 0), 0);
+
+  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+  const stockSellTotal = sumBy(stockSell, "quantity");
+  const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
+  const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
+
+  const carryForwardBox = product?.carryForwardBox || 0;
+  const carryForwardUnit = product?.carryForwardUnit || 0;
+
+  const totalRemaining = Math.max(
+    carryForwardBox + stockPurchaseTotal - stockSellTotal - trashBox + (product?.manuallyAddBox?.quantity || 0),
+    0
+  );
+  const unitRemaining = Math.max(
+    carryForwardUnit + stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
+    0
+  );
+
+  return { totalRemaining, unitRemaining, trashBox, trashUnit };
+};
+
 /**
  * Get the correct price for a product based on store's price category
  * @param {Object} product - Product document
@@ -153,30 +204,7 @@ const createOrderCtrl = async (req, res) => {
 
 
 
-// --- STEP 1: Check stock for all items using overall remaining ---
-const now = new Date();
-const day = now.getUTCDay(); // 0 (Sun) - 6 (Sat)
-
-// Monday and Sunday of current week (UTC)
-const monday = new Date(Date.UTC(
-  now.getUTCFullYear(),
-  now.getUTCMonth(),
-  now.getUTCDate() - ((day + 6) % 7),
-  0, 0, 0, 0
-));
-const sunday = new Date(Date.UTC(
-  monday.getUTCFullYear(),
-  monday.getUTCMonth(),
-  monday.getUTCDate() + 6,
-  23, 59, 59, 999
-));
-
-// UTC-safe range check
-const isWithinRange = (date) => {
-  const d = new Date(date);
-  return d >= monday && d <= sunday;
-};
-
+// --- STEP 1: Check stock using ACTUAL STOCK (01-01-2026 se ab tak) ---
 let insufficientStock = [];
 
 for (const item of items) {
@@ -189,31 +217,8 @@ for (const item of items) {
     continue;
   }
 
-  // --- Filter purchase/sell/trash based on current UTC week ---
-  const filteredPurchase = (product?.purchaseHistory || []).filter(p => isWithinRange(p.date));
-  const filteredSell = (product?.salesHistory || []).filter(s => isWithinRange(s.date));
-  const filteredUnitPurchase = (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date));
-  const filteredUnitSell = (product?.lbSellHistory || []).filter(s => isWithinRange(s.date));
-  const filteredTrash = (product?.quantityTrash || []).filter(t => isWithinRange(t.date));
-
-  // --- Calculate totals ---
-  const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-  const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-  const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-  const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
-
-  const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
-  const trashUnit = filteredTrash.filter(t => t.type === "unit").reduce((sum, t) => sum + t.quantity, 0);
-
-  // --- Weekly remaining stock (same as getAllProductsWithHistorySummary) ---
-  const totalRemaining = Math.max(
-    totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-    0
-  );
-  const unitRemaining = Math.max(
-    unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-    0
-  );
+  // ✅ Use same calculateActualStock function for consistent calculation
+  const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
   // --- Check if requested quantity exceeds remaining ---
   if ((pricingType === "box" && quantity > totalRemaining) || (pricingType === "unit" && quantity > unitRemaining)) {
@@ -223,7 +228,7 @@ for (const item of items) {
       available: pricingType === "box" ? totalRemaining : unitRemaining,
       requested: quantity,
       type: pricingType,
-      weekRange: `${monday.toISOString().split("T")[0]} to ${sunday.toISOString().split("T")[0]}`
+      stockBase: BASE_STOCK_DATE.toISOString().split("T")[0]
     });
   }
 
@@ -3350,11 +3355,8 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       });
     });
 
-    // Calculate stock for each product (week-wise based on TARGET week)
-    const isWithinRange = (date) => {
-      const d = new Date(date);
-      return d >= monday && d <= sunday;
-    };
+    // Calculate stock for each product using BASE_STOCK_DATE (01-01-2026 to now)
+    // Stock is ALWAYS calculated from BASE_STOCK_DATE - not weekly
 
     // Track shortage summary
     let totalShortProducts = 0;
@@ -3364,18 +3366,9 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       const product = products.find(p => p._id.toString() === productId);
       if (!product) continue;
 
-      const filteredPurchase = (product.purchaseHistory || []).filter(p => isWithinRange(p.date));
-      const filteredSell = (product.salesHistory || []).filter(s => isWithinRange(s.date));
-      const filteredTrash = (product.quantityTrash || []).filter(t => isWithinRange(t.date));
-
-      const totalPurchase = filteredPurchase.reduce((sum, p) => sum + (p.quantity || 0), 0);
-      const totalSell = filteredSell.reduce((sum, s) => sum + (s.quantity || 0), 0);
-      const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + (t.quantity || 0), 0);
-      const manuallyAddBox = product.manuallyAddBox?.quantity || 0;
-
-      // Calculate stock from week-filtered purchase/sales history
-      // STK = Purchase - Sales - Trash + ManuallyAdded
-      const currentStock = totalPurchase - totalSell - trashBox + manuallyAddBox;
+      // ✅ Use same calculateActualStock function for consistent calculation
+      const actualStock = calculateActualStock(product);
+      const currentStock = actualStock.totalRemaining;
       
       // Get incoming stock for this product
       const incomingStock = matrixData[productId].incomingStock || 0;
@@ -3388,10 +3381,11 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       const isShort = finalStock < 0;
 
       matrixData[productId].totalStock = currentStock;
-      matrixData[productId].totalPurchase = totalPurchase;
+      matrixData[productId].totalPurchase = actualStock.totalRemaining + actualStock.trashBox; // Approximate
       matrixData[productId].finalStock = finalStock;
       matrixData[productId].isShort = isShort;
       matrixData[productId].shortageQty = isShort ? Math.abs(finalStock) : 0;
+      matrixData[productId].stockCalculationBase = BASE_STOCK_DATE.toISOString().split('T')[0];
 
       if (isShort) {
         totalShortProducts++;

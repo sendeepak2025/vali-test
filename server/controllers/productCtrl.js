@@ -1194,6 +1194,93 @@ const resetAndRebuildHistoryForAllProducts = async (
   };
 };
 
+// ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
+const BASE_STOCK_DATE = new Date("2025-08-01T00:00:00.000Z");
+
+// ✅ Helper: Sum array by field (reduce shortcut)
+const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
+
+// ✅ Helper: Filter array by date range
+const filterByDate = (arr, from, to) => {
+  if (!arr || arr.length === 0) return [];
+  return arr.filter(item => {
+    const d = new Date(item.date);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+};
+
+// ✅ Calculate ACTUAL STOCK (01-01-2026 se ab tak - system truth)
+const calculateActualStock = (product) => {
+  const now = new Date();
+  
+  // Stock data - hamesha BASE_STOCK_DATE se ab tak
+  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, now);
+  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, now);
+  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, now);
+  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, now);
+  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, now);
+
+  // Trash calculations
+  const trashBox = stockTrash.filter(t => t.type === "box").reduce((s, t) => s + (t.quantity || 0), 0);
+  const trashUnit = stockTrash.filter(t => t.type === "unit").reduce((s, t) => s + (t.quantity || 0), 0);
+
+  // Totals
+  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+  const stockSellTotal = sumBy(stockSell, "quantity");
+  const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
+  const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
+
+  // Carry forward (agar hai to)
+  const carryForwardBox = product?.carryForwardBox || 0;
+  const carryForwardUnit = product?.carryForwardUnit || 0;
+
+  // FINAL FORMULA: carryForward + purchase - sell - trash + manuallyAdded
+  const totalRemaining = Math.max(
+    carryForwardBox + stockPurchaseTotal - stockSellTotal - trashBox + (product?.manuallyAddBox?.quantity || 0),
+    0
+  );
+  const unitRemaining = Math.max(
+    carryForwardUnit + stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
+    0
+  );
+
+  return {
+    totalRemaining,
+    unitRemaining,
+    trashBox,
+    trashUnit
+  };
+};
+
+// ✅ Calculate REPORT DATA (user ke date filter ke hisaab se - sirf dikhane ke liye)
+const calculateReportData = (product, reportFrom, reportTo) => {
+  // Report data - user ke selected date range se
+  const reportPurchase = reportFrom || reportTo
+    ? filterByDate(product?.purchaseHistory || [], reportFrom, reportTo)
+    : product?.purchaseHistory || [];
+  
+  const reportSell = reportFrom || reportTo
+    ? filterByDate(product?.salesHistory || [], reportFrom, reportTo)
+    : product?.salesHistory || [];
+  
+  const reportUnitPurchase = reportFrom || reportTo
+    ? filterByDate(product?.lbPurchaseHistory || [], reportFrom, reportTo)
+    : product?.lbPurchaseHistory || [];
+  
+  const reportUnitSell = reportFrom || reportTo
+    ? filterByDate(product?.lbSellHistory || [], reportFrom, reportTo)
+    : product?.lbSellHistory || [];
+
+  return {
+    totalPurchase: sumBy(reportPurchase, "quantity"),
+    totalSell: sumBy(reportSell, "quantity"),
+    unitPurchase: sumBy(reportUnitPurchase, "weight"),
+    unitSell: sumBy(reportUnitSell, "weight")
+  };
+};
+
 const getAllProductsWithHistorySummary = async (req, res) => {
   try {
     const {
@@ -1203,9 +1290,9 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       limit = 20,
       search = '',
       categoryId = '',
-      sortBy = 'updatedAt', // Default sort
+      sortBy = 'updatedAt',
       sortOrder = 'desc',
-      stockLevel = 'all', // "low", "out", "high", "all"
+      stockLevel = 'all',
       hard = false
     } = req.query;
 
@@ -1214,22 +1301,13 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       await resetAndRebuildHistoryForAllProducts();
     }
 
-    // ✅ Prepare date filters (UTC-safe)
-    const fromDate = startDate ? new Date(`${startDate}T00:00:00.000Z`) : null;
-    const toDate = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
-
-    // ✅ Range check function
-    const isWithinRange = (date) => {
-      const d = new Date(date);
-      if (fromDate && d < fromDate) return false;
-      if (toDate && d > toDate) return false;
-      return true;
-    };
+    // ✅ Report date range (user ke filter ke liye - stock pe effect nahi)
+    const reportFrom = startDate ? new Date(`${startDate}T00:00:00.000Z`) : null;
+    const reportTo = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
 
     // ✅ Build DB filter
     const filter = {};
     if (search) {
-      // Search by name OR shortCode
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
         { shortCode: { $regex: `^${search}`, $options: "i" } }
@@ -1239,78 +1317,49 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       filter.category = categoryId;
     }
 
+    // ✅ Get total count for pagination
+    const totalCount = await Product.countDocuments(filter);
+
     // ✅ Pagination setup
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    // ✅ Fetch products
- let products = await Product.find(filter)
-      .populate("category", "categoryName") // populate only categoryName
+    // ✅ Fetch products with DB-level pagination (OPTIMIZED)
+    const products = await Product.find(filter)
+      .populate("category", "categoryName")
+      .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
+      .skip(skip)
+      .limit(limitNum)
       .lean();
-    // ✅ Add summary for each product
+
+    // ✅ Calculate summary for each product
     let productsWithSummary = products.map(product => {
-      const hasDateFilter = fromDate || toDate;
-
-      // ✅ Filter histories based on date
-      const filteredPurchase = hasDateFilter
-        ? (product?.purchaseHistory || []).filter(p => isWithinRange(p.date))
-        : (product?.purchaseHistory || []);
-
-      const filteredSell = hasDateFilter
-        ? (product?.salesHistory || []).filter(s => isWithinRange(s.date))
-        : (product?.salesHistory || []);
-
-      const filteredUnitPurchase = hasDateFilter
-        ? (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date))
-        : (product?.lbPurchaseHistory || []);
-
-      const filteredUnitSell = hasDateFilter
-        ? (product?.lbSellHistory || []).filter(s => isWithinRange(s.date))
-        : (product?.lbSellHistory || []);
-
-      const filteredTrash = hasDateFilter
-        ? (product?.quantityTrash || []).filter(t => isWithinRange(t.date))
-        : (product?.quantityTrash || []);
-
-      // ✅ Trash calculations
-      const trashBox = filteredTrash
-        .filter(t => t.type === "box")
-        .reduce((sum, t) => sum + t.quantity, 0);
-
-      const trashUnit = filteredTrash
-        .filter(t => t.type === "unit")
-        .reduce((sum, t) => sum + t.quantity, 0);
-
-      // ✅ Totals
-      const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-      const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-      const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-      const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
-
-      const totalRemaining = Math.max(
-        totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-        0
-      );
-
-      const unitRemaining = Math.max(
-        unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-        0
-      );
+      // 🔴 ACTUAL STOCK - hamesha 01-01-2026 se ab tak (system truth)
+      const actualStock = calculateActualStock(product);
+      
+      // 🔵 REPORT DATA - user ke date filter se (sirf dikhane ke liye)
+      const reportData = calculateReportData(product, reportFrom, reportTo);
 
       return {
         ...product,
-        categoryName: product?.category?.categoryName || "", 
+        categoryName: product?.category?.categoryName || "",
         summary: {
-          totalPurchase,
-          totalSell,
-          totalRemaining,
-          unitPurchase,
-          unitSell,
-          unitRemaining,
-        },
+          // Report data (filtered by user's date range)
+          totalPurchase: reportData.totalPurchase,
+          totalSell: reportData.totalSell,
+          unitPurchase: reportData.unitPurchase,
+          unitSell: reportData.unitSell,
+          // Actual stock (always from BASE_STOCK_DATE to now)
+          totalRemaining: actualStock.totalRemaining,
+          unitRemaining: actualStock.unitRemaining,
+          trashBox: actualStock.trashBox,
+          trashUnit: actualStock.trashUnit
+        }
       };
     });
 
-    // ✅ Stock filter
+    // ✅ Stock filter (post-query filter - only if needed)
     if (stockLevel !== "all") {
       productsWithSummary = productsWithSummary.filter(p => {
         const remaining = p.summary?.totalRemaining || 0;
@@ -1321,37 +1370,19 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       });
     }
 
-    // ✅ Sorting
-    const sortedProducts = productsWithSummary.sort((a, b) => {
-      const fieldA = a[sortBy] || a.summary?.[sortBy];
-      const fieldB = b[sortBy] || b.summary?.[sortBy];
-
-      if (typeof fieldA === "string" && typeof fieldB === "string") {
-        return sortOrder === "asc"
-          ? fieldA.localeCompare(fieldB)
-          : fieldB.localeCompare(fieldA);
-      } else {
-        return sortOrder === "asc"
-          ? (fieldA || 0) - (fieldB || 0)
-          : (fieldB || 0) - (fieldA || 0);
-      }
-    });
-
-    // ✅ Total count after filtering
-    const total = sortedProducts.length;
-
-    // ✅ Pagination
-    const paginated = sortedProducts.slice(skip, skip + parseInt(limit));
-
     // ✅ Final response
     res.status(200).json({
       success: true,
-      data: paginated,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-      appliedDateFilter: { startDate, endDate },
+      data: productsWithSummary,
+      total: totalCount,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount / limitNum),
+      appliedDateFilter: { 
+        startDate: startDate || null, 
+        endDate: endDate || null 
+      },
+      stockCalculationBase: BASE_STOCK_DATE.toISOString().split('T')[0]
     });
 
   } catch (error) {
@@ -1359,8 +1390,6 @@ const getAllProductsWithHistorySummary = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
-
-
 
 
 
