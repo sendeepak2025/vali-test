@@ -144,16 +144,20 @@ const PriceListEnhanced = () => {
   const [excelColumns, setExcelColumns] = useState<string[]>([])
   const [columnMapping, setColumnMapping] = useState<{
     productName: string;
+    shortCode: string;
     price: string;
     aPrice: string;
     bPrice: string;
     cPrice: string;
+    restaurantPrice: string;
   }>({
     productName: "",
+    shortCode: "",
     price: "",
     aPrice: "",
     bPrice: "",
-    cPrice: ""
+    cPrice: "",
+    restaurantPrice: ""
   })
   const [matchedProducts, setMatchedProducts] = useState<any[]>([])
   const [uploadStep, setUploadStep] = useState<"upload" | "mapping" | "preview">("upload")
@@ -578,22 +582,38 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
           return obj
         }))
 
-        // Auto-detect column mapping
+        // Auto-detect column mapping - improved regex patterns
         const autoMapping = {
           productName: headers.find(h => 
-            /product|name|item|description/i.test(h)
+            /^product\s*name$|^name$|^item\s*name$|^description$|^product$/i.test(h)
+          ) || headers.find(h => 
+            /product|name|item/i.test(h)
+          ) || "",
+          shortCode: headers.find(h => 
+            /^short\s*code$|^code$|^sku$|^product\s*code$|^item\s*code$/i.test(h)
           ) || "",
           price: headers.find(h => 
-            /^price$|base.*price|price.*box|cost/i.test(h)
+            /^base\s*price$|^price$|^new\s*base\s*price$|price\s*per\s*box|^cost$/i.test(h)
+          ) || headers.find(h => 
+            /base.*price|new.*price|price/i.test(h) && !/a\s*price|b\s*price|c\s*price|restaurant/i.test(h)
           ) || "",
           aPrice: headers.find(h => 
+            /^a\s*price$|^new\s*a\s*price$|^tier\s*a$|^price\s*a$/i.test(h)
+          ) || headers.find(h => 
             /a.*price|price.*a|tier.*a/i.test(h)
           ) || "",
           bPrice: headers.find(h => 
+            /^b\s*price$|^new\s*b\s*price$|^tier\s*b$|^price\s*b$/i.test(h)
+          ) || headers.find(h => 
             /b.*price|price.*b|tier.*b/i.test(h)
           ) || "",
           cPrice: headers.find(h => 
+            /^c\s*price$|^new\s*c\s*price$|^tier\s*c$|^price\s*c$/i.test(h)
+          ) || headers.find(h => 
             /c.*price|price.*c|tier.*c/i.test(h)
+          ) || "",
+          restaurantPrice: headers.find(h => 
+            /restaurant|resto|new\s*restaurant/i.test(h)
           ) || ""
         }
         setColumnMapping(autoMapping)
@@ -608,10 +628,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     reader.readAsBinaryString(file)
   }
 
-  // Match Excel data with existing products
+  // Match Excel data with existing products - improved matching
   const matchExcelToProducts = () => {
-    if (!columnMapping.productName) {
-      toast({ variant: "destructive", title: "Error", description: "Please select the Product Name column" })
+    if (!columnMapping.productName && !columnMapping.shortCode) {
+      toast({ variant: "destructive", title: "Error", description: "Please select at least Product Name or Short Code column" })
       return
     }
 
@@ -620,30 +640,78 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
     excelData.forEach((row) => {
       const excelName = String(row[columnMapping.productName] || "").toLowerCase().trim()
-      if (!excelName) return
+      const excelShortCode = columnMapping.shortCode ? String(row[columnMapping.shortCode] || "").trim() : ""
+      
+      if (!excelName && !excelShortCode) return
 
-      // Find matching product using fuzzy matching
-      const matchedProduct = allProducts.find((p: any) => {
-        const productName = (p.name || p.productName || "").toLowerCase().trim()
-        // Exact match
-        if (productName === excelName) return true
-        // Contains match
-        if (productName.includes(excelName) || excelName.includes(productName)) return true
-        // Word match (at least 2 words match)
-        const excelWords = excelName.split(/\s+/)
-        const productWords = productName.split(/\s+/)
-        const matchingWords = excelWords.filter(w => productWords.some(pw => pw.includes(w) || w.includes(pw)))
-        return matchingWords.length >= 2 || (matchingWords.length === 1 && excelWords.length === 1)
-      })
+      // Find matching product - priority: shortCode > exact name > fuzzy name
+      let matchedProduct = null
+      
+      // 1. Try matching by short code first (most accurate)
+      if (excelShortCode) {
+        matchedProduct = allProducts.find((p: any) => {
+          const productCode = String(p.shortCode || "").trim()
+          return productCode && productCode === excelShortCode
+        })
+      }
+      
+      // 2. If no shortCode match, try exact name match
+      if (!matchedProduct && excelName) {
+        matchedProduct = allProducts.find((p: any) => {
+          const productName = (p.name || p.productName || "").toLowerCase().trim()
+          return productName === excelName
+        })
+      }
+      
+      // 3. If still no match, try fuzzy name matching
+      if (!matchedProduct && excelName) {
+        matchedProduct = allProducts.find((p: any) => {
+          const productName = (p.name || p.productName || "").toLowerCase().trim()
+          
+          // Contains match (one contains the other)
+          if (productName.includes(excelName) || excelName.includes(productName)) return true
+          
+          // Word match - at least 2 significant words match
+          const excelWords = excelName.split(/\s+/).filter(w => w.length > 2)
+          const productWords = productName.split(/\s+/).filter(w => w.length > 2)
+          const matchingWords = excelWords.filter(w => 
+            productWords.some(pw => pw.includes(w) || w.includes(pw))
+          )
+          
+          // Match if 2+ words match, or 1 word matches for single-word names
+          return matchingWords.length >= 2 || 
+                 (matchingWords.length === 1 && excelWords.length === 1)
+        })
+      }
+
+      // Parse prices from Excel
+      const basePrice = columnMapping.price ? parseFloat(row[columnMapping.price]) || null : null
+      const aPrice = columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || null : null
+      const bPrice = columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || null : null
+      const cPrice = columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || null : null
+      const restaurantPrice = columnMapping.restaurantPrice ? parseFloat(row[columnMapping.restaurantPrice]) || null : null
+
+      // Skip products with base price = 0 (remove them from list)
+      if (basePrice === 0) return
+
+      // Use base price as default for all tiers if tier price is 0 or not provided
+      const effectiveBasePrice = basePrice
+      const effectiveAPrice = (aPrice !== null && aPrice > 0) ? aPrice : effectiveBasePrice
+      const effectiveBPrice = (bPrice !== null && bPrice > 0) ? bPrice : effectiveBasePrice
+      const effectiveCPrice = (cPrice !== null && cPrice > 0) ? cPrice : effectiveBasePrice
+      const effectiveRestaurantPrice = (restaurantPrice !== null && restaurantPrice > 0) ? restaurantPrice : effectiveBasePrice
 
       matched.push({
-        excelName: row[columnMapping.productName],
-        excelPrice: columnMapping.price ? parseFloat(row[columnMapping.price]) || 0 : null,
-        excelAPrice: columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || 0 : null,
-        excelBPrice: columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || 0 : null,
-        excelCPrice: columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || 0 : null,
+        excelName: row[columnMapping.productName] || "",
+        excelShortCode: excelShortCode,
+        excelPrice: effectiveBasePrice,
+        excelAPrice: effectiveAPrice,
+        excelBPrice: effectiveBPrice,
+        excelCPrice: effectiveCPrice,
+        excelRestaurantPrice: effectiveRestaurantPrice,
         matchedProduct: matchedProduct || null,
-        isMatched: !!matchedProduct
+        isMatched: !!matchedProduct,
+        matchType: matchedProduct ? (excelShortCode && matchedProduct.shortCode === excelShortCode ? "code" : "name") : null
       })
     })
 
@@ -671,29 +739,43 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       setFormData(prev => ({
         ...prev,
         products: prev.products.map(p => {
-          const match = updates.find(u => u.matchedProduct.id === p.id)
+          const match = updates.find(u => (u.matchedProduct.id || u.matchedProduct._id) === (p.id || p._id))
           if (match) {
+            // Get base price - use excel price or keep existing
+            const basePrice = (match.excelPrice !== null && match.excelPrice > 0) ? match.excelPrice : p.pricePerBox
+            
             return {
               ...p,
-              // Only update if new price exists and is not null/empty, otherwise keep old
-              pricePerBox: (match.excelPrice !== null && match.excelPrice !== 0) ? match.excelPrice : p.pricePerBox,
-              aPrice: (match.excelAPrice !== null && match.excelAPrice !== 0) ? match.excelAPrice : p.aPrice,
-              bPrice: (match.excelBPrice !== null && match.excelBPrice !== 0) ? match.excelBPrice : p.bPrice,
-              cPrice: (match.excelCPrice !== null && match.excelCPrice !== 0) ? match.excelCPrice : p.cPrice,
+              // Base price
+              pricePerBox: basePrice,
+              // Other tiers - use excel value if provided, otherwise use base price as default
+              aPrice: (match.excelAPrice !== null && match.excelAPrice > 0) ? match.excelAPrice : basePrice,
+              bPrice: (match.excelBPrice !== null && match.excelBPrice > 0) ? match.excelBPrice : basePrice,
+              cPrice: (match.excelCPrice !== null && match.excelCPrice > 0) ? match.excelCPrice : basePrice,
+              restaurantPrice: (match.excelRestaurantPrice !== null && match.excelRestaurantPrice > 0) ? match.excelRestaurantPrice : basePrice,
             }
           }
           return p
         })
       }))
     } else {
-      // Add matched products to form
-      const productsToAdd = updates.map(u => ({
-        ...u.matchedProduct,
-        pricePerBox: (u.excelPrice !== null && u.excelPrice !== 0) ? u.excelPrice : u.matchedProduct.pricePerBox,
-        aPrice: (u.excelAPrice !== null && u.excelAPrice !== 0) ? u.excelAPrice : u.matchedProduct.aPrice,
-        bPrice: (u.excelBPrice !== null && u.excelBPrice !== 0) ? u.excelBPrice : u.matchedProduct.bPrice,
-        cPrice: (u.excelCPrice !== null && u.excelCPrice !== 0) ? u.excelCPrice : u.matchedProduct.cPrice,
-      }))
+      // Add matched products to form - filter out products with base price 0
+      const productsToAdd = updates
+        .filter(u => {
+          const basePrice = (u.excelPrice !== null && u.excelPrice > 0) ? u.excelPrice : u.matchedProduct.pricePerBox
+          return basePrice > 0 // Only add products with valid base price
+        })
+        .map(u => {
+          const basePrice = (u.excelPrice !== null && u.excelPrice > 0) ? u.excelPrice : u.matchedProduct.pricePerBox
+          return {
+            ...u.matchedProduct,
+            pricePerBox: basePrice,
+            aPrice: (u.excelAPrice !== null && u.excelAPrice > 0) ? u.excelAPrice : basePrice,
+            bPrice: (u.excelBPrice !== null && u.excelBPrice > 0) ? u.excelBPrice : basePrice,
+            cPrice: (u.excelCPrice !== null && u.excelCPrice > 0) ? u.excelCPrice : basePrice,
+            restaurantPrice: (u.excelRestaurantPrice !== null && u.excelRestaurantPrice > 0) ? u.excelRestaurantPrice : basePrice,
+          }
+        })
       setFormData(prev => ({ ...prev, products: productsToAdd }))
     }
 
@@ -818,7 +900,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setExcelModalOpen(false)
     setExcelData([])
     setExcelColumns([])
-    setColumnMapping({ productName: "", price: "", aPrice: "", bPrice: "", cPrice: "" })
+    setColumnMapping({ productName: "", shortCode: "", price: "", aPrice: "", bPrice: "", cPrice: "", restaurantPrice: "" })
     setMatchedProducts([])
     setUploadStep("upload")
     setExcelCategoryFilter("all")
@@ -826,21 +908,144 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setSelectedExcelRows([])
   }
 
-  // Download sample Excel template
+  // Download sample Excel template - with actual products
   const downloadSampleExcel = () => {
-    const sampleData = [
-      ["Product Name", "Price", "A Price", "B Price", "C Price"],
-      ["Tomatoes Roma", 25.99, 24.99, 23.99, 22.99],
-      ["Onions Yellow", 18.50, 17.50, 16.50, 15.50],
-      ["Peppers Green", 32.00, 31.00, 30.00, 29.00],
+    // Use actual products if available, otherwise use sample data
+    const productsToExport = products.length > 0 ? products.slice(0, 50) : []
+    
+    if (productsToExport.length > 0) {
+      // Export actual products with current prices
+      // If A/B/C/Restaurant price is 0, use Base Price as default
+      const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"]
+      const rows = productsToExport.map((p: any) => {
+        const basePrice = p.pricePerBox || 0
+        return [
+          p.name || p.productName || "",
+          p.shortCode || "",
+          p.category?.categoryName || p.category || "",
+          basePrice,
+          (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
+          (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
+          (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
+          (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice
+        ]
+      })
+      
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 35 }, // Product Name
+        { wch: 10 }, // Short Code
+        { wch: 15 }, // Category
+        { wch: 12 }, // Base Price
+        { wch: 12 }, // A Price
+        { wch: 12 }, // B Price
+        { wch: 12 }, // C Price
+        { wch: 15 }, // Restaurant Price
+      ]
+      
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Price List")
+      XLSX.writeFile(wb, `price_list_template_${new Date().toISOString().slice(0,10)}.xlsx`)
+      
+      toast({ title: "Downloaded", description: `Template with ${productsToExport.length} products downloaded` })
+    } else {
+      // Fallback sample data
+      const sampleData = [
+        ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"],
+        ["Tomatoes Roma 25lb", "01", "Vegetables", 25.99, 24.99, 23.99, 22.99, 21.99],
+        ["Onions Yellow 50lb", "02", "Vegetables", 18.50, 17.50, 16.50, 15.50, 14.50],
+        ["Peppers Green Bell 25lb", "03", "Vegetables", 32.00, 31.00, 30.00, 29.00, 28.00],
+        ["Cilantro Bunch 60ct", "04", "Herbs", 15.00, 14.50, 14.00, 13.50, 13.00],
+        ["Limes 200ct", "05", "Fruits", 28.00, 27.00, 26.00, 25.00, 24.00],
+      ]
+      
+      const ws = XLSX.utils.aoa_to_sheet(sampleData)
+      ws['!cols'] = [
+        { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
+      ]
+      
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Price List")
+      XLSX.writeFile(wb, "price_list_template.xlsx")
+      
+      toast({ title: "Downloaded", description: "Sample Excel template downloaded" })
+    }
+  }
+
+  // Download full product list for price update
+  const downloadFullProductList = () => {
+    if (products.length === 0) {
+      toast({ variant: "destructive", title: "Error", description: "No products available to export" })
+      return
+    }
+    
+    const headers = ["Product Name", "Short Code", "Category", "Current Base Price", "Current A Price", "Current B Price", "Current C Price", "Current Restaurant Price", "New Base Price", "New A Price", "New B Price", "New C Price", "New Restaurant Price"]
+    const rows = products.map((p: any) => {
+      const basePrice = p.pricePerBox || 0
+      return [
+        p.name || p.productName || "",
+        p.shortCode || "",
+        p.category?.categoryName || p.category || "",
+        basePrice,
+        (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
+        (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
+        (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
+        (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice,
+        "", // New Base Price - empty for user to fill
+        "", // New A Price
+        "", // New B Price
+        "", // New C Price
+        "", // New Restaurant Price
+      ]
+    })
+    
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 35 }, { wch: 10 }, { wch: 15 }, 
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 },
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
     ]
     
-    const ws = XLSX.utils.aoa_to_sheet(sampleData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Price List")
-    XLSX.writeFile(wb, "price_list_template.xlsx")
+    // Style header row (make it bold/colored would need more complex xlsx library)
     
-    toast({ title: "Downloaded", description: "Sample Excel template downloaded" })
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Price Update")
+    
+    // Add instructions sheet
+    const instructionsData = [
+      ["PRICE LIST UPDATE INSTRUCTIONS"],
+      [""],
+      ["1. This file contains all your current products with their prices"],
+      ["2. Fill in the 'New' columns with updated prices"],
+      ["3. Leave 'New' columns empty to keep current price"],
+      ["4. Save the file and upload it back to the system"],
+      [""],
+      ["COLUMN MAPPING:"],
+      ["- Product Name: Used to match products (required)"],
+      ["- Short Code: Alternative matching by product code"],
+      ["- New Base Price: Main selling price"],
+      ["- New A Price: Tier A customer price (defaults to Base Price if empty)"],
+      ["- New B Price: Tier B customer price (defaults to Base Price if empty)"],
+      ["- New C Price: Tier C customer price (defaults to Base Price if empty)"],
+      ["- New Restaurant Price: Restaurant customer price (defaults to Base Price if empty)"],
+      [""],
+      ["TIPS:"],
+      ["- You can delete rows for products you don't want to update"],
+      ["- Prices should be numbers only (no $ symbol)"],
+      ["- Use decimal point for cents (e.g., 25.99)"],
+      ["- If A/B/C/Restaurant price is 0 or empty, Base Price will be used"],
+    ]
+    const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData)
+    wsInstructions['!cols'] = [{ wch: 60 }]
+    XLSX.utils.book_append_sheet(wb, wsInstructions, "Instructions")
+    
+    XLSX.writeFile(wb, `price_update_${new Date().toISOString().slice(0,10)}.xlsx`)
+    
+    toast({ title: "Downloaded", description: `Full product list with ${products.length} products downloaded` })
   }
 
   // Quick Price Update - Parse input and update price
@@ -1757,16 +1962,21 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                   <HelpCircle className="h-4 w-4" /> How it works
                 </h4>
                 <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                  <li>Upload your Excel file with product names and prices</li>
+                  <li>Upload your Excel file with product names/codes and prices</li>
                   <li>Map columns to match our price fields</li>
-                  <li>System auto-matches products by name (fuzzy matching)</li>
+                  <li>System auto-matches products by Short Code (exact) or Name (fuzzy)</li>
                   <li>Review matches and apply price updates</li>
                 </ul>
               </div>
 
-              <Button variant="outline" onClick={downloadSampleExcel} className="w-full">
-                <Download className="h-4 w-4 mr-2" /> Download Sample Template
-              </Button>
+              <div className="grid grid-cols-2 gap-3">
+                <Button variant="outline" onClick={downloadSampleExcel} className="w-full">
+                  <Download className="h-4 w-4 mr-2" /> Sample Template
+                </Button>
+                <Button variant="outline" onClick={downloadFullProductList} className="w-full text-blue-600">
+                  <FileSpreadsheet className="h-4 w-4 mr-2" /> Full Product List
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1783,15 +1993,31 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               <div className="space-y-3">
                 <Label className="text-base font-medium">Map Excel Columns to Price Fields</Label>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-sm">Product Name Column *</Label>
-                    <Select value={columnMapping.productName} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, productName: v }))}>
+                    <Select value={columnMapping.productName || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, productName: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column" />
                       </SelectTrigger>
                       <SelectContent>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
+                          <SelectItem key={col} value={col}>{col}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm">Short Code Column</Label>
+                    <Select value={columnMapping.shortCode || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, shortCode: v === "__none__" ? "" : v }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="For exact matching" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1800,13 +2026,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">Base Price Column</Label>
-                    <Select value={columnMapping.price} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, price: v }))}>
+                    <Select value={columnMapping.price || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, price: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1815,13 +2041,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">A Price Column</Label>
-                    <Select value={columnMapping.aPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, aPrice: v }))}>
+                    <Select value={columnMapping.aPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, aPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1830,13 +2056,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">B Price Column</Label>
-                    <Select value={columnMapping.bPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, bPrice: v }))}>
+                    <Select value={columnMapping.bPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, bPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1845,13 +2071,28 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">C Price Column</Label>
-                    <Select value={columnMapping.cPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, cPrice: v }))}>
+                    <Select value={columnMapping.cPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, cPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
+                          <SelectItem key={col} value={col}>{col}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm">Restaurant Price Column</Label>
+                    <Select value={columnMapping.restaurantPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, restaurantPrice: v === "__none__" ? "" : v }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select column (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1863,20 +2104,20 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               {/* Preview first few rows */}
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Preview (first 5 rows)</Label>
-                <ScrollArea className="h-[150px] border rounded-md">
+                <ScrollArea className="h-[180px] border rounded-md">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {excelColumns.slice(0, 6).map(col => (
-                          <TableHead key={col} className="text-xs">{col}</TableHead>
+                        {excelColumns.slice(0, 8).map(col => (
+                          <TableHead key={col} className="text-xs whitespace-nowrap">{col}</TableHead>
                         ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {excelData.slice(0, 5).map((row, idx) => (
                         <TableRow key={idx}>
-                          {excelColumns.slice(0, 6).map(col => (
-                            <TableCell key={col} className="text-xs py-1">{row[col]}</TableCell>
+                          {excelColumns.slice(0, 8).map(col => (
+                            <TableCell key={col} className="text-xs py-1 whitespace-nowrap">{row[col]}</TableCell>
                           ))}
                         </TableRow>
                       ))}
@@ -1992,6 +2233,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       <TableHead className="text-right">New A</TableHead>
                       <TableHead className="text-right">New B</TableHead>
                       <TableHead className="text-right">New C</TableHead>
+                      <TableHead className="text-right">New Rest.</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2047,7 +2289,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.pricePerBox || 0)}
                                 value={item.excelPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2060,7 +2302,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.aPrice || 0)}
                                 value={item.excelAPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelAPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2073,7 +2315,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.bPrice || 0)}
                                 value={item.excelBPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelBPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2086,7 +2328,20 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.cPrice || 0)}
                                 value={item.excelCPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelCPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
+                              />
+                            ) : "-"}
+                          </TableCell>
+                          {/* Editable Restaurant Price */}
+                          <TableCell className="text-right p-1">
+                            {item.isMatched ? (
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={String(item.matchedProduct?.restaurantPrice || 0)}
+                                value={item.excelRestaurantPrice ?? ""}
+                                onChange={(e) => updateMatchedPrice(idx, "excelRestaurantPrice", e.target.value)}
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
