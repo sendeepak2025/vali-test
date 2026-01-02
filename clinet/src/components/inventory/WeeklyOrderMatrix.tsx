@@ -1015,7 +1015,6 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 title: 'PreOrders Confirmed!',
                 html: `
                   <p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>
-                  <p>Work Order <strong>${wo.workOrderNumber}</strong> created</p>
                   <p style="color: #10b981; margin-top: 10px;">✓ All products fully stocked!</p>
                 `,
                 confirmButtonText: 'OK',
