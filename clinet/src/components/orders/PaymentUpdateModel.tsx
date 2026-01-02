@@ -229,10 +229,10 @@ export function PaymentStatusPopup({
                           paymentMethod === "creditcard" ? "Card" : 
                           paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1);
       
-      toast({
-        title: "Payment recorded",
-        description: `$${paymentAmount.toFixed(2)} paid via ${methodLabel}`,
-      });
+      // toast({
+      //   title: "Payment recorded",
+      //   description: `$${paymentAmount.toFixed(2)} paid via ${methodLabel}`,
+      // });
 
       onPayment(id, { method: paymentMethod, amount: paymentAmount });
       fetchOrders();

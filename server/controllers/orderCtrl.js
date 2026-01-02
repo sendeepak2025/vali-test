@@ -3112,7 +3112,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     const prevSunday = new Date(sunday);
     prevSunday.setDate(prevSunday.getDate() - 7);
 
-    console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
+    // console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
 
     // Get all orders for TARGET week
     const currentWeekOrders = await orderModel.find({

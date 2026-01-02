@@ -981,8 +981,15 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       return
     }
     
-    const headers = ["Product Name", "Short Code", "Category", "Current Base Price", "Current A Price", "Current B Price", "Current C Price", "Current Restaurant Price", "New Base Price", "New A Price", "New B Price", "New C Price", "New Restaurant Price"]
-    const rows = products.map((p: any) => {
+    // Sort products by category name
+    const sortedProducts = [...products].sort((a: any, b: any) => {
+      const catA = (a.category?.categoryName || a.category || "Uncategorized").toLowerCase()
+      const catB = (b.category?.categoryName || b.category || "Uncategorized").toLowerCase()
+      return catA.localeCompare(catB)
+    })
+    
+    const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"]
+    const rows = sortedProducts.map((p: any) => {
       const basePrice = p.pricePerBox || 0
       return [
         p.name || p.productName || "",
@@ -993,59 +1000,22 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
         (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
         (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
         (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice,
-        "", // New Base Price - empty for user to fill
-        "", // New A Price
-        "", // New B Price
-        "", // New C Price
-        "", // New Restaurant Price
       ]
     })
     
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
     
-    // Set column widths
+    // Set column widths - same as Sample Template
     ws['!cols'] = [
-      { wch: 35 }, { wch: 10 }, { wch: 15 }, 
-      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 },
-      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
+      { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
     ]
-    
-    // Style header row (make it bold/colored would need more complex xlsx library)
     
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Price Update")
-    
-    // Add instructions sheet
-    const instructionsData = [
-      ["PRICE LIST UPDATE INSTRUCTIONS"],
-      [""],
-      ["1. This file contains all your current products with their prices"],
-      ["2. Fill in the 'New' columns with updated prices"],
-      ["3. Leave 'New' columns empty to keep current price"],
-      ["4. Save the file and upload it back to the system"],
-      [""],
-      ["COLUMN MAPPING:"],
-      ["- Product Name: Used to match products (required)"],
-      ["- Short Code: Alternative matching by product code"],
-      ["- New Base Price: Main selling price"],
-      ["- New A Price: Tier A customer price (defaults to Base Price if empty)"],
-      ["- New B Price: Tier B customer price (defaults to Base Price if empty)"],
-      ["- New C Price: Tier C customer price (defaults to Base Price if empty)"],
-      ["- New Restaurant Price: Restaurant customer price (defaults to Base Price if empty)"],
-      [""],
-      ["TIPS:"],
-      ["- You can delete rows for products you don't want to update"],
-      ["- Prices should be numbers only (no $ symbol)"],
-      ["- Use decimal point for cents (e.g., 25.99)"],
-      ["- If A/B/C/Restaurant price is 0 or empty, Base Price will be used"],
-    ]
-    const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData)
-    wsInstructions['!cols'] = [{ wch: 60 }]
-    XLSX.utils.book_append_sheet(wb, wsInstructions, "Instructions")
+    XLSX.utils.book_append_sheet(wb, ws, "Price List")
     
     XLSX.writeFile(wb, `price_update_${new Date().toISOString().slice(0,10)}.xlsx`)
     
-    toast({ title: "Downloaded", description: `Full product list with ${products.length} products downloaded` })
+    toast({ title: "Downloaded", description: `Full product list with ${sortedProducts.length} products downloaded` })
   }
 
   // Quick Price Update - Parse input and update price
@@ -2103,7 +2073,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
               {/* Preview first few rows */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Preview (first 5 rows)</Label>
+                <Label className="text-sm text-muted-foreground">Excel (first 5 rows)</Label>
                 <ScrollArea className="h-[180px] border rounded-md">
                   <Table>
                     <TableHeader>

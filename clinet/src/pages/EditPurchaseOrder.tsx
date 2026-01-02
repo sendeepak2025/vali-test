@@ -310,11 +310,11 @@ const EditPurchaseOrderForm = () => {
       }
 
       await updatePurchaseOrderAPI(id, payload)
-
-      toast({
-        title: "Purchase order updated",
-        description: "The purchase order has been successfully updated.",
-      })
+navigate("/vendors")
+      // toast({
+      //   title: "Purchase order updated",
+      //   description: "The purchase order has been successfully updated.",
+      // })
     } catch (error) {
       console.error("Error updating purchase order:", error)
       toast({

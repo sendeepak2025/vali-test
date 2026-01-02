@@ -897,7 +897,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     {summaryData.product.name}
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    {summaryData.product.category}
+                    {typeof summaryData.product.category === 'object' ? summaryData.product.category?.categoryName : summaryData.product.category}
                   </p>
                 </div>
               </div>
@@ -1112,7 +1112,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{viewDetailsProduct.name}</h3>
-                  <p className="text-sm text-muted-foreground">{viewDetailsProduct.category || "Uncategorized"}</p>
+                  <p className="text-sm text-muted-foreground">{typeof viewDetailsProduct.category === 'object' ? viewDetailsProduct.category?.categoryName : viewDetailsProduct.category || "Uncategorized"}</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {viewDetailsProduct.organic && (
                       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">
