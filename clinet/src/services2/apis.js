@@ -126,6 +126,29 @@ export const order = {
   GET_REGIONAL_ORDER_TRENDS: BASE_URL + "/order/regional-trends",
 
 }
+
+// Incoming Stock APIs
+export const incomingStockEndpoints = {
+  GET_INCOMING_STOCK: BASE_URL + "/incoming-stock",
+  GET_UNLINKED_INCOMING: BASE_URL + "/incoming-stock/unlinked",
+  ADD_INCOMING_STOCK: BASE_URL + "/incoming-stock/add",
+  LINK_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id/link
+  BULK_LINK_INCOMING: BASE_URL + "/incoming-stock/bulk-link",
+  RECEIVE_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id/receive
+  DELETE_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id
+}
+
+// Work Order APIs
+export const workOrderEndpoints = {
+  CREATE_WORK_ORDER: BASE_URL + "/work-orders/create",
+  GET_WORK_ORDER: BASE_URL + "/work-orders", // append /:id
+  GET_WORK_ORDER_BY_WEEK: BASE_URL + "/work-orders",
+  GET_ALL_WORK_ORDERS: BASE_URL + "/work-orders/list/all",
+  GET_SHORTAGES_SUMMARY: BASE_URL + "/work-orders/shortages/summary",
+  UPDATE_PICKING_STATUS: BASE_URL + "/work-orders", // append /:id/picking
+  RESOLVE_SHORTAGE: BASE_URL + "/work-orders", // append /:id/resolve-shortage
+}
+
 export const crm = {
   CREATE_CONTACT_CRM: BASE_URL + "/crm/create",
   GET_ALL_CONTACT_CRM: BASE_URL + "/crm/getAll",

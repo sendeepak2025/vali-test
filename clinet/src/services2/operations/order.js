@@ -896,8 +896,6 @@ export const getPendingPreOrdersAPI = async (token, weekOffset = 0) => {
 
 // Confirm PreOrders
 export const confirmPreOrdersAPI = async (formData, token) => {
-  const toastId = toast.loading("Confirming PreOrders...");
-  
   try {
     const response = await apiConnector(
       "POST",
@@ -912,14 +910,11 @@ export const confirmPreOrdersAPI = async (formData, token) => {
       throw new Error(response?.data?.message || "Failed to confirm preorders");
     }
 
-    toast.success(response?.data?.message || "PreOrders confirmed successfully");
+    // Return data without toast - handled by component with Swal
     return response.data;
 
   } catch (error) {
     console.error("confirmPreOrdersAPI ERROR:", error);
-    toast.error(error?.response?.data?.message || "Failed to confirm preorders");
     return null;
-  } finally {
-    toast.dismiss(toastId);
   }
 };

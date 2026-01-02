@@ -1,5 +1,6 @@
 const orderModel = require("../models/orderModle");
 const purchaseModel = require("../models/purchaseModel");
+const IncomingStock = require("../models/incomingStockModel");
 const mongoose = require("mongoose");
 const authModel = require("../models/authModel"); // Ensure the correct path for your Auth model
 const vendorModel = require("../models/vendorModel"); // Ensure the correct path for your Auth model
@@ -3149,6 +3150,55 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     
     console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
 
+    // Get Incoming Stock for TARGET week
+    // Include "draft" and "linked" - "received" items are waiting for QC approval
+    // Stock is only adjusted after QC approval in Purchase Order
+    const incomingStockData = await IncomingStock.find({
+      weekStart: monday,
+      weekEnd: sunday,
+      status: { $in: ["draft", "linked"] }
+    }).populate("vendor", "name").lean();
+
+    console.log(`Matrix - Found ${incomingStockData.length} Incoming Stock entries for target week`);
+
+    // Group incoming stock by product
+    const incomingByProduct = {};
+    let hasUnlinkedIncoming = false;
+    const unlinkedIncomingItems = [];
+
+    incomingStockData.forEach(item => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+
+      if (!incomingByProduct[productId]) {
+        incomingByProduct[productId] = {
+          totalIncoming: 0,
+          items: [],
+          allLinked: true
+        };
+      }
+
+      incomingByProduct[productId].totalIncoming += item.quantity || 0;
+      incomingByProduct[productId].items.push({
+        _id: item._id,
+        quantity: item.quantity,
+        vendor: item.vendor,
+        unitPrice: item.unitPrice,
+        status: item.status,
+        isLinked: item.status === "linked" || item.status === "received"
+      });
+
+      if (item.status === "draft") {
+        incomingByProduct[productId].allLinked = false;
+        hasUnlinkedIncoming = true;
+        unlinkedIncomingItems.push({
+          _id: item._id,
+          productId: productId,
+          quantity: item.quantity
+        });
+      }
+    });
+
     // Build product query with search
     const productQuery = {};
     if (search) {
@@ -3174,8 +3224,11 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
     // Initialize matrix with paginated products
     products.forEach(product => {
-      matrixData[product._id.toString()] = {
-        productId: product._id.toString(),
+      const productId = product._id.toString();
+      const incomingData = incomingByProduct[productId] || { totalIncoming: 0, items: [], allLinked: true };
+      
+      matrixData[productId] = {
+        productId: productId,
         productName: product.name,
         image: product.image,
         pricePerBox: product.pricePerBox || 0,
@@ -3187,8 +3240,15 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         preOrderTotal: 0,
         orderTotal: 0,
         pendingReqTotal: 0,
-        totalStock: 0,
-        totalPurchase: 0
+        totalStock: product.remaining || 0,  // Use live Product.remaining
+        totalPurchase: 0,
+        // NEW: Incoming stock fields
+        incomingStock: incomingData.totalIncoming,
+        incomingItems: incomingData.items,
+        incomingAllLinked: incomingData.allLinked,
+        // Final will be calculated after all data is filled
+        finalStock: 0,
+        isShort: false
       };
     });
 
@@ -3304,6 +3364,10 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       return d >= monday && d <= sunday;
     };
 
+    // Track shortage summary
+    let totalShortProducts = 0;
+    let totalShortQuantity = 0;
+
     for (const productId in matrixData) {
       const product = products.find(p => p._id.toString() === productId);
       if (!product) continue;
@@ -3317,21 +3381,45 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + (t.quantity || 0), 0);
       const manuallyAddBox = product.manuallyAddBox?.quantity || 0;
 
-      // Calculate week-wise remaining stock
-      // Stock = Purchase - Sell - Trash + ManuallyAdded (for the target week)
-      const totalRemaining = Math.max(totalPurchase - totalSell - trashBox + manuallyAddBox, 0);
+      // Calculate stock from week-filtered purchase/sales history
+      // STK = Purchase - Sales - Trash + ManuallyAdded
+      const currentStock = totalPurchase - totalSell - trashBox + manuallyAddBox;
+      
+      // Get incoming stock for this product
+      const incomingStock = matrixData[productId].incomingStock || 0;
+      
+      // Get total preorder demand
+      const preOrderTotal = matrixData[productId].preOrderTotal || 0;
 
-      matrixData[productId].totalStock = totalRemaining;
+      // Calculate FINAL: Stock + Incoming - PreOrders
+      const finalStock = currentStock + incomingStock - preOrderTotal;
+      const isShort = finalStock < 0;
+
+      matrixData[productId].totalStock = currentStock;
       matrixData[productId].totalPurchase = totalPurchase;
+      matrixData[productId].finalStock = finalStock;
+      matrixData[productId].isShort = isShort;
+      matrixData[productId].shortageQty = isShort ? Math.abs(finalStock) : 0;
+
+      if (isShort) {
+        totalShortProducts++;
+        totalShortQuantity += Math.abs(finalStock);
+      }
       
       // Debug log for stock calculation
-      if (totalPurchase > 0 || totalSell > 0) {
-        console.log(`Stock calc for ${product.name}: Purchase=${totalPurchase}, Sell=${totalSell}, Trash=${trashBox}, Manual=${manuallyAddBox}, Remaining=${totalRemaining}`);
+      if (currentStock > 0 || incomingStock > 0 || preOrderTotal > 0) {
+        console.log(`Stock calc for ${product.name}: Current=${currentStock}, Incoming=${incomingStock}, PreOrder=${preOrderTotal}, Final=${finalStock}, Short=${isShort}`);
       }
     }
 
     // Convert to array format
     const matrixArray = Object.values(matrixData);
+
+    // Check if confirm is allowed
+    const canConfirm = !hasUnlinkedIncoming;
+    const confirmBlockReason = hasUnlinkedIncoming 
+      ? `${unlinkedIncomingItems.length} incoming stock item(s) not linked to vendor` 
+      : null;
     
     res.status(200).json({
       success: true,
@@ -3357,6 +3445,19 @@ const getOrderMatrixDataCtrl = async (req, res) => {
           limit: pageLimit,
           hasNextPage: currentPage < totalPages,
           hasPrevPage: currentPage > 1
+        },
+        // NEW: Incoming stock & confirm validation
+        incomingStockCount: incomingStockData.length,
+        hasUnlinkedIncoming: hasUnlinkedIncoming,
+        unlinkedIncomingCount: unlinkedIncomingItems.length,
+        unlinkedIncomingItems: unlinkedIncomingItems,
+        canConfirm: canConfirm,
+        confirmBlockReason: confirmBlockReason,
+        // Shortage summary
+        shortageInfo: {
+          hasShortage: totalShortProducts > 0,
+          shortProductCount: totalShortProducts,
+          totalShortQuantity: totalShortQuantity
         }
       }
     });
@@ -3994,12 +4095,52 @@ const confirmPreOrdersCtrl = async (req, res) => {
 
     console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}`);
 
+    // Create Work Order for shortage tracking
+    let workOrder = null;
+    if (createdOrders.length > 0) {
+      try {
+        const { createWorkOrderCtrl } = require("./workOrderCtrl");
+        
+        // Create fake req/res to call createWorkOrderCtrl
+        let workOrderResponse = null;
+        const fakeReq = {
+          body: {
+            weekOffset: offset,
+            confirmedPreOrderIds: confirmedPreOrders.map(p => p._id),
+            confirmedOrderIds: createdOrders.map(o => o._id),
+          },
+          user: req.user
+        };
+        const fakeRes = {
+          status: function(code) { return this; },
+          json: function(data) { workOrderResponse = data; return this; }
+        };
+
+        await createWorkOrderCtrl(fakeReq, fakeRes);
+        
+        if (workOrderResponse?.success) {
+          workOrder = {
+            _id: workOrderResponse.data._id,
+            workOrderNumber: workOrderResponse.data.workOrderNumber,
+            hasShortage: workOrderResponse.data.hasShortage,
+            shortProductCount: workOrderResponse.data.shortProductCount,
+            totalShortageQuantity: workOrderResponse.data.totalShortageQuantity,
+          };
+          console.log(`Work Order created: ${workOrder.workOrderNumber}`);
+        }
+      } catch (woError) {
+        console.error("Error creating work order:", woError);
+        // Don't fail the whole operation if work order creation fails
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`,
       confirmedCount: confirmedPreOrders.length,
       preOrders: confirmedPreOrders,
       createdOrders: createdOrders,
+      workOrder: workOrder,
       errors: errors.length > 0 ? errors : undefined,
       weekRange: {
         start: monday.toISOString(),
@@ -4030,6 +4171,7 @@ const getPendingPreOrdersForReviewCtrl = async (req, res) => {
     const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
 
     // Find all pending PreOrders for the target week
+    // Sort by createdAt descending (latest first)
     const preOrders = await PreOrderModel.find({
       $or: [
         { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
@@ -4045,7 +4187,9 @@ const getPendingPreOrdersForReviewCtrl = async (req, res) => {
       confirmed: { $ne: true },
       isDelete: { $ne: true },
       status: "pending"
-    }).populate("store", "storeName ownerName city state");
+    })
+    .populate("store", "storeName ownerName city state")
+    .sort({ createdAt: -1 }); // Latest first
 
     // Flatten items from all PreOrders for easier review
     const flattenedItems = [];

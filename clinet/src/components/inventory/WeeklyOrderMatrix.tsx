@@ -58,13 +58,16 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { toast } from "react-toastify";
+import Swal from "sweetalert2";
 import { getOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
+import { addIncomingStockAPI, bulkLinkIncomingStockAPI } from "@/services2/operations/incomingStock";
+import { getAllVendorsAPI } from "@/services2/operations/vendor";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { orderEvents } from "@/utils/orderEvents";
 
 // Matrix operation modes
-type MatrixMode = "ORDER" | "PREORDER" | "VIEW";
+type MatrixMode = "ORDER" | "PREORDER" | "INCOMING" | "VIEW";
 
 // Size presets
 type SizePreset = "compact" | "normal" | "large";
@@ -301,6 +304,22 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [selectedPreOrders, setSelectedPreOrders] = useState<Set<string>>(new Set());
   
+  // Incoming Stock & Link to Vendor Modal State
+  const [showLinkVendorModal, setShowLinkVendorModal] = useState(false);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [selectedVendor, setSelectedVendor] = useState<string>("");
+  const [vendorSearch, setVendorSearch] = useState<string>("");
+  const [vendorDropdownOpen, setVendorDropdownOpen] = useState(false);
+  const [unlinkedIncoming, setUnlinkedIncoming] = useState<any[]>([]);
+  const [linkingPrices, setLinkingPrices] = useState<Record<string, number>>({});
+  const [linkLoading, setLinkLoading] = useState(false);
+  
+  // Confirm validation state from API
+  const [canConfirmPreOrders, setCanConfirmPreOrders] = useState(true);
+  const [confirmBlockReason, setConfirmBlockReason] = useState<string | null>(null);
+  const [hasUnlinkedIncoming, setHasUnlinkedIncoming] = useState(false);
+  const [shortageInfo, setShortageInfo] = useState<any>(null);
+  
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Check week status for editing permissions
@@ -313,6 +332,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     if (matrixMode === "VIEW") return false;
     if (matrixMode === "ORDER") return isCurrentWeek; // ORDER mode only for current week
     if (matrixMode === "PREORDER") return isCurrentWeek || isFutureWeek; // PREORDER for current and future weeks
+    if (matrixMode === "INCOMING") return isCurrentWeek || isFutureWeek; // INCOMING for current and future weeks
     return false;
   }, [matrixMode, isCurrentWeek, isFutureWeek]);
 
@@ -328,6 +348,17 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         setPreOrdersCount(response.data.preOrdersCount || 0);
         setVisibleStoreRange({ start: 0, end: Math.min(20, response.data.stores?.length || 0) });
         setChangedCells(new Set());
+        
+        // Capture confirm validation state
+        setCanConfirmPreOrders(response.data.canConfirm ?? true);
+        setConfirmBlockReason(response.data.confirmBlockReason || null);
+        setHasUnlinkedIncoming(response.data.hasUnlinkedIncoming || false);
+        setShortageInfo(response.data.shortageInfo || null);
+        
+        // Capture unlinked incoming items for link modal
+        if (response.data.unlinkedIncomingItems) {
+          setUnlinkedIncoming(response.data.unlinkedIncomingItems);
+        }
         
         if (response.data.pagination) {
           setCurrentPage(response.data.pagination.currentPage);
@@ -353,6 +384,12 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     setCurrentPage(1);
     fetchMatrixData(1, debouncedSearch);
   }, [debouncedSearch]);
+
+  // Trigger fetch when pageSize changes
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchMatrixData(1, searchTerm);
+  }, [pageSize]);
 
   // Listen for order/preorder changes from other components
   useEffect(() => {
@@ -492,7 +529,25 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 isPreOrderFulfilled: (oldData.currentQty || 0) >= quantity && quantity > 0
               };
               
-              return { ...row, storeOrders: newStoreOrders };
+              // Recalculate PRE total from all stores
+              let newPreOrderTotal = 0;
+              Object.values(newStoreOrders).forEach((data: any) => {
+                newPreOrderTotal += data.preOrderQty || 0;
+              });
+              
+              // FIN = STK + INC - PRE
+              const currentStock = row.totalStock || 0;
+              const incomingStock = row.incomingStock || 0;
+              const newFinalStock = currentStock + incomingStock - newPreOrderTotal;
+              
+              return { 
+                ...row, 
+                storeOrders: newStoreOrders,
+                preOrderTotal: newPreOrderTotal,
+                finalStock: newFinalStock,
+                isShort: newFinalStock < 0,
+                shortageQty: newFinalStock < 0 ? Math.abs(newFinalStock) : 0
+              };
             }
             return row;
           }));
@@ -529,21 +584,31 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 orderId: response.order?._id || oldData.orderId
               };
               
+              // Recalculate TOT (total orders) from all stores
               let newOrderTotal = 0;
               let newPendingReqTotal = 0;
+              let newPreOrderTotal = 0;
               Object.values(newStoreOrders).forEach((data: any) => {
                 newOrderTotal += data.currentQty || 0;
                 newPendingReqTotal += data.pendingReq || 0;
+                newPreOrderTotal += data.preOrderQty || 0;
               });
               
-              const newStock = Math.max(0, (row.totalStock || 0) - qtyDiff);
+              // STK doesn't change when creating orders - it only changes via purchase/sales
+              // FIN = STK + INC - PRE (PreOrder total)
+              const currentStock = row.totalStock || 0;
+              const incomingStock = row.incomingStock || 0;
+              const newFinalStock = currentStock + incomingStock - newPreOrderTotal;
               
               return { 
                 ...row, 
                 storeOrders: newStoreOrders,
                 orderTotal: newOrderTotal,
                 pendingReqTotal: newPendingReqTotal,
-                totalStock: newStock
+                preOrderTotal: newPreOrderTotal,
+                finalStock: newFinalStock,
+                isShort: newFinalStock < 0,
+                shortageQty: newFinalStock < 0 ? Math.abs(newFinalStock) : 0
               };
             }
             return row;
@@ -566,14 +631,193 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     }
   }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek, changedCells.size, currentPage, searchTerm, fetchMatrixData]);
 
+  // Handle incoming stock change from matrix
+  const handleIncomingChange = useCallback(async (productId: string, quantity: number) => {
+    if (matrixMode !== "INCOMING" || !canEdit) return;
+    
+    const cellKey = `incoming-${productId}`;
+    setSavingCell(cellKey);
+    
+    try {
+      const response = await addIncomingStockAPI({
+        productId,
+        quantity,
+        weekOffset
+      }, token);
+
+      if (response?.success) {
+        // Update local state with the new incoming item
+        setMatrixData(prev => prev.map(row => {
+          if (row.productId === productId) {
+            const newIncoming = quantity;
+            const newFinal = (row.totalStock || 0) + newIncoming - (row.preOrderTotal || 0);
+            
+            // Update incomingItems array with the new/updated item
+            let newIncomingItems = [...(row.incomingItems || [])];
+            if (response.data) {
+              // Remove any existing draft item for this product
+              newIncomingItems = newIncomingItems.filter((i: any) => i.status !== "draft");
+              // Add the new item if quantity > 0
+              if (quantity > 0) {
+                newIncomingItems.push({
+                  _id: response.data._id,
+                  quantity: response.data.quantity,
+                  status: response.data.status || "draft",
+                  unitPrice: response.data.unitPrice || 0
+                });
+              }
+            }
+            
+            return {
+              ...row,
+              incomingStock: newIncoming,
+              incomingItems: newIncomingItems,
+              finalStock: newFinal,
+              isShort: newFinal < 0,
+              shortageQty: newFinal < 0 ? Math.abs(newFinal) : 0,
+              incomingAllLinked: quantity === 0 ? true : false // New incoming is draft (unlinked)
+            };
+          }
+          return row;
+        }));
+        
+        setChangedCells(prev => new Set(prev).add(cellKey));
+        
+        // Update unlinked status
+        if (quantity > 0) {
+          setHasUnlinkedIncoming(true);
+          setCanConfirmPreOrders(false);
+        }
+        
+        toast.success("Incoming stock updated", { autoClose: 1000 });
+      }
+    } catch (error) {
+      console.error("Error updating incoming stock:", error);
+      toast.error("Failed to update incoming stock");
+    } finally {
+      setSavingCell(null);
+    }
+  }, [token, weekOffset, matrixMode, canEdit]);
+
+  // Fetch vendors for link modal
+  const fetchVendors = useCallback(async () => {
+    try {
+      // Fetch all vendors without status filter
+      const response = await getAllVendorsAPI({});
+      console.log("Vendors API response:", response);
+      if (response?.data && Array.isArray(response.data)) {
+        setVendors(response.data);
+      } else if (response?.vendors && Array.isArray(response.vendors)) {
+        setVendors(response.vendors);
+      } else if (Array.isArray(response)) {
+        setVendors(response);
+      }
+    } catch (error) {
+      console.error("Error fetching vendors:", error);
+    }
+  }, []);
+
+  // Open link vendor modal
+  const openLinkVendorModal = useCallback(() => {
+    fetchVendors();
+    // Get unlinked items from matrix data - merge with incomingItems
+    const unlinked = matrixData
+      .filter(row => row.incomingStock > 0 && !row.incomingAllLinked)
+      .map(row => {
+        // Get draft items from incomingItems array
+        const draftItems = (row.incomingItems || []).filter((i: any) => i.status === "draft");
+        
+        return {
+          productId: row.productId,
+          productName: row.productName,
+          quantity: row.incomingStock,
+          incomingItems: draftItems,
+          // Also include _id if there's only one draft item (for simpler linking)
+          _id: draftItems.length === 1 ? draftItems[0]._id : undefined
+        };
+      });
+    setUnlinkedIncoming(unlinked);
+    
+    // Initialize prices
+    const prices: Record<string, number> = {};
+    unlinked.forEach(item => {
+      prices[item.productId] = 0;
+    });
+    setLinkingPrices(prices);
+    
+    setShowLinkVendorModal(true);
+  }, [fetchVendors, matrixData]);
+
+  // Handle bulk link to vendor
+  const handleBulkLinkToVendor = useCallback(async () => {
+    if (!selectedVendor) {
+      toast.error("Please select a vendor");
+      return;
+    }
+
+    // Build items to link - handle both data structures
+    const itemsToLink: { incomingStockId: string; unitPrice: number }[] = [];
+    
+    unlinkedIncoming.forEach(item => {
+      // If item has incomingItems array (from matrixData)
+      if (item.incomingItems?.length > 0) {
+        item.incomingItems
+          .filter((i: any) => i.status === "draft")
+          .forEach((i: any) => {
+            itemsToLink.push({
+              incomingStockId: i._id,
+              unitPrice: linkingPrices[item.productId] || 0
+            });
+          });
+      } 
+      // If item has _id directly (from API unlinkedIncomingItems)
+      else if (item._id) {
+        itemsToLink.push({
+          incomingStockId: item._id,
+          unitPrice: linkingPrices[item.productId] || 0
+        });
+      }
+    });
+
+    if (itemsToLink.length === 0) {
+      toast.error("No items to link");
+      return;
+    }
+
+    setLinkLoading(true);
+    try {
+      const response = await bulkLinkIncomingStockAPI({
+        vendorId: selectedVendor,
+        items: itemsToLink,
+        createPurchaseOrder: true
+      }, token);
+
+      if (response?.success) {
+        setShowLinkVendorModal(false);
+        setSelectedVendor("");
+        setVendorSearch("");
+        setVendorDropdownOpen(false);
+        setLinkingPrices({});
+        // Refresh matrix data
+        fetchMatrixData(currentPage, searchTerm);
+      }
+    } catch (error) {
+      console.error("Error linking to vendor:", error);
+      toast.error("Failed to link to vendor");
+    } finally {
+      setLinkLoading(false);
+    }
+  }, [selectedVendor, unlinkedIncoming, linkingPrices, token, currentPage, searchTerm, fetchMatrixData]);
+
   // Calculate totals - only from visible store data for this page
   const totals = useMemo(() => {
-    let orderTotal = 0, stockTotal = 0, preOrderTotal = 0, pendingReqTotal = 0, purchaseTotal = 0;
+    let orderTotal = 0, stockTotal = 0, preOrderTotal = 0, pendingReqTotal = 0, purchaseTotal = 0, incomingTotal = 0, finalTotal = 0;
     matrixData.forEach(row => {
       // Calculate order total from store orders (visible stores only for accuracy)
       const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.currentQty || 0), 0) as number;
       orderTotal += rowOrderTotal;
       stockTotal += row.totalStock || 0;
+      incomingTotal += row.incomingStock || 0;
       
       // PreOrder and Pending should also be calculated from store orders
       const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, data: any) => sum + (data?.preOrderQty || 0), 0) as number;
@@ -581,8 +825,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       preOrderTotal += rowPreOrderTotal;
       pendingReqTotal += rowPendingReqTotal;
       purchaseTotal += row.totalPurchase || 0;
+      finalTotal += row.finalStock || 0;
     });
-    return { orderTotal, stockTotal, preOrderTotal, pendingReqTotal, purchaseTotal };
+    return { orderTotal, stockTotal, preOrderTotal, pendingReqTotal, purchaseTotal, incomingTotal, finalTotal };
   }, [matrixData]);
 
   const handleStoreNavigation = useCallback((direction: 'prev' | 'next') => {
@@ -639,9 +884,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         // Use groupedPreOrders for PreOrder-wise display
         const grouped = response.groupedPreOrders || response.preOrders || [];
         setPendingPreOrders(grouped);
-        // Select all by default
-        const allIds = new Set<string>(grouped.map((p: any) => p._id as string));
-        setSelectedPreOrders(allIds);
+        // Don't select any by default - user must manually select
+        setSelectedPreOrders(new Set());
         setShowConfirmModal(true);
       }
     } catch (error) {
@@ -655,7 +899,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   // Handle Confirm PreOrders
   const handleConfirmPreOrders = useCallback(async () => {
     if (selectedPreOrders.size === 0) {
-      toast.error("Please select at least one PreOrder to confirm");
+      Swal.fire({
+        icon: 'warning',
+        title: 'No Selection',
+        text: 'Please select at least one PreOrder to confirm',
+      });
       return;
     }
     
@@ -667,15 +915,144 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       }, token);
       
       if (response?.success) {
-        setShowConfirmModal(false);
-        setPendingPreOrders([]);
-        setSelectedPreOrders(new Set());
-        // Refresh matrix data
-        fetchMatrixData(currentPage, searchTerm);
+        // Check if there are errors (insufficient stock)
+        if (response.errors && response.errors.length > 0) {
+          // Close confirm modal first so Swal appears on top
+          setShowConfirmModal(false);
+          
+          // Build table rows for insufficient stock
+          let tableRows = '';
+          response.errors.forEach((err: any) => {
+            if (err.insufficientStock && err.insufficientStock.length > 0) {
+              err.insufficientStock.forEach((item: any) => {
+                tableRows += `
+                  <tr style="background-color: #fef2f2;">
+                    <td style="padding: 10px; border: 1px solid #e5e7eb;">${item.name}</td>
+                    <td style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">${item.requested}</td>
+                    <td style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">${item.available}</td>
+                    <td style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">${item.type || 'box'}</td>
+                  </tr>
+                `;
+              });
+            }
+          });
+
+          // Build cannot fulfill list
+          let cannotFulfillList = '';
+          response.errors.forEach((err: any) => {
+            if (err.insufficientStock && err.insufficientStock.length > 0) {
+              err.insufficientStock.forEach((item: any) => {
+                cannotFulfillList += `<li>${item.name} (requested: ${item.requested}, available: ${item.available})</li>`;
+              });
+            }
+          });
+
+          await Swal.fire({
+            icon: 'error',
+            title: 'Insufficient Stock',
+            html: `
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                <thead>
+                  <tr style="background-color: #f3f4f6;">
+                    <th style="padding: 10px; border: 1px solid #e5e7eb; text-align: left;">Product</th>
+                    <th style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">Requested</th>
+                    <th style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">Available</th>
+                    <th style="padding: 10px; border: 1px solid #e5e7eb; text-align: center;">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows}
+                </tbody>
+              </table>
+              <div style="text-align: left; margin-top: 10px;">
+                <strong>Cannot fulfill these items:</strong>
+                <ul style="margin-top: 5px; padding-left: 20px;">
+                  ${cannotFulfillList}
+                </ul>
+              </div>
+            `,
+            confirmButtonText: 'OK',
+            confirmButtonColor: '#6366f1',
+            width: '550px'
+          });
+
+          // Clear selection
+          setPendingPreOrders([]);
+          setSelectedPreOrders(new Set());
+          
+          // Refresh matrix data
+          fetchMatrixData(currentPage, searchTerm);
+          return;
+        }
+        
+        // If all confirmed successfully
+        if (response.confirmedCount > 0) {
+          setShowConfirmModal(false);
+          setPendingPreOrders([]);
+          setSelectedPreOrders(new Set());
+          
+          // Show success with work order info
+          if (response.workOrder) {
+            const wo = response.workOrder;
+            if (wo.hasShortage) {
+              await Swal.fire({
+                icon: 'warning',
+                title: 'PreOrders Confirmed with Shortages',
+                html: `
+                  <p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>
+                  <p style="color: #f59e0b; margin-top: 10px;">
+                    ⚠️ ${wo.shortProductCount} product(s) short<br/>
+                    Total shortage: ${wo.totalShortageQuantity} units
+                  </p>
+                  <p style="font-size: 12px; color: #6b7280; margin-top: 10px;">View in Work Orders page for details</p>
+                `,
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#6366f1'
+              });
+            } else {
+              await Swal.fire({
+                icon: 'success',
+                title: 'PreOrders Confirmed!',
+                html: `
+                  <p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>
+                  <p>Work Order <strong>${wo.workOrderNumber}</strong> created</p>
+                  <p style="color: #10b981; margin-top: 10px;">✓ All products fully stocked!</p>
+                `,
+                confirmButtonText: 'OK',
+                confirmButtonColor: '#6366f1'
+              });
+            }
+          } else {
+            await Swal.fire({
+              icon: 'success',
+              title: 'PreOrders Confirmed!',
+              text: `${response.confirmedCount} PreOrder(s) confirmed successfully!`,
+              confirmButtonText: 'OK',
+              confirmButtonColor: '#6366f1'
+            });
+          }
+          
+          // Refresh matrix data
+          fetchMatrixData(currentPage, searchTerm);
+        } else {
+          await Swal.fire({
+            icon: 'info',
+            title: 'No PreOrders',
+            text: 'No PreOrders to confirm',
+            confirmButtonText: 'OK',
+            confirmButtonColor: '#6366f1'
+          });
+        }
       }
     } catch (error) {
       console.error("Error confirming preorders:", error);
-      toast.error("Failed to confirm preorders");
+      await Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to confirm preorders',
+        confirmButtonText: 'OK',
+        confirmButtonColor: '#6366f1'
+      });
     } finally {
       setConfirmLoading(false);
     }
@@ -710,6 +1087,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         return { color: "bg-blue-500", text: "ORDER", icon: ShoppingCart, desc: "Create/Edit Orders (Current Week)" };
       case "PREORDER":
         return { color: "bg-orange-500", text: "PREORDER", icon: ClipboardList, desc: "Create/Edit PreOrders (Current & Future)" };
+      case "INCOMING":
+        return { color: "bg-purple-500", text: "INCOMING", icon: Truck, desc: "Add Incoming Stock (Current & Future)" };
       case "VIEW":
         return { color: "bg-gray-500", text: "VIEW", icon: Eye, desc: "Read-only View" };
     }
@@ -757,6 +1136,15 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 PREORDER
               </Button>
               <Button
+                variant={matrixMode === "INCOMING" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setMatrixMode("INCOMING")}
+                className={`h-7 px-3 text-xs ${matrixMode === "INCOMING" ? "bg-purple-500 hover:bg-purple-600" : ""}`}
+              >
+                <Truck className="h-3 w-3 mr-1" />
+                INCOMING
+              </Button>
+              <Button
                 variant={matrixMode === "VIEW" ? "default" : "ghost"}
                 size="sm"
                 onClick={() => setMatrixMode("VIEW")}
@@ -777,19 +1165,51 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             
             {/* Confirm PreOrders Button */}
             {matrixMode === "PREORDER" && (isCurrentWeek || isFutureWeek) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={fetchPendingPreOrders}
+                        disabled={confirmLoading || !canConfirmPreOrders}
+                        className={`ml-2 ${canConfirmPreOrders ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
+                      >
+                        {confirmLoading ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <CheckCheck className="h-3 w-3 mr-1" />
+                        )}
+                        Confirm PreOrders
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!canConfirmPreOrders && confirmBlockReason && (
+                    <TooltipContent className="bg-red-100 text-red-800 border-red-300">
+                      <p className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        {confirmBlockReason}
+                      </p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            
+            {/* Link to Vendor Button - Show when there are unlinked incoming items */}
+            {hasUnlinkedIncoming && (
               <Button
-                variant="default"
+                variant="outline"
                 size="sm"
-                onClick={fetchPendingPreOrders}
-                disabled={confirmLoading}
-                className="ml-2 bg-green-600 hover:bg-green-700"
+                onClick={openLinkVendorModal}
+                className="ml-2 border-purple-500 text-purple-600 hover:bg-purple-50"
               >
-                {confirmLoading ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <CheckCheck className="h-3 w-3 mr-1" />
-                )}
-                Confirm PreOrders
+                <Truck className="h-3 w-3 mr-1" />
+                Link to Vendor
+                <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">
+                  {unlinkedIncoming.length || '!'}
+                </Badge>
               </Button>
             )}
           </div>
@@ -807,9 +1227,25 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev + 1)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => fetchMatrixData(currentPage, searchTerm)}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => fetchMatrixData(currentPage, searchTerm)}
+                    disabled={loading}
+                    className="border-green-500 text-green-600 hover:bg-green-50"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    <span className="ml-1 hidden sm:inline">Refresh</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Refresh Matrix Data</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="h-4 w-4" />
             </Button>
@@ -949,7 +1385,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             </TooltipProvider>
           </div>
 
-          <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1); }}>
+          <Select value={pageSize.toString()} onValueChange={(v) => setPageSize(Number(v))}>
             <SelectTrigger className="w-[80px] h-8">
               <SelectValue />
             </SelectTrigger>
@@ -1051,9 +1487,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 ))}
                 <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-blue-100 ${currentSize.minWidth}`}>TOT</th>
                 <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-green-100 ${currentSize.minWidth}`}>STK</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-purple-100 ${currentSize.minWidth}`}>INC</th>
                 <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-orange-100 ${currentSize.minWidth}`}>PRE</th>
-                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-yellow-100 ${currentSize.minWidth}`}>REQ</th>
-                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-purple-100 ${currentSize.minWidth}`}>PUR</th>
+                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-cyan-100 ${currentSize.minWidth} font-bold`}>FIN</th>
                 <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-center border bg-gray-200 ${currentSize.minWidth}`}>ST</th>
               </tr>
             </thead>
@@ -1063,10 +1499,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 const rowOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0) as number;
                 const rowPreOrderTotal = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0) as number;
                 const rowPendingReq = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0) as number;
-                const status = (row.totalPurchase || 0) >= rowPendingReq ? "OK" : "NEED";
+                const rowIncoming = row.incomingStock || 0;
+                const rowFinal = row.finalStock ?? ((row.totalStock || 0) + rowIncoming - rowPreOrderTotal);
+                const isShort = rowFinal < 0;
+                const status = isShort ? "SHORT" : (row.incomingAllLinked === false ? "LINK" : "OK");
                 
                 return (
-                  <tr key={row.productId} className="hover:bg-gray-50">
+                  <tr key={row.productId} className={`hover:bg-gray-50 ${isShort ? 'bg-red-50' : ''}`}>
                     <td className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-white sticky left-0 z-5 font-medium truncate ${currentSize.productWidth}`} title={row.productName}>
                       {row.productName}
                     </td>
@@ -1094,10 +1533,41 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                     })}
                     <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-50 font-bold`}>{rowOrderTotal}</td>
                     <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-50`}>{row.totalStock || 0}</td>
+                    {/* Incoming Stock Cell - Editable in INCOMING mode */}
+                    <td 
+                      className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border ${
+                        matrixMode === "INCOMING" ? 'bg-purple-100 cursor-pointer hover:bg-purple-200' : 'bg-purple-50'
+                      } ${row.incomingAllLinked === false ? 'ring-2 ring-yellow-400' : ''}`}
+                      onClick={() => {
+                        if (matrixMode === "INCOMING" && canEdit) {
+                          const newQty = prompt(`Enter incoming quantity for ${row.productName}:`, String(rowIncoming));
+                          if (newQty !== null) {
+                            handleIncomingChange(row.productId, parseInt(newQty) || 0);
+                          }
+                        }
+                      }}
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className={rowIncoming > 0 ? 'font-bold text-purple-700' : 'text-gray-400'}>
+                          {rowIncoming}
+                        </span>
+                        {row.incomingAllLinked === false && rowIncoming > 0 && (
+                          <span className="text-[8px] text-yellow-600">unlinked</span>
+                        )}
+                      </div>
+                    </td>
                     <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-orange-50`}>{rowPreOrderTotal}</td>
-                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-yellow-50`}>{rowPendingReq}</td>
-                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-50`}>{row.totalPurchase || 0}</td>
-                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border font-bold ${status === "OK" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    {/* Final Stock Cell - Highlighted if short */}
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border font-bold ${
+                      isShort ? 'bg-red-200 text-red-700' : 'bg-cyan-50 text-cyan-700'
+                    }`}>
+                      {rowFinal}
+                    </td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border font-bold ${
+                      status === "OK" ? "bg-green-100 text-green-700" : 
+                      status === "LINK" ? "bg-yellow-100 text-yellow-700" : 
+                      "bg-red-100 text-red-700"
+                    }`}>
                       {status}
                     </td>
                   </tr>
@@ -1117,14 +1587,39 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 })}
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-200`}>{totals.orderTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-200`}>{totals.stockTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-200`}>{totals.incomingTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-orange-200`}>{totals.preOrderTotal}</td>
-                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-yellow-200`}>{totals.pendingReqTotal}</td>
-                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-200`}>{totals.purchaseTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border ${totals.finalTotal < 0 ? 'bg-red-200 text-red-700' : 'bg-cyan-200'}`}>{totals.finalTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-gray-200`}>-</td>
               </tr>
             </tfoot>
           </table>
         </div>
+
+        {/* Shortage Warning */}
+        {shortageInfo?.hasShortage && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <span className="text-red-700">
+              <strong>{shortageInfo.shortProductCount}</strong> product(s) are short by total <strong>{shortageInfo.totalShortQuantity}</strong> units
+            </span>
+          </div>
+        )}
+
+        {/* Unlinked Incoming Warning */}
+        {hasUnlinkedIncoming && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <Truck className="h-4 w-4 text-yellow-600" />
+              <span className="text-yellow-700">
+                Some incoming stock is not linked to a vendor. Link before confirming PreOrders.
+              </span>
+            </div>
+            <Button size="sm" variant="outline" onClick={openLinkVendorModal} className="border-yellow-500 text-yellow-700 hover:bg-yellow-100">
+              Link Now
+            </Button>
+          </div>
+        )}
 
         {/* Legend */}
         <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-600 p-2 bg-gray-50 rounded">
@@ -1134,10 +1629,14 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border rounded" /> PreOrder Fulfilled</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-100 border rounded" /> Changed (Order)</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-orange-200 border rounded" /> Changed (PreOrder)</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-purple-100 border rounded" /> Incoming Stock</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-cyan-100 border rounded" /> Final (STK+INC-PRE)</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-red-200 border rounded" /> Short</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-100 border rounded" /> Read Only</span>
           <span className="flex items-center gap-1"><History className="h-3 w-3" /> Prev Week Order</span>
           <span className="flex items-center gap-1"><ClipboardList className="h-3 w-3 text-orange-500" /> PreOrder</span>
           <span className="flex items-center gap-1"><ShoppingCart className="h-3 w-3 text-blue-500" /> Order</span>
+          <span className="flex items-center gap-1"><Truck className="h-3 w-3 text-purple-500" /> Incoming</span>
         </div>
         
         {/* Mode Help */}
@@ -1145,7 +1644,14 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           <span className="font-medium">Mode Guide: </span>
           <span className="text-blue-700">ORDER</span> - Create/edit orders (current week only) | 
           <span className="text-orange-700 ml-1">PREORDER</span> - Create/edit preorders (current & future weeks) | 
+          <span className="text-purple-700 ml-1">INCOMING</span> - Add incoming stock (click INC column) |
           <span className="text-gray-700 ml-1">VIEW</span> - Read-only mode
+        </div>
+        
+        {/* Column Guide */}
+        <div className="mt-1 p-2 bg-gray-50 rounded text-xs text-gray-600">
+          <span className="font-medium">Columns: </span>
+          TOT=Total Orders | STK=Current Stock | INC=Incoming Stock | PRE=PreOrders | FIN=Final (STK+INC-PRE) | ST=Status
         </div>
       </CardContent>
     </Card>
@@ -1171,6 +1677,148 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           </Button>
         </div>
         {matrixContent}
+        
+        {/* Link to Vendor Modal */}
+        <Dialog open={showLinkVendorModal} onOpenChange={setShowLinkVendorModal}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-purple-600" />
+                Link Incoming Stock to Vendor
+              </DialogTitle>
+              <DialogDescription>
+                Select a vendor and set prices for incoming stock items
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex-1 overflow-auto space-y-4">
+              {/* Vendor Selection with Search */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Select Vendor *</label>
+                <div className="relative">
+                  {/* Click to Open Trigger */}
+                  <div 
+                    className="border rounded-lg p-3 cursor-pointer flex items-center justify-between hover:bg-gray-50"
+                    onClick={() => setVendorDropdownOpen(!vendorDropdownOpen)}
+                  >
+                    <span className={selectedVendor ? "text-gray-900" : "text-gray-500"}>
+                      {selectedVendor 
+                        ? vendors.find(v => v._id === selectedVendor)?.name || "Select vendor..."
+                        : "Choose a vendor..."}
+                    </span>
+                    <ChevronRight className={`h-4 w-4 transition-transform ${vendorDropdownOpen ? 'rotate-90' : ''}`} />
+                  </div>
+                  
+                  {/* Dropdown Content */}
+                  {vendorDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-1 border rounded-lg shadow-lg bg-white overflow-hidden">
+                      {/* Search Input */}
+                      <div className="p-2 border-b bg-white">
+                        <Input
+                          placeholder="Search vendors..."
+                          value={vendorSearch}
+                          onChange={(e) => setVendorSearch(e.target.value)}
+                          className="border-2 border-blue-400 focus:border-blue-500"
+                          autoFocus
+                        />
+                      </div>
+                      
+                      {/* Vendor List */}
+                      <div className="max-h-[250px] overflow-auto bg-white">
+                        {/* All Vendors Option */}
+                        <div
+                          className={`p-3 cursor-pointer hover:bg-gray-50 flex items-center gap-2 ${!selectedVendor ? 'bg-gray-100' : ''}`}
+                          onClick={() => { setSelectedVendor(""); setVendorDropdownOpen(false); }}
+                        >
+                          {!selectedVendor && <Check className="h-4 w-4 text-green-600" />}
+                          <span className="font-medium">All Vendors</span>
+                        </div>
+                        
+                        {/* Filtered Vendors */}
+                        {vendors
+                          .filter(vendor => 
+                            !vendorSearch || 
+                            vendor.name?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
+                            vendor.type?.toLowerCase().includes(vendorSearch.toLowerCase())
+                          )
+                          .map(vendor => (
+                            <div
+                              key={vendor._id}
+                              className={`p-3 cursor-pointer hover:bg-gray-50 ${selectedVendor === vendor._id ? 'bg-gray-100' : ''}`}
+                              onClick={() => { setSelectedVendor(vendor._id); setVendorDropdownOpen(false); }}
+                            >
+                              <div className="flex items-start gap-2">
+                                {selectedVendor === vendor._id && <Check className="h-4 w-4 text-green-600 mt-1" />}
+                                <div className={selectedVendor === vendor._id ? '' : 'ml-6'}>
+                                  <p className="font-medium">{vendor.name}</p>
+                                  {vendor.type && <p className="text-sm text-gray-500">{vendor.type}</p>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        
+                        {vendors.filter(v => 
+                          !vendorSearch || 
+                          v.name?.toLowerCase().includes(vendorSearch.toLowerCase())
+                        ).length === 0 && (
+                          <div className="p-3 text-sm text-gray-500 text-center">No vendors found</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Items to Link */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Items to Link ({unlinkedIncoming.length})</label>
+                <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
+                  {unlinkedIncoming.map(item => (
+                    <div key={item.productId} className="p-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{item.productName}</p>
+                        <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-600">Price/unit:</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={linkingPrices[item.productId] || ''}
+                          onChange={(e) => setLinkingPrices(prev => ({
+                            ...prev,
+                            [item.productId]: parseFloat(e.target.value) || 0
+                          }))}
+                          className="w-24 h-8"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setShowLinkVendorModal(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleBulkLinkToVendor}
+                disabled={linkLoading || !selectedVendor}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                {linkLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Truck className="h-4 w-4 mr-2" />
+                )}
+                Link & Create PRI Order
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         
         {/* PreOrder Confirm Modal */}
         <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
@@ -1442,6 +2090,148 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 <CheckCheck className="h-4 w-4 mr-2" />
               )}
               Confirm {selectedPreOrders.size} PreOrders
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Link to Vendor Modal */}
+      <Dialog open={showLinkVendorModal} onOpenChange={setShowLinkVendorModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Truck className="h-5 w-5 text-purple-600" />
+              Link Incoming Stock to Vendor
+            </DialogTitle>
+            <DialogDescription>
+              Select a vendor and set prices for incoming stock items
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto space-y-4">
+            {/* Vendor Selection with Search */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Select Vendor *</label>
+              <div className="relative">
+                {/* Click to Open Trigger */}
+                <div 
+                  className="border rounded-lg p-3 cursor-pointer flex items-center justify-between hover:bg-gray-50"
+                  onClick={() => setVendorDropdownOpen(!vendorDropdownOpen)}
+                >
+                  <span className={selectedVendor ? "text-gray-900" : "text-gray-500"}>
+                    {selectedVendor 
+                      ? vendors.find(v => v._id === selectedVendor)?.name || "Select vendor..."
+                      : "Choose a vendor..."}
+                  </span>
+                  <ChevronRight className={`h-4 w-4 transition-transform ${vendorDropdownOpen ? 'rotate-90' : ''}`} />
+                </div>
+                
+                {/* Dropdown Content */}
+                {vendorDropdownOpen && (
+                  <div className="absolute z-50 w-full mt-1 border rounded-lg shadow-lg bg-white overflow-hidden">
+                    {/* Search Input */}
+                    <div className="p-2 border-b bg-white">
+                      <Input
+                        placeholder="Search vendors..."
+                        value={vendorSearch}
+                        onChange={(e) => setVendorSearch(e.target.value)}
+                        className="border-2 border-blue-400 focus:border-blue-500"
+                        autoFocus
+                      />
+                    </div>
+                    
+                    {/* Vendor List */}
+                    <div className="max-h-[250px] overflow-auto bg-white">
+                      {/* All Vendors Option */}
+                      <div
+                        className={`p-3 cursor-pointer hover:bg-gray-50 flex items-center gap-2 ${!selectedVendor ? 'bg-gray-100' : ''}`}
+                        onClick={() => { setSelectedVendor(""); setVendorDropdownOpen(false); }}
+                      >
+                        {!selectedVendor && <Check className="h-4 w-4 text-green-600" />}
+                        <span className="font-medium">All Vendors</span>
+                      </div>
+                      
+                      {/* Filtered Vendors */}
+                      {vendors
+                        .filter(vendor => 
+                          !vendorSearch || 
+                          vendor.name?.toLowerCase().includes(vendorSearch.toLowerCase()) ||
+                          vendor.type?.toLowerCase().includes(vendorSearch.toLowerCase())
+                        )
+                        .map(vendor => (
+                          <div
+                            key={vendor._id}
+                            className={`p-3 cursor-pointer hover:bg-gray-50 ${selectedVendor === vendor._id ? 'bg-gray-100' : ''}`}
+                            onClick={() => { setSelectedVendor(vendor._id); setVendorDropdownOpen(false); }}
+                          >
+                            <div className="flex items-start gap-2">
+                              {selectedVendor === vendor._id && <Check className="h-4 w-4 text-green-600 mt-1" />}
+                              <div className={selectedVendor === vendor._id ? '' : 'ml-6'}>
+                                <p className="font-medium">{vendor.name}</p>
+                                {vendor.type && <p className="text-sm text-gray-500">{vendor.type}</p>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      
+                      {vendors.filter(v => 
+                        !vendorSearch || 
+                        v.name?.toLowerCase().includes(vendorSearch.toLowerCase())
+                      ).length === 0 && (
+                        <div className="p-3 text-sm text-gray-500 text-center">No vendors found</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Items to Link */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Items to Link ({unlinkedIncoming.length})</label>
+              <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
+                {unlinkedIncoming.map(item => (
+                  <div key={item.productId} className="p-3 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">{item.productName}</p>
+                      <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-600">Price/unit:</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={linkingPrices[item.productId] || ''}
+                        onChange={(e) => setLinkingPrices(prev => ({
+                          ...prev,
+                          [item.productId]: parseFloat(e.target.value) || 0
+                        }))}
+                        className="w-24 h-8"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setShowLinkVendorModal(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleBulkLinkToVendor}
+              disabled={linkLoading || !selectedVendor}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {linkLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Truck className="h-4 w-4 mr-2" />
+              )}
+              Link & Create PRI Order
             </Button>
           </DialogFooter>
         </DialogContent>

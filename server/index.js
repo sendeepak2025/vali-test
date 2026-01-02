@@ -64,6 +64,8 @@ app.use("/api/v1/legal", require("./routes/legalDocumentRoute"))
 app.use("/api/v1/quality-issues", require("./routes/qualityIssueRoute"))
 app.use("/api/v1/adjustments", require("./routes/adjustmentRoute"))
 app.use("/api/v1/expenses", require("./routes/expenseRoute"))
+app.use("/api/v1/incoming-stock", require("./routes/incomingStockRoute"))
+app.use("/api/v1/work-orders", require("./routes/workOrderRoute"))
 
 
 

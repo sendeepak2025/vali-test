@@ -1,6 +1,7 @@
 const PurchaseOrder = require("../models/purchaseModel");
 const Product = require("../models/productModel");
 const Vendor = require('../models/vendorModel'); // adjust path
+const IncomingStock = require("../models/incomingStockModel");
 const { default: mongoose } = require("mongoose");
 const nodemailer = require("nodemailer");
 const { generatePurchaseOrderPDF } = require("../utils/generatePurchaseOrderPDF");
@@ -806,6 +807,25 @@ exports.updateItemQualityStatus = async (req, res) => {
       }
 
       await product.save();
+      
+      // Update IncomingStock status to "received" when QC approves
+      if (!wasApprovedBefore && isApprovedNow) {
+        await IncomingStock.updateMany(
+          { 
+            purchaseOrder: purchaseOrderId,
+            product: productId,
+            status: "linked"
+          },
+          { 
+            $set: { 
+              status: "received",
+              receivedAt: new Date(),
+              receivedQuantity: newItemQuantity
+            }
+          }
+        );
+        console.log(`✅ Updated IncomingStock status to received for product ${productId}`);
+      }
     }
 
     await order.save();

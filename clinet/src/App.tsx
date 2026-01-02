@@ -77,6 +77,7 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import StoreLegalDocuments from "./pages/StoreLegalDocuments";
 import QualityIssues from "./pages/QualityIssues";
 import StoreAccount from "./pages/StoreAccount";
+import WorkOrders from "./pages/WorkOrders";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -407,6 +408,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <UpdatePreOrder />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/work-orders"
+          element={
+            <PrivateRoute>
+              <WorkOrders />
             </PrivateRoute>
           }
         />
