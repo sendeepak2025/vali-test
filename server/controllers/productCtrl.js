@@ -2123,9 +2123,15 @@ const searchProductsCtrl = async (req, res) => {
             ];
         }
         
-        // Add category filter if provided
-        if (category && category !== "all") {
-            query.category = category;
+        // Add category filter if provided - need to find category by name first
+        if (category && category !== "all" && category !== "") {
+            const categoryModel = require("../models/categoryModel");
+            const categoryDoc = await categoryModel.findOne({ 
+                categoryName: { $regex: new RegExp(`^${category}$`, "i") }
+            });
+            if (categoryDoc) {
+                query.category = categoryDoc._id;
+            }
         }
         
         const products = await productModel.find(query)
@@ -2161,6 +2167,83 @@ const searchProductsCtrl = async (req, res) => {
     }
 };
 
+// Export all products to Excel - optimized for price list
+const exportProductsExcelCtrl = async (req, res) => {
+    try {
+        const XLSX = require('xlsx');
+        
+        // Fetch all products with category - optimized query
+        const products = await productModel.find()
+            .populate({
+                path: "category",
+                select: "categoryName",
+            })
+            .select("_id name shortCode category pricePerBox price aPrice bPrice cPrice restaurantPrice")
+            .sort({ "category.categoryName": 1, name: 1 })
+            .lean();
+        
+        if (!products || products.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No products found"
+            });
+        }
+        
+        // Sort by category name
+        const sortedProducts = products.sort((a, b) => {
+            const catA = (a.category?.categoryName || "Uncategorized").toLowerCase();
+            const catB = (b.category?.categoryName || "Uncategorized").toLowerCase();
+            return catA.localeCompare(catB);
+        });
+        
+        // Create Excel data - same format as frontend
+        const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"];
+        const rows = sortedProducts.map(p => {
+            const basePrice = p.pricePerBox || 0;
+            return [
+                p.name || "",
+                p.shortCode || "",
+                p.category?.categoryName || "",
+                basePrice,
+                (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
+                (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
+                (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
+                (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice,
+            ];
+        });
+        
+        // Create worksheet
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        
+        // Set column widths
+        ws['!cols'] = [
+            { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
+        ];
+        
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Price List");
+        
+        // Generate buffer
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        
+        // Set headers for file download
+        const filename = `price_update_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', buffer.length);
+        
+        return res.send(buffer);
+    } catch (error) {
+        console.error("Error exporting products to Excel:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error exporting products",
+            error: error.message
+        });
+    }
+};
+
 module.exports = { 
     createProductCtrl, 
     getAllProductCtrl, 
@@ -2179,5 +2262,6 @@ module.exports = {
     calculateTripWeight,
     generateShortCodesCtrl,
     getProductByShortCodeCtrl,
-    searchProductsCtrl
+    searchProductsCtrl,
+    exportProductsExcelCtrl
 };

@@ -44,10 +44,11 @@ import {
   updatePriceList,
   deltePriceAPI
 } from "@/services2/operations/priceList"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { getAllProductAPI, searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
 import { priceListEmailMulti } from "@/services2/operations/email"
 import { exportPriceListToPDF } from "@/utils/pdf"
 import SelecteStores from "@/components/inventory/pricelist/SelecteStores"
+import { fetchCategoriesAPI } from "@/services2/operations/category"
 
 // Stats Card Component
 const StatsCard = ({ title, value, subtitle, icon: Icon, color = "blue" }: any) => {
@@ -174,17 +175,22 @@ const PriceListEnhanced = () => {
   const [quickAddInput, setQuickAddInput] = useState("")
   const [quickAddPreview, setQuickAddPreview] = useState<any>(null)
   const [quickAddQuantity, setQuickAddQuantity] = useState(1)
+  const [quickAddLoading, setQuickAddLoading] = useState(false)
   const quickAddRef = useRef<HTMLInputElement>(null)
+  const quickAddSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Product code map for quick lookup
-  const productCodeMap = useMemo(() => {
-    const map = new Map<string, any>()
-    products.forEach((p) => {
-      const code = p.shortCode || ""
-      if (code) map.set(code, p)
-    })
-    return map
-  }, [products])
+  // Product table states for pagination and search
+  const [productTableSearch, setProductTableSearch] = useState("")
+  const [productTableCategory, setProductTableCategory] = useState("all")
+  const [displayedProducts, setDisplayedProducts] = useState<any[]>([])
+  const [hasMoreProducts, setHasMoreProducts] = useState(true)
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
+  const [productSearchLoading, setProductSearchLoading] = useState(false)
+  const [categories, setCategories] = useState<string[]>([])
+  const [downloadingFullList, setDownloadingFullList] = useState(false)
+  const [matchingProducts, setMatchingProducts] = useState(false)
+  const [matchingSummary, setMatchingSummary] = useState<{ total: number; matched: number; zeroPriceCount: number; willAdd: number } | null>(null)
+  const productSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Keyboard shortcut: Focus quick add with /
   useEffect(() => {
@@ -230,16 +236,28 @@ const PriceListEnhanced = () => {
     }
   }
 
-  // Fetch products for template creation
+  // Fetch products for template creation - only 10 initially
   const fetchProducts = async () => {
     try {
-      const response = await getAllProductAPI();
-      if (response) {
-        const updatedProducts = response.map((product: any) => ({
+      const [productsData, categoriesData] = await Promise.all([
+        searchProductsForOrderAPI("", 10),
+        fetchCategoriesAPI()
+      ])
+      
+      if (productsData) {
+        const updatedProducts = productsData.map((product: any) => ({
           ...product,
-          id: product._id,
+          id: product._id || product.id,
         }))
         setProducts(updatedProducts)
+        setDisplayedProducts(updatedProducts)
+        setHasMoreProducts(productsData.length === 10)
+      }
+      
+      // Set categories
+      if (categoriesData) {
+        const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
+        setCategories(categoryNames)
       }
     } catch (error) {
       console.error("Error fetching products:", error)
@@ -629,80 +647,86 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
   }
 
   // Match Excel data with existing products - improved matching
-  const matchExcelToProducts = () => {
+  const matchExcelToProducts = async () => {
     if (!columnMapping.productName && !columnMapping.shortCode) {
       toast({ variant: "destructive", title: "Error", description: "Please select at least Product Name or Short Code column" })
       return
     }
 
-    const matched: any[] = []
-    const allProducts = formData.products.length > 0 ? formData.products : products
+    setMatchingProducts(true)
 
-    excelData.forEach((row) => {
-      const excelName = String(row[columnMapping.productName] || "").toLowerCase().trim()
-      const excelShortCode = columnMapping.shortCode ? String(row[columnMapping.shortCode] || "").trim() : ""
-      
-      if (!excelName && !excelShortCode) return
+    try {
+      // Fetch ALL products from backend for matching
+      const allProductsFromBackend = await getAllProductAPI()
+      const allProducts = formData.products.length > 0 ? formData.products : (allProductsFromBackend || []).map((p: any) => ({ ...p, id: p._id || p.id }))
 
-      // Find matching product - priority: shortCode > exact name > fuzzy name
-      let matchedProduct = null
-      
-      // 1. Try matching by short code first (most accurate)
-      if (excelShortCode) {
-        matchedProduct = allProducts.find((p: any) => {
-          const productCode = String(p.shortCode || "").trim()
-          return productCode && productCode === excelShortCode
-        })
-      }
-      
-      // 2. If no shortCode match, try exact name match
-      if (!matchedProduct && excelName) {
-        matchedProduct = allProducts.find((p: any) => {
-          const productName = (p.name || p.productName || "").toLowerCase().trim()
-          return productName === excelName
-        })
-      }
-      
-      // 3. If still no match, try fuzzy name matching
-      if (!matchedProduct && excelName) {
-        matchedProduct = allProducts.find((p: any) => {
-          const productName = (p.name || p.productName || "").toLowerCase().trim()
-          
-          // Contains match (one contains the other)
-          if (productName.includes(excelName) || excelName.includes(productName)) return true
-          
-          // Word match - at least 2 significant words match
-          const excelWords = excelName.split(/\s+/).filter(w => w.length > 2)
-          const productWords = productName.split(/\s+/).filter(w => w.length > 2)
-          const matchingWords = excelWords.filter(w => 
-            productWords.some(pw => pw.includes(w) || w.includes(pw))
-          )
-          
-          // Match if 2+ words match, or 1 word matches for single-word names
-          return matchingWords.length >= 2 || 
-                 (matchingWords.length === 1 && excelWords.length === 1)
-        })
-      }
+      const matched: any[] = []
 
-      // Parse prices from Excel
-      const basePrice = columnMapping.price ? parseFloat(row[columnMapping.price]) || null : null
-      const aPrice = columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || null : null
-      const bPrice = columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || null : null
-      const cPrice = columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || null : null
-      const restaurantPrice = columnMapping.restaurantPrice ? parseFloat(row[columnMapping.restaurantPrice]) || null : null
+      excelData.forEach((row) => {
+        const excelName = String(row[columnMapping.productName] || "").toLowerCase().trim()
+        const excelShortCode = columnMapping.shortCode ? String(row[columnMapping.shortCode] || "").trim() : ""
+        
+        if (!excelName && !excelShortCode) return
 
-      // Skip products with base price = 0 (remove them from list)
-      if (basePrice === 0) return
+        // Find matching product - priority: shortCode > exact name > fuzzy name
+        let matchedProduct = null
+        
+        // 1. Try matching by short code first (most accurate)
+        if (excelShortCode) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productCode = String(p.shortCode || "").trim()
+            return productCode && productCode === excelShortCode
+          })
+        }
+        
+        // 2. If no shortCode match, try exact name match
+        if (!matchedProduct && excelName) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productName = (p.name || p.productName || "").toLowerCase().trim()
+            return productName === excelName
+          })
+        }
+        
+        // 3. If still no match, try fuzzy name matching
+        if (!matchedProduct && excelName) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productName = (p.name || p.productName || "").toLowerCase().trim()
+            
+            // Contains match (one contains the other)
+            if (productName.includes(excelName) || excelName.includes(productName)) return true
+            
+            // Word match - at least 2 significant words match
+            const excelWords = excelName.split(/\s+/).filter(w => w.length > 2)
+            const productWords = productName.split(/\s+/).filter(w => w.length > 2)
+            const matchingWords = excelWords.filter(w => 
+              productWords.some(pw => pw.includes(w) || w.includes(pw))
+            )
+            
+            // Match if 2+ words match, or 1 word matches for single-word names
+            return matchingWords.length >= 2 || 
+                   (matchingWords.length === 1 && excelWords.length === 1)
+          })
+        }
 
-      // Use base price as default for all tiers if tier price is 0 or not provided
-      const effectiveBasePrice = basePrice
-      const effectiveAPrice = (aPrice !== null && aPrice > 0) ? aPrice : effectiveBasePrice
-      const effectiveBPrice = (bPrice !== null && bPrice > 0) ? bPrice : effectiveBasePrice
-      const effectiveCPrice = (cPrice !== null && cPrice > 0) ? cPrice : effectiveBasePrice
-      const effectiveRestaurantPrice = (restaurantPrice !== null && restaurantPrice > 0) ? restaurantPrice : effectiveBasePrice
+        // Parse prices from Excel
+        const basePrice = columnMapping.price ? parseFloat(row[columnMapping.price]) || null : null
+        const aPrice = columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || null : null
+        const bPrice = columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || null : null
+        const cPrice = columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || null : null
+        const restaurantPrice = columnMapping.restaurantPrice ? parseFloat(row[columnMapping.restaurantPrice]) || null : null
 
-      matched.push({
-        excelName: row[columnMapping.productName] || "",
+        // Skip products with base price = 0 (remove them from list)
+        if (basePrice === 0) return
+
+        // Use base price as default for all tiers if tier price is 0 or not provided
+        const effectiveBasePrice = basePrice
+        const effectiveAPrice = (aPrice !== null && aPrice > 0) ? aPrice : effectiveBasePrice
+        const effectiveBPrice = (bPrice !== null && bPrice > 0) ? bPrice : effectiveBasePrice
+        const effectiveCPrice = (cPrice !== null && cPrice > 0) ? cPrice : effectiveBasePrice
+        const effectiveRestaurantPrice = (restaurantPrice !== null && restaurantPrice > 0) ? restaurantPrice : effectiveBasePrice
+
+        matched.push({
+          excelName: row[columnMapping.productName] || "",
         excelShortCode: excelShortCode,
         excelPrice: effectiveBasePrice,
         excelAPrice: effectiveAPrice,
@@ -719,10 +743,24 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setUploadStep("preview")
     
     const matchCount = matched.filter(m => m.isMatched).length
-    toast({ 
-      title: "Matching Complete", 
-      description: `Matched ${matchCount} of ${matched.length} products` 
+    const zeroPriceCount = matched.filter(m => m.isMatched && (!m.excelPrice || m.excelPrice === 0)).length
+    const willBeAdded = matchCount - zeroPriceCount
+    
+    // Set summary for display in modal
+    setMatchingSummary({
+      total: matched.length,
+      matched: matchCount,
+      zeroPriceCount: zeroPriceCount,
+      willAdd: willBeAdded
     })
+    
+    toast({ title: "Matching Complete", description: `${matchCount} products matched` })
+    } catch (error) {
+      console.error("Error matching products:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to match products" })
+    } finally {
+      setMatchingProducts(false)
+    }
   }
 
   // Apply Excel prices to products
@@ -906,6 +944,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setExcelCategoryFilter("all")
     setExcelBulkPercent("")
     setSelectedExcelRows([])
+    setMatchingSummary(null)
   }
 
   // Download sample Excel template - with actual products
@@ -974,48 +1013,38 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     }
   }
 
-  // Download full product list for price update
-  const downloadFullProductList = () => {
-    if (products.length === 0) {
-      toast({ variant: "destructive", title: "Error", description: "No products available to export" })
-      return
+  // Download full product list for price update - using backend API
+  const downloadFullProductList = async () => {
+    setDownloadingFullList(true)
+    try {
+      const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/product/export-excel`, {
+        method: 'GET',
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to download')
+      }
+      
+      // Get the blob from response
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `price_update_${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      toast({ title: "Downloaded", description: "Full product list downloaded successfully" })
+    } catch (error) {
+      console.error("Error downloading full product list:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to download product list" })
+    } finally {
+      setDownloadingFullList(false)
     }
-    
-    // Sort products by category name
-    const sortedProducts = [...products].sort((a: any, b: any) => {
-      const catA = (a.category?.categoryName || a.category || "Uncategorized").toLowerCase()
-      const catB = (b.category?.categoryName || b.category || "Uncategorized").toLowerCase()
-      return catA.localeCompare(catB)
-    })
-    
-    const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"]
-    const rows = sortedProducts.map((p: any) => {
-      const basePrice = p.pricePerBox || 0
-      return [
-        p.name || p.productName || "",
-        p.shortCode || "",
-        p.category?.categoryName || p.category || "",
-        basePrice,
-        (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
-        (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
-        (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
-        (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice,
-      ]
-    })
-    
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    
-    // Set column widths - same as Sample Template
-    ws['!cols'] = [
-      { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
-    ]
-    
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Price List")
-    
-    XLSX.writeFile(wb, `price_update_${new Date().toISOString().slice(0,10)}.xlsx`)
-    
-    toast({ title: "Downloaded", description: `Full product list with ${sortedProducts.length} products downloaded` })
   }
 
   // Quick Price Update - Parse input and update price
@@ -1108,17 +1137,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     toast({ title: "Undone", description: `Reverted ${last.code} ${last.field} to $${last.oldPrice.toFixed(2)}` })
   }
 
-  // Search product by name
-  const searchProductByName = (searchTerm: string): any | null => {
-    const term = searchTerm.toLowerCase()
-    const found = products.find(p => 
-      p.name?.toLowerCase().includes(term) ||
-      p.shortCode?.toLowerCase().includes(term)
-    )
-    return found || null
-  }
-
-  // Quick Add - Handle input change and show preview
+  // Quick Add - Handle input change and show preview (backend search)
   const handleQuickAddChange = (value: string) => {
     setQuickAddInput(value)
     const trimmedValue = value.trim()
@@ -1128,23 +1147,45 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       return
     }
     
-    // Check if input is numeric (product code) or text (product name)
-    const isNumeric = /^\d+$/.test(trimmedValue)
-    
-    if (isNumeric) {
-      // Search by product code
-      const code = trimmedValue.padStart(2, '0')
-      const product = productCodeMap.get(code)
-      if (product) {
-        setQuickAddPreview(product)
-      } else {
-        setQuickAddPreview(null)
-      }
-    } else {
-      // Search by product name
-      const foundProduct = searchProductByName(trimmedValue)
-      setQuickAddPreview(foundProduct)
+    // Clear previous timeout
+    if (quickAddSearchTimeoutRef.current) {
+      clearTimeout(quickAddSearchTimeoutRef.current)
     }
+    
+    // Debounce backend search
+    quickAddSearchTimeoutRef.current = setTimeout(async () => {
+      setQuickAddLoading(true)
+      try {
+        let product = null
+        
+        // Check if input is numeric (product code) or text (product name)
+        const isNumeric = /^\d+$/.test(trimmedValue)
+        
+        if (isNumeric) {
+          // Search by product code from backend
+          const code = trimmedValue.padStart(2, '0')
+          product = await getProductByShortCodeAPI(code)
+          if (product) {
+            product = { ...product, id: product._id || product.id }
+          }
+        }
+        
+        if (!product && trimmedValue) {
+          // Search by name from backend
+          const results = await searchProductsForOrderAPI(trimmedValue, 1)
+          if (results.length > 0) {
+            product = { ...results[0], id: results[0]._id || results[0].id }
+          }
+        }
+        
+        setQuickAddPreview(product)
+      } catch (error) {
+        console.error("Error searching product:", error)
+        setQuickAddPreview(null)
+      } finally {
+        setQuickAddLoading(false)
+      }
+    }, 300)
   }
 
   // Quick Add - Add product to price list
@@ -1181,6 +1222,101 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     if (e.key === "Enter") {
       e.preventDefault()
       handleQuickAddProduct()
+    }
+  }
+
+  // Product table search with debounce
+  const handleProductTableSearch = (value: string) => {
+    setProductTableSearch(value)
+    setHasMoreProducts(true)
+    
+    // Clear previous timeout
+    if (productSearchTimeoutRef.current) {
+      clearTimeout(productSearchTimeoutRef.current)
+    }
+    
+    // Debounce search
+    productSearchTimeoutRef.current = setTimeout(async () => {
+      setProductSearchLoading(true)
+      try {
+        const results = await searchProductsForOrderAPI(value, 10, productTableCategory === "all" ? "" : productTableCategory)
+        const updatedProducts = results.map((product: any) => ({
+          ...product,
+          id: product._id || product.id,
+        }))
+        setProducts(updatedProducts)
+        setDisplayedProducts(updatedProducts)
+        setHasMoreProducts(results.length === 10)
+      } catch (error) {
+        console.error("Error searching products:", error)
+      } finally {
+        setProductSearchLoading(false)
+      }
+    }, 300)
+  }
+
+  // Product table category change
+  const handleProductTableCategoryChange = async (category: string) => {
+    setProductTableCategory(category)
+    setHasMoreProducts(true)
+    setProductSearchLoading(true)
+    try {
+      const results = await searchProductsForOrderAPI(productTableSearch, 10, category === "all" ? "" : category)
+      const updatedProducts = results.map((product: any) => ({
+        ...product,
+        id: product._id || product.id,
+      }))
+      setProducts(updatedProducts)
+      setDisplayedProducts(updatedProducts)
+      setHasMoreProducts(results.length === 10)
+    } catch (error) {
+      console.error("Error fetching products by category:", error)
+    } finally {
+      setProductSearchLoading(false)
+    }
+  }
+
+  // Load more products (infinite scroll)
+  const loadMoreProductsForTable = async () => {
+    if (loadingMoreProducts || !hasMoreProducts) return
+    
+    setLoadingMoreProducts(true)
+    try {
+      const skip = displayedProducts.length
+      const results = await searchProductsForOrderAPI(
+        productTableSearch, 
+        10, 
+        productTableCategory === "all" ? "" : productTableCategory,
+        skip
+      )
+      
+      if (results.length > 0) {
+        const updatedProducts = results.map((product: any) => ({
+          ...product,
+          id: product._id || product.id,
+        }))
+        setDisplayedProducts(prev => [...prev, ...updatedProducts])
+        setProducts(prev => [...prev, ...updatedProducts])
+      }
+      
+      if (results.length < 10) {
+        setHasMoreProducts(false)
+      }
+    } catch (error) {
+      console.error("Error loading more products:", error)
+    } finally {
+      setLoadingMoreProducts(false)
+    }
+  }
+
+  // Handle scroll in product table
+  const handleProductTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    
+    if (scrollHeight - scrollTop <= clientHeight + 100) {
+      if (hasMoreProducts && !loadingMoreProducts) {
+        loadMoreProductsForTable()
+      }
     }
   }
 
@@ -1449,8 +1585,11 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                         onKeyDown={handleQuickAddKeyDown}
                         className="pl-8 text-lg font-mono bg-white"
                       />
+                      {quickAddLoading && (
+                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
                     </div>
-                    <Button onClick={handleQuickAddProduct} disabled={!quickAddPreview}>
+                    <Button onClick={handleQuickAddProduct} disabled={!quickAddPreview || quickAddLoading}>
                       <Plus className="h-4 w-4 mr-1" /> Add
                     </Button>
                   </div>
@@ -1471,7 +1610,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                     </div>
                   )}
                   
-                  {quickAddInput && !quickAddPreview && (
+                  {quickAddInput && !quickAddPreview && !quickAddLoading && (
                     <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 text-red-600 text-sm">
                       No product found with "{quickAddInput}"
                     </div>
@@ -1481,8 +1620,23 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
               {/* Quick Actions */}
               <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
-                <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: products }))}>
+                <Button variant="outline" size="sm" onClick={async () => {
+                  try {
+                    toast({ title: "Loading...", description: "Fetching all products" })
+                    const allProducts = await getAllProductAPI()
+                    if (allProducts) {
+                      const formattedProducts = allProducts.map((p: any) => ({ ...p, id: p._id || p.id }))
+                      setFormData(prev => ({ ...prev, products: formattedProducts }))
+                      toast({ title: "Added", description: `${formattedProducts.length} products added` })
+                    }
+                  } catch (error) {
+                    toast({ variant: "destructive", title: "Error", description: "Failed to fetch products" })
+                  }
+                }}>
                   <Plus className="h-4 w-4 mr-1" /> Select All Products
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: [...prev.products, ...displayedProducts.filter(p => !prev.products.some(fp => fp.id === p.id))] }))}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Displayed ({displayedProducts.length})
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: [] }))}>
                   Clear All
@@ -1495,10 +1649,43 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                 </Button>
               </div>
 
-              {/* Product Selection */}
+              {/* Product Selection with Search and Category Filter */}
               <div className="space-y-2">
-                <Label>Select Products ({formData.products.length} selected)</Label>
-                <ScrollArea className="h-[280px] border rounded-md">
+                <div className="flex items-center justify-between">
+                  <Label>Select Products ({formData.products.length} selected)</Label>
+                  <Badge variant="outline" className="text-xs">
+                    {displayedProducts.length} products {hasMoreProducts && "(scroll for more)"}
+                  </Badge>
+                </div>
+                
+                {/* Search and Category Filter */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search products..."
+                      value={productTableSearch}
+                      onChange={(e) => handleProductTableSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                    {productSearchLoading && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  <Select value={productTableCategory} onValueChange={handleProductTableCategoryChange}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="All Categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map(cat => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <ScrollArea className="h-[280px] border rounded-md" onScrollCapture={handleProductTableScroll}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1509,7 +1696,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {products.map((product) => {
+                      {displayedProducts.map((product) => {
                         const isSelected = formData.products.some(p => p.id === product.id)
                         return (
                           <TableRow key={product.id} className={isSelected ? "bg-blue-50" : ""}>
@@ -1537,6 +1724,31 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                           </TableRow>
                         )
                       })}
+                      {/* Loading more indicator */}
+                      {loadingMoreProducts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-4">
+                            <Loader2 className="h-5 w-5 mx-auto animate-spin text-blue-600" />
+                            <p className="text-sm text-muted-foreground mt-1">Loading more products...</p>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {/* No products found */}
+                      {displayedProducts.length === 0 && !productSearchLoading && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                            No products found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {/* All products loaded */}
+                      {displayedProducts.length > 0 && !hasMoreProducts && !loadingMoreProducts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-2 text-muted-foreground text-xs">
+                            All products loaded ({displayedProducts.length} total)
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </ScrollArea>
@@ -1956,8 +2168,16 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                 <Button variant="outline" onClick={downloadSampleExcel} className="w-full">
                   <Download className="h-4 w-4 mr-2" /> Sample Template
                 </Button>
-                <Button variant="outline" onClick={downloadFullProductList} className="w-full text-blue-600">
-                  <FileSpreadsheet className="h-4 w-4 mr-2" /> Full Product List
+                <Button variant="outline" onClick={downloadFullProductList} disabled={downloadingFullList} className="w-full text-blue-600">
+                  {downloadingFullList ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Downloading...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-4 w-4 mr-2" /> Full Product List
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -2114,6 +2334,21 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
           {/* Step 3: Preview Matches */}
           {uploadStep === "preview" && (
             <div className="space-y-4 py-4">
+              {/* Summary Banner */}
+              {matchingSummary && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="font-medium text-blue-900">Summary:</span>
+                      <span className="text-blue-700">Total: <strong>{matchingSummary.total}</strong></span>
+                      <span className="text-green-700">Matched: <strong>{matchingSummary.matched}</strong></span>
+                      <span className="text-red-700">Price 0 (won't add): <strong>{matchingSummary.zeroPriceCount}</strong></span>
+                      <span className="text-blue-900 font-semibold">Will Add: <strong>{matchingSummary.willAdd}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {/* Stats Row */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
@@ -2351,8 +2586,14 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
             <Button variant="outline" onClick={resetExcelUpload}>Cancel</Button>
             
             {uploadStep === "mapping" && (
-              <Button onClick={matchExcelToProducts} disabled={!columnMapping.productName}>
-                Match Products
+              <Button onClick={matchExcelToProducts} disabled={!columnMapping.productName || matchingProducts}>
+                {matchingProducts ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Matching...
+                  </>
+                ) : (
+                  "Match Products"
+                )}
               </Button>
             )}
             

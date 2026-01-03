@@ -60,6 +60,7 @@ export const product = {
   GET_ALL_PRODUCT_SUMMARY: BASE_URL + "/product/getAllSummary",
   SEARCH_PRODUCTS: BASE_URL + "/product/getAllSummary",
   SEARCH_PRODUCTS_ORDER: BASE_URL + "/product/search",
+  EXPORT_PRODUCTS_EXCEL: BASE_URL + "/product/export-excel",
   GET_PRODUCT: BASE_URL + "/product/get",
   UPDATE_PRODUCT: BASE_URL + "/product/update",
   GET_PRODUCT_ORDER: BASE_URL + "/product/get-order",

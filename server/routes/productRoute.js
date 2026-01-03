@@ -19,7 +19,8 @@ const {
   calculateTripWeight,
   generateShortCodesCtrl,
   getProductByShortCodeCtrl,
-  searchProductsCtrl
+  searchProductsCtrl,
+  exportProductsExcelCtrl
 } = require("../controllers/productCtrl");
 const router = express.Router();
 
@@ -43,6 +44,7 @@ router.get('/reset-history/:productId', resetAndRebuildHistoryForSingleProductCt
 router.post("/generate-short-codes", generateShortCodesCtrl);
 router.get("/by-code/:code", getProductByShortCodeCtrl);
 router.get("/search", searchProductsCtrl);
+router.get("/export-excel", exportProductsExcelCtrl);
 
 router.post("/calculate-weight", calculateTripWeight);
 
