@@ -3078,10 +3078,10 @@ const getEnhancedDashboardData = async (req, res) => {
 // Get Order Matrix Data - Store wise product orders with previous purchase history
 const getOrderMatrixDataCtrl = async (req, res) => {
   try {
-    const { weekOffset = 0, page = 1, limit = 50, search = "" } = req.query;
+    const { weekOffset = 0, page = 1, limit = 25, search = "" } = req.query;
     const offset = parseInt(weekOffset) || 0;
     const currentPage = parseInt(page) || 1;
-    const pageLimit = Math.min(parseInt(limit) || 50, 100); // Max 100 products per page
+    const pageLimit = Math.min(parseInt(limit) || 25, 100); // Max 100 products per page
     const skip = (currentPage - 1) * pageLimit;
 
     // Calculate week range for the TARGET week (based on offset)
@@ -3098,54 +3098,69 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
     // console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
 
-    // Get all orders for TARGET week (only Regular orders)
-    const currentWeekOrders = await orderModel.find({
-      createdAt: { $gte: monday, $lte: sunday },
-      isDelete: { $ne: true },
-      orderType: "Regural"
-    }).populate("store", "storeName ownerName city state").lean();
+    // Build product query with search (needed for parallel execution)
+    const productQuery = {};
+    if (search) {
+      productQuery.name = { $regex: search, $options: "i" };
+    }
 
-    // Get all orders for PREVIOUS week (relative to target) (only Regular orders)
-    const previousWeekOrders = await orderModel.find({
-      createdAt: { $gte: prevMonday, $lte: prevSunday },
-      isDelete: { $ne: true },
-      orderType: "Regural"
-    }).lean();
+    // ✅ OPTIMIZED: Run all independent queries in parallel using Promise.all
+    const [
+      currentWeekOrders,
+      previousWeekOrders,
+      preOrders,
+      incomingStockData,
+      totalProducts,
+      products,
+      stores
+    ] = await Promise.all([
+      // Get all orders for TARGET week (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).populate("store", "storeName ownerName city state").lean(),
 
-    // Get PreOrders for the TARGET week
-    // Priority: expectedDeliveryDate within target week, OR createdAt within target week if no expectedDeliveryDate
-    const preOrders = await PreOrderModel.find({
-      $or: [
-        // PreOrders with expectedDeliveryDate in target week
-        { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
-        // PreOrders created in target week without expectedDeliveryDate
-        { 
-          createdAt: { $gte: monday, $lte: sunday },
-          expectedDeliveryDate: { $exists: false }
-        },
-        // PreOrders created in target week with null expectedDeliveryDate
-        { 
-          createdAt: { $gte: monday, $lte: sunday },
-          expectedDeliveryDate: null
-        }
-      ],
-      confirmed: { $ne: true },
-      isDelete: { $ne: true },
-      status: "pending"
-    }).populate("store", "storeName ownerName city state").lean();
+      // Get all orders for PREVIOUS week (relative to target) (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: prevMonday, $lte: prevSunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+
+      // Get PreOrders for the TARGET week
+      PreOrderModel.find({
+        $or: [
+          { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: { $exists: false } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: null }
+        ],
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).populate("store", "storeName ownerName city state").lean(),
+
+      // Get Incoming Stock for TARGET week
+      IncomingStock.find({
+        weekStart: monday,
+        weekEnd: sunday,
+        status: { $in: ["draft", "linked"] }
+      }).populate("vendor", "name").lean(),
+
+      // Get total count for pagination
+      Product.countDocuments(productQuery),
+
+      // Get paginated products
+      Product.find(productQuery).sort({ name: 1 }).skip(skip).limit(pageLimit).lean(),
+
+      // Get all stores
+      authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean()
+    ]);
     
-    console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
+    // console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
+    // console.log(`Matrix - Found ${incomingStockData.length} Incoming Stock entries for target week`);
 
-    // Get Incoming Stock for TARGET week
-    // Include "draft" and "linked" - "received" items are waiting for QC approval
-    // Stock is only adjusted after QC approval in Purchase Order
-    const incomingStockData = await IncomingStock.find({
-      weekStart: monday,
-      weekEnd: sunday,
-      status: { $in: ["draft", "linked"] }
-    }).populate("vendor", "name").lean();
-
-    console.log(`Matrix - Found ${incomingStockData.length} Incoming Stock entries for target week`);
+    const totalPages = Math.ceil(totalProducts / pageLimit);
 
     // Group incoming stock by product
     const incomingByProduct = {};
@@ -3176,26 +3191,6 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         incomingByProduct[productId].allLinked = false;
       }
     });
-
-    // Build product query with search
-    const productQuery = {};
-    if (search) {
-      productQuery.name = { $regex: search, $options: "i" };
-    }
-
-    // Get total count for pagination
-    const totalProducts = await Product.countDocuments(productQuery);
-    const totalPages = Math.ceil(totalProducts / pageLimit);
-
-    // Get paginated products
-    const products = await Product.find(productQuery)
-      .sort({ name: 1 })
-      .skip(skip)
-      .limit(pageLimit)
-      .lean();
-
-    // Get all stores - include priceCategory for pricing
-    const stores = await authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean();
 
     // Build matrix data
     const matrixData = {};
@@ -3374,10 +3369,10 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         totalShortQuantity += Math.abs(finalStock);
       }
       
-      // Debug log for stock calculation
-      if (currentStock > 0 || incomingStock > 0 || preOrderTotal > 0) {
-        console.log(`Stock calc for ${product.name}: Current=${currentStock}, Incoming=${incomingStock}, PreOrder=${preOrderTotal}, Final=${finalStock}, Short=${isShort}`);
-      }
+      // // Debug log for stock calculation
+      // if (currentStock > 0 || incomingStock > 0 || preOrderTotal > 0) {
+      //   console.log(`Stock calc for ${product.name}: Current=${currentStock}, Incoming=${incomingStock}, PreOrder=${preOrderTotal}, Final=${finalStock}, Short=${isShort}`);
+      // }
     }
 
     // Convert to array format

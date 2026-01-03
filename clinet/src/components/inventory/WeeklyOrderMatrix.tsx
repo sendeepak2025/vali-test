@@ -274,6 +274,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [sizePreset, setSizePreset] = useState<SizePreset>("normal");
   const currentSize = sizeConfig[sizePreset];
   
+  // Product column resizable width
+  const [productColWidth, setProductColWidth] = useState(180);
+  const [isResizing, setIsResizing] = useState(false);
+  
   // Store filter - show only stores with orders/preorders
   const [showOnlyActiveStores, setShowOnlyActiveStores] = useState(true); // Default to true
   
@@ -285,7 +289,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(25);
   
   // Smart filtering
   const [showOnlyWithOrders, setShowOnlyWithOrders] = useState(false);
@@ -413,6 +417,28 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isMaximized]);
+
+  // Handle product column resize
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = productColWidth;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.max(60, Math.min(400, startWidth + (e.clientX - startX)));
+      setProductColWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [productColWidth]);
 
   // Prevent body scroll when maximized
   useEffect(() => {
@@ -1470,9 +1496,19 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         {/* Matrix Table */}
         <div ref={containerRef} className={`overflow-auto border rounded-lg ${isMaximized ? 'max-h-[calc(100vh-350px)]' : 'max-h-[600px]'}`}>
           <table className={`w-full ${currentSize.fontSize} border-collapse`}>
-            <thead className="sticky top-0 z-10 bg-gray-100">
+            <thead className="sticky top-0 z-30 bg-gray-100">
               <tr>
-                <th className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-left border bg-gray-200 sticky left-0 z-20 ${currentSize.productWidth}`}>PRODUCT</th>
+                <th 
+                  className={`${currentSize.cellPadding} ${currentSize.headerFontSize} text-left border bg-gray-200 sticky left-0 z-40 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] relative`}
+                  style={{ width: productColWidth, minWidth: productColWidth, maxWidth: productColWidth }}
+                >
+                  PRODUCT
+                  <div
+                    className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500 active:bg-blue-600"
+                    onMouseDown={handleResizeStart}
+                    style={{ userSelect: 'none' }}
+                  />
+                </th>
                 {visibleStores.map(store => (
                   <TooltipProvider key={store._id}>
                     <Tooltip>
@@ -1509,7 +1545,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 
                 return (
                   <tr key={row.productId} className={`hover:bg-gray-50 ${isShort ? 'bg-red-50' : ''}`}>
-                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-white sticky left-0 z-5 font-medium truncate ${currentSize.productWidth}`} title={row.productName}>
+                    <td 
+                      className={`${currentSize.cellPadding} ${currentSize.fontSize} border sticky left-0 z-20 font-medium truncate ${isShort ? 'bg-red-50' : 'bg-white'} shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`} 
+                      style={{ width: productColWidth, minWidth: productColWidth, maxWidth: productColWidth }}
+                      title={row.productName}
+                    >
                       {row.productName}
                     </td>
                     {visibleStores.map(store => {
@@ -1577,9 +1617,14 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 );
               })}
             </tbody>
-            <tfoot className="sticky bottom-0 bg-gray-100 font-bold">
+            <tfoot className="sticky bottom-0 z-30 bg-gray-100 font-bold">
               <tr>
-                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-gray-200 sticky left-0`}>TOTAL</td>
+                <td 
+                  className={`${currentSize.cellPadding} ${currentSize.fontSize} border bg-gray-200 sticky left-0 z-40 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]`}
+                  style={{ width: productColWidth, minWidth: productColWidth, maxWidth: productColWidth }}
+                >
+                  TOTAL
+                </td>
                 {visibleStores.map(store => {
                   const storeTotal = matrixData.reduce((sum, row) => sum + (row.storeOrders?.[store._id]?.currentQty || 0), 0);
                   return (
