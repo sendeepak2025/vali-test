@@ -130,7 +130,9 @@ const VendorManagementContent = () => {
   const [poLoading, setPoLoading] = useState(false)
   const [poSummary, setPoSummary] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize] = useState(50)
+  const [pageSize] = useState(25)
+  const [totalPOPages, setTotalPOPages] = useState(1)
+  const [totalPOCount, setTotalPOCount] = useState(0)
 
   // Payment Modal state
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -544,6 +546,8 @@ const VendorManagementContent = () => {
         }))
         setPurchaseOrders(transformed)
         setPoSummary(res.summary)
+        setTotalPOPages(res.totalPages || 1)
+        setTotalPOCount(res.totalOrders || 0)
       }
     } catch (error) {
       console.error("Error fetching purchase orders:", error)
@@ -612,6 +616,11 @@ const VendorManagementContent = () => {
     }, 500)
     return () => clearTimeout(timer)
   }, [invoiceSearch, invoiceStatusFilter, invoiceVendorFilter])
+
+  // Reset page when PO filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [poSearch, poPaymentFilter, startDate, endDate])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -2007,7 +2016,7 @@ const VendorManagementContent = () => {
           </TabsTrigger>
           <TabsTrigger value="purchases" className="flex items-center gap-2">
             <Package className="h-4 w-4" />
-            Purchase Orders ({purchaseOrders.length})
+            Purchase Orders ({totalPOCount})
           </TabsTrigger>
           <TabsTrigger value="invoices" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
@@ -2594,6 +2603,59 @@ const VendorManagementContent = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination Controls */}
+              {totalPOCount > 0 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, totalPOCount)} of {totalPOCount} orders
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1 || poLoading}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, totalPOPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (totalPOPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPOPages - 2) {
+                          pageNum = totalPOPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            className="w-8 h-8 p-0"
+                            onClick={() => setCurrentPage(pageNum)}
+                            disabled={poLoading}
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPOPages, prev + 1))}
+                      disabled={currentPage === totalPOPages || poLoading}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
