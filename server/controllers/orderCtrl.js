@@ -539,7 +539,7 @@ const getAllOrderCtrl = async (req, res) => {
 
     // Step 1: filterStage applies BEFORE $lookup
     const filterStage = {
-      isDelete: { $ne: true }
+      
     };
 
     // Filter by store
