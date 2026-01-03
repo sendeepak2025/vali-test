@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { ArrowLeft, Save, Plus, Trash, Package, DollarSign, Calendar, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -13,15 +13,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { formatCurrency } from "@/utils/formatters"
 import { VendorSelect } from "@/components/ui/vendor-select"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI } from "@/services2/operations/product"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { getSinglePurchaseOrderAPI, updatePurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import Sidebar from "@/components/layout/Sidebar"
+import AsyncSelect from "react-select/async"
 
 type SalesMode = "case" | "unit" | "both";
 
 interface PurchaseItemForm {
   productId: string
+  productName?: string
   quantity: number
   unitPrice: number
   totalPrice: number
@@ -61,10 +63,30 @@ const EditPurchaseOrderForm = () => {
 
   const [totalAmount, setTotalAmount] = useState(0)
   const [totalUnitType, setTotalUnitType] = useState(0)
-  const [products, setProducts] = useState([])
+  const [products, setProducts] = useState<any[]>([])
   const [vendors, setVendors] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // Load products for async select - backend search
+  const loadProductOptions = useCallback(async (inputValue: string) => {
+    try {
+      const results = await searchProductsForOrderAPI(inputValue, 20)
+      return results.map((product: any) => ({
+        value: product._id || product.id,
+        label: product.name,
+        pricePerBox: Number(product.pricePerBox || 0),
+        price: Number(product.price || 0),
+        shippinCost: Number(product.shippinCost || 0),
+        unit: product.unit || "lbs",
+        salesMode: product.salesMode || "both",
+        product: product
+      }))
+    } catch (error) {
+      console.error("Error loading products:", error)
+      return []
+    }
+  }, [])
 
   // Fetch purchase order data
   useEffect(() => {
@@ -80,9 +102,10 @@ const EditPurchaseOrderForm = () => {
           setDeliveryDate(response.deliveryDate ? new Date(response.deliveryDate).toISOString().split("T")[0] : "")
           setNotes(response.notes || "")
 
-          // Format items with totalWeight calculation
-          const formattedItems = response.items.map((item) => ({
+          // Format items with totalWeight calculation and product names
+          const formattedItems = response.items.map((item: any) => ({
             productId: item.productId?._id || item.productId,
+            productName: item.productId?.name || item.productName || "",
             quantity: item.quantity || 0,
             unitPrice: item.unitPrice || 0,
             qualityStatus: item.qualityStatus,
@@ -94,6 +117,15 @@ const EditPurchaseOrderForm = () => {
 
           setItems(formattedItems)
           setTotalAmount(response.totalAmount || 0)
+          
+          // Cache products from items for unit type lookup
+          const productsFromItems = response.items
+            .filter((item: any) => item.productId && typeof item.productId === 'object')
+            .map((item: any) => ({
+              ...item.productId,
+              id: item.productId._id,
+            }))
+          setProducts(productsFromItems)
         }
       } catch (error) {
         console.error("Error fetching purchase order:", error)
@@ -112,35 +144,25 @@ const EditPurchaseOrderForm = () => {
     }
   }, [id, toast])
 
-  // Fetch products and vendors
+  // Fetch vendors
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchVendors = async () => {
       try {
-        const [productsResponse, vendorsResponse] = await Promise.all([getAllProductAPI(), getAllVendorsAPI()])
-
-        if (productsResponse) {
-          const updatedProducts = productsResponse.map((product) => ({
-            ...product,
-            id: product._id,
-            price: product.pricePerBox,
-            lastUpdated: product?.updatedAt,
-          }))
-          setProducts(updatedProducts)
-        }
+        const vendorsResponse = await getAllVendorsAPI()
 
         if (vendorsResponse?.data) {
-          const formattedData = vendorsResponse.data.map((vendor) => ({
+          const formattedData = vendorsResponse.data.map((vendor: any) => ({
             ...vendor,
             id: vendor._id,
           }))
           setVendors(formattedData)
         }
       } catch (error) {
-        console.error("Error fetching data:", error)
+        console.error("Error fetching vendors:", error)
       }
     }
 
-    fetchData()
+    fetchVendors()
   }, [])
 
   // Calculate total amount and weight whenever items change
@@ -171,19 +193,20 @@ const EditPurchaseOrderForm = () => {
     return { min: 0.01, step: 0.01, allowDecimals: true }
   }
 
-  const handleProductChange = (index: number, productId: string) => {
-    const product = products.find((p) => p.id === productId)
-    if (!product) return
+  const handleProductChange = (index: number, selectedOption: any) => {
+    if (!selectedOption) return
 
-    const salesMode = (product.salesMode as SalesMode) || "both"
+    const productId = selectedOption.value
+    const salesMode = (selectedOption.salesMode as SalesMode) || "both"
     const allowedTypes = getAllowedPricingTypes(salesMode)
     const pricingType = allowedTypes.default
-    const price = pricingType === "unit" ? product.price : product.pricePerBox
+    const price = pricingType === "unit" ? selectedOption.price : selectedOption.pricePerBox
 
     const updatedItems = [...items]
     updatedItems[index] = {
       ...updatedItems[index],
       productId,
+      productName: selectedOption.label,
       unitPrice: price,
       pricingType,
       totalPrice: updatedItems[index].quantity * price,
@@ -191,6 +214,17 @@ const EditPurchaseOrderForm = () => {
     }
 
     setItems(updatedItems)
+    
+    // Cache product for unit type lookup
+    if (selectedOption.product) {
+      setProducts(prev => {
+        const exists = prev.some(p => (p._id || p.id) === productId)
+        if (!exists) {
+          return [...prev, { ...selectedOption.product, id: productId }]
+        }
+        return prev
+      })
+    }
   }
 
   const handlePricingTypeChange = (index: number, pricingType: "box" | "unit") => {
@@ -328,7 +362,7 @@ navigate("/vendors")
   }
 
   const getProductUnitType = (productId: string) => {
-    const product = products.find((p) => p.id === productId)
+    const product = products.find((p) => (p._id || p.id) === productId)
     return product ? product.unit : ""
   }
 
@@ -448,18 +482,25 @@ navigate("/vendors")
                     <div key={index} className="grid grid-cols-12 gap-3 items-end">
                       <div className="col-span-3">
                         <Label htmlFor={`product-${index}`}>Product</Label>
-                        <Select value={item.productId} onValueChange={(value) => handleProductChange(index, value)}>
-                          <SelectTrigger id={`product-${index}`}>
-                            <SelectValue placeholder="Select a product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map((product) => (
-                              <SelectItem key={product.id} value={product.id}>
-                                {product.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <AsyncSelect
+                          cacheOptions
+                          defaultOptions
+                          loadOptions={loadProductOptions}
+                          value={item.productId ? { value: item.productId, label: item.productName || "" } : null}
+                          onChange={(selectedOption) => handleProductChange(index, selectedOption)}
+                          placeholder="Search products..."
+                          noOptionsMessage={({ inputValue }) => 
+                            inputValue ? "No products found" : "Type to search..."
+                          }
+                          isClearable
+                          isDisabled={item.qualityStatus === "approved"}
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              minHeight: '40px',
+                            }),
+                          }}
+                        />
                       </div>
 
                       {/* Pricing Type Selector */}

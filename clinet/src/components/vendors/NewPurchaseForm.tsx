@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { ArrowLeft, Save, Plus, Trash, Package, DollarSign, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -15,12 +15,12 @@ import { formatCurrency } from "@/utils/formatters"
 import { VendorSelect } from "@/components/ui/vendor-select"
 
 import PageHeader from "@/components/shared/PageHeader"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI } from "@/services2/operations/product"
 import { getAllVendorsAPI } from "@/services2/operations/vendor"
 import { createPurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import { useSelector } from "react-redux"
 import type { RootState } from "@/redux/store"
-import Select2 from "react-select";
+import AsyncSelect from "react-select/async";
 import Swal from "sweetalert2";
 
 // Mock vendor pricing data
@@ -65,27 +65,35 @@ const NewPurchaseForm = () => {
   const [totalAmount, setTotalAmount] = useState(0)
   const [totalUnitType, setTotalUnitType] = useState(0)
   const [suggestedVendors, setSuggestedVendors] = useState<string[]>([])
-  const [products, setProducts] = useState([])
+  const [products, setProducts] = useState<any[]>([])
   const [vendors, setVendors] = useState([])
   const token = useSelector((state: RootState) => state.auth?.token ?? null)
 
-  const fetchProducts = async () => {
+  // Load products for async select - backend search
+  const loadProductOptions = useCallback(async (inputValue: string) => {
     try {
-      const response = await getAllProductAPI()
-
-      if (response) {
-        const updatedProducts = response.map((product) => ({
-          ...product,
-          id: product._id,
-          price: product.pricePerBox,
-          lastUpdated: product?.updatedAt,
-        }))
-        setProducts(updatedProducts)
-      }
+      const results = await searchProductsForOrderAPI(inputValue, 20)
+      return results.map((product: any) => ({
+        value: product._id || product.id,
+        label: product.name,
+        pricePerBox: Number(product.pricePerBox || 0),
+        pricePerUnit: Number(product.price || 0),
+        shippinCost: Number(product.shippinCost || 0),
+        unit: product.unit || "lbs",
+        product: product
+      }))
     } catch (error) {
-      console.error("Error fetching products:", error)
+      console.error("Error loading products:", error)
+      return []
     }
-  }
+  }, [])
+
+  // Load default options on mount
+  const loadDefaultOptions = useCallback(async () => {
+    const options = await loadProductOptions("")
+    setProducts(options.map((opt: any) => opt.product))
+    return options
+  }, [loadProductOptions])
 
   const fetchVendors = async () => {
     const response = await getAllVendorsAPI()
@@ -100,7 +108,6 @@ const NewPurchaseForm = () => {
 
   useEffect(() => {
     fetchVendors()
-    fetchProducts()
   }, [])
 
   // Generate PO number when the component mounts
@@ -146,11 +153,12 @@ const NewPurchaseForm = () => {
     setTotalUnitType(totalWeight)
   }, [items])
 
-  const handleProductChange = (index: number, productId: string) => {
-    const product = products.find((p) => p.id === productId)
-    if (!product) return
+  const handleProductChange = (index: number, selectedOption: any) => {
+    if (!selectedOption) return
 
-    let price = product.price
+    const productId = selectedOption.value
+    let price = selectedOption.pricePerBox || 0
+    
     if (vendorId) {
       const vendorPricing = mockVendorPricing.find((vp) => vp.vendorId === vendorId && vp.productId === productId)
       if (vendorPricing) {
@@ -162,14 +170,24 @@ const NewPurchaseForm = () => {
     updatedItems[index] = {
       ...updatedItems[index],
       productId,
-          productName: product.name, // ✅ Store the product name here
-
+      productName: selectedOption.label,
       unitPrice: price,
       totalPrice: updatedItems[index].quantity * price,
       totalWeight: updatedItems[index].quantity * updatedItems[index].lb,
     }
 
     setItems(updatedItems)
+    
+    // Add to products cache for unit type lookup
+    if (selectedOption.product) {
+      setProducts(prev => {
+        const exists = prev.some(p => (p._id || p.id) === productId)
+        if (!exists) {
+          return [...prev, selectedOption.product]
+        }
+        return prev
+      })
+    }
   }
 
   const handleVendorChange = (vendorId: string) => {
@@ -316,22 +334,9 @@ const NewPurchaseForm = () => {
 
 
   const getProductUnitType = (productId: string) => {
-    const product = products.find((p) => p.id === productId)
+    const product = products.find((p) => (p._id || p.id) === productId)
     return product ? product.unit : ""
   }
-  const productOptions: {
-    value: string;
-    label: string;
-    pricePerBox: number;
-    pricePerUnit: number;
-    shippinCost: number
-  }[] = products.map((product) => ({
-    value: product.id,
-    label: product.name,
-    pricePerBox: Number(product.pricePerBox),
-    pricePerUnit: Number(product.price), // Make sure this exists in product
-    shippinCost: Number(product.shippinCost || 0), // Make sure this exists in product
-  }));
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -429,12 +434,22 @@ const NewPurchaseForm = () => {
                   <div key={index} className="grid grid-cols-12 gap-3 items-end">
                     <div className="col-span-4">
                       <Label htmlFor={`product-${index}`}>Product</Label>
-                      <Select2
-                        options={productOptions}
-                        value={productOptions.find((opt) => opt.value === item.productId)}
-                        onChange={(selectedOption) => {
-                          // Just send productId like before
-                          handleProductChange(index, selectedOption.value);
+                      <AsyncSelect
+                        cacheOptions
+                        defaultOptions
+                        loadOptions={loadProductOptions}
+                        value={item.productId ? { value: item.productId, label: item.productName || "" } : null}
+                        onChange={(selectedOption) => handleProductChange(index, selectedOption)}
+                        placeholder="Search products..."
+                        noOptionsMessage={({ inputValue }) => 
+                          inputValue ? "No products found" : "Type to search..."
+                        }
+                        isClearable
+                        styles={{
+                          control: (base) => ({
+                            ...base,
+                            minHeight: '40px',
+                          }),
                         }}
                       />
 
