@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Grid, List, Percent, Truck, Clock, ShieldCheck, Star, ArrowRight } from 'lucide-react';
+import { Search, Grid, List, Percent, Truck, Clock, ShieldCheck, Star, ArrowRight, ChevronDown } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { NavigationHeader, MobileMenu, SocialMediaLinks, NewsletterSignup } from '@/components/landing';
 import { PRODUCT_CATEGORIES, NAV_LINKS, COMPANY_INFO } from '@/data/landingPageData';
 
@@ -63,7 +64,7 @@ const ShopPage: React.FC = () => {
       />
 
       {/* Spacer for fixed header */}
-      <div className="h-[72px]" />
+      {/* <div className="h-[72px]" /> */}
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-green-700 via-green-600 to-green-500 text-white py-16 md:py-20">
@@ -132,9 +133,9 @@ const ShopPage: React.FC = () => {
       {/* Search and Filters */}
       <section className="py-6 px-4 sm:px-6 lg:px-8 bg-gray-50 sticky top-[72px] z-30 border-b shadow-sm">
         <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
             {/* Search */}
-            <div className="relative w-full lg:w-80">
+            <div className="relative w-full sm:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 type="text"
@@ -145,48 +146,42 @@ const ShopPage: React.FC = () => {
               />
             </div>
 
-            {/* Category Filter */}
-            <div className="flex flex-wrap gap-2 flex-1 justify-center">
-              <Button
-                variant={selectedCategory === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedCategory('all')}
-                className={selectedCategory === 'all' ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
-              >
-                All Categories
-              </Button>
-              {PRODUCT_CATEGORIES.map((cat) => (
-                <Button
-                  key={cat.slug}
-                  variant={selectedCategory === cat.slug ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setSelectedCategory(cat.slug)}
-                  className={selectedCategory === cat.slug ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
-                >
-                  {cat.name}
-                </Button>
-              ))}
-            </div>
+            {/* Category Filter Dropdown */}
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-full sm:w-[200px] bg-white">
+                  <SelectValue placeholder="Select Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {PRODUCT_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat.slug} value={cat.slug}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            {/* View Toggle */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500 hidden sm:inline">View:</span>
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => setViewMode('grid')}
-                className={viewMode === 'grid' ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
-              >
-                <Grid className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'outline'}
-                size="icon"
-                onClick={() => setViewMode('list')}
-                className={viewMode === 'list' ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
-              >
-                <List className="h-4 w-4" />
-              </Button>
+              {/* View Toggle */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500 hidden sm:inline">View:</span>
+                <Button
+                  variant={viewMode === 'grid' ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => setViewMode('grid')}
+                  className={viewMode === 'grid' ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
+                >
+                  <Grid className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => setViewMode('list')}
+                  className={viewMode === 'list' ? 'bg-green-600 hover:bg-green-700' : 'bg-white'}
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -311,7 +306,7 @@ const ShopPage: React.FC = () => {
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-white text-white hover:bg-white/10"
+                  className="border-white text-black hover:bg-white/10"
                   asChild
                 >
                   <Link to="/contact">Contact Sales</Link>

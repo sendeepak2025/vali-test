@@ -90,7 +90,7 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
     id: '4', 
     name: 'Root Vegetables', 
     description: 'Potatoes, carrots, onions, and more staple roots', 
-    image: 'https://images.unsplash.com/photo-1518977676601-b53f82ber?w=400&h=300&fit=crop',
+    image: 'https://plus.unsplash.com/premium_photo-1723471224152-723f8a6ecbaa?q=80&w=797&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
     slug: 'roots' 
   },
   { 

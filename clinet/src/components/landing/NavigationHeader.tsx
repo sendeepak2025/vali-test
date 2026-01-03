@@ -56,7 +56,7 @@ const NavigationHeader: React.FC<NavigationHeaderProps> = ({
           {/* Logo */}
           <Link to="/" className="flex-shrink-0">
             <img
-              src="/logobg.png"
+              src="/logg.png"
               alt="Vali Produce Logo"
               className="h-14 md:h-16 transition-transform duration-300 hover:scale-105"
             />
