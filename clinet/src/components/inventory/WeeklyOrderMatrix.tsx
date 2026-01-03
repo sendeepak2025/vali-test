@@ -1161,126 +1161,16 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   // Fullscreen wrapper
   const matrixContent = (
     <Card className={`w-full ${isMaximized ? 'h-full rounded-none border-0' : ''}`}>
-      <CardHeader className="pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Package className="h-5 w-5" />
-              Order Matrix
-            </CardTitle>
-            
-            {/* Mode Selector */}
-            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-              <Button
-                variant={matrixMode === "ORDER" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setMatrixMode("ORDER")}
-                className={`h-7 px-3 text-xs ${matrixMode === "ORDER" ? "bg-blue-500 hover:bg-blue-600" : ""}`}
-              >
-                <ShoppingCart className="h-3 w-3 mr-1" />
-                ORDER
-              </Button>
-              <Button
-                variant={matrixMode === "PREORDER" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setMatrixMode("PREORDER")}
-                className={`h-7 px-3 text-xs ${matrixMode === "PREORDER" ? "bg-orange-500 hover:bg-orange-600" : ""}`}
-              >
-                <ClipboardList className="h-3 w-3 mr-1" />
-                PREORDER
-              </Button>
-              <Button
-                variant={matrixMode === "INCOMING" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setMatrixMode("INCOMING")}
-                className={`h-7 px-3 text-xs ${matrixMode === "INCOMING" ? "bg-purple-500 hover:bg-purple-600" : ""}`}
-              >
-                <Truck className="h-3 w-3 mr-1" />
-                INCOMING
-              </Button>
-              <Button
-                variant={matrixMode === "VIEW" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setMatrixMode("VIEW")}
-                className={`h-7 px-3 text-xs ${matrixMode === "VIEW" ? "bg-gray-500 hover:bg-gray-600" : ""}`}
-              >
-                <Eye className="h-3 w-3 mr-1" />
-                VIEW
-              </Button>
-            </div>
-            
-            {/* Mode Status Badge */}
-            {!canEdit && (
-              <Badge variant="secondary" className="ml-2">
-                <Lock className="h-3 w-3 mr-1" />
-                {isPastWeek ? "Past Week" : matrixMode === "ORDER" && !isCurrentWeek ? "Future Week" : "Read Only"}
-              </Badge>
-            )}
-            
-            {/* Confirm PreOrders Button */}
-            {matrixMode === "PREORDER" && (isCurrentWeek || isFutureWeek) && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={fetchPendingPreOrders}
-                        disabled={confirmLoading || !canConfirmPreOrders}
-                        className={`ml-2 ${canConfirmPreOrders ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'}`}
-                      >
-                        {confirmLoading ? (
-                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                        ) : (
-                          <CheckCheck className="h-3 w-3 mr-1" />
-                        )}
-                        Confirm PreOrders
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {!canConfirmPreOrders && confirmBlockReason && (
-                    <TooltipContent className="bg-red-100 text-red-800 border-red-300">
-                      <p className="flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {confirmBlockReason}
-                      </p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            
-            {/* Link to Vendor Button - Show when there are unlinked incoming items */}
-            {hasUnlinkedIncoming && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={openLinkVendorModal}
-                className="ml-2 border-purple-500 text-purple-600 hover:bg-purple-50"
-              >
-                <Truck className="h-3 w-3 mr-1" />
-                Link to Vendor
-                <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">
-                  {unlinkedIncoming.length || '!'}
-                </Badge>
-              </Button>
-            )}
-          </div>
+      <CardHeader className="pb-2 px-2 sm:px-4">
+        {/* Row 1: Title + Action Buttons */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <CardTitle className="text-base sm:text-lg flex items-center gap-1 sm:gap-2 whitespace-nowrap">
+            <Package className="h-4 w-4 sm:h-5 sm:w-5" />
+            <span className="hidden xs:inline">Order Matrix</span>
+            <span className="xs:hidden">Matrix</span>
+          </CardTitle>
           
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Badge variant={isCurrentWeek ? "default" : "secondary"} className="px-3 py-1">
-              <Calendar className="h-3 w-3 mr-1" />
-              {weekRange ? `${weekRange.start} - ${weekRange.end}` : 'Current Week'}
-              {isCurrentWeek && <span className="ml-1 text-xs">(Current)</span>}
-              {isFutureWeek && <span className="ml-1 text-xs">(Future)</span>}
-            </Badge>
-            <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-1">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1289,7 +1179,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                     size="sm" 
                     onClick={() => fetchMatrixData(currentPage, searchTerm)}
                     disabled={loading}
-                    className="border-green-500 text-green-600 hover:bg-green-50"
+                    className="border-green-500 text-green-600 hover:bg-green-50 h-8 w-8 sm:w-auto sm:px-3 p-0"
                   >
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     <span className="ml-1 hidden sm:inline">Refresh</span>
@@ -1303,7 +1193,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading}>
+                  <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading} className="h-8 w-8 p-0">
                     {exportLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -1312,11 +1202,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{exportLoading ? "Downloading order matrix data..." : "Download Full Matrix (CSV)"}</p>
+                  <p>{exportLoading ? "Downloading..." : "Download CSV"}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            {/* Maximize/Minimize Button */}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1324,36 +1213,127 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                     variant="outline" 
                     size="sm" 
                     onClick={() => setIsMaximized(!isMaximized)}
-                    className={isMaximized ? "bg-blue-100" : ""}
+                    className={`h-8 w-8 p-0 ${isMaximized ? "bg-blue-100" : ""}`}
                   >
                     {isMaximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{isMaximized ? "Exit Fullscreen (ESC)" : "Fullscreen Mode"}</p>
+                  <p>{isMaximized ? "Exit Fullscreen" : "Fullscreen"}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
         </div>
+
+        {/* Row 2: Mode Selector */}
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5 overflow-x-auto">
+            <Button
+              variant={matrixMode === "ORDER" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setMatrixMode("ORDER")}
+              className={`h-7 px-2 sm:px-3 text-xs ${matrixMode === "ORDER" ? "bg-blue-500 hover:bg-blue-600" : ""}`}
+            >
+              <ShoppingCart className="h-3 w-3 sm:mr-1" />
+              <span className="hidden sm:inline">ORDER</span>
+            </Button>
+            <Button
+              variant={matrixMode === "PREORDER" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setMatrixMode("PREORDER")}
+              className={`h-7 px-2 sm:px-3 text-xs ${matrixMode === "PREORDER" ? "bg-orange-500 hover:bg-orange-600" : ""}`}
+            >
+              <ClipboardList className="h-3 w-3 sm:mr-1" />
+              <span className="hidden sm:inline">PREORDER</span>
+            </Button>
+            <Button
+              variant={matrixMode === "INCOMING" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setMatrixMode("INCOMING")}
+              className={`h-7 px-2 sm:px-3 text-xs ${matrixMode === "INCOMING" ? "bg-purple-500 hover:bg-purple-600" : ""}`}
+            >
+              <Truck className="h-3 w-3 sm:mr-1" />
+              <span className="hidden sm:inline">INCOMING</span>
+            </Button>
+            <Button
+              variant={matrixMode === "VIEW" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setMatrixMode("VIEW")}
+              className={`h-7 px-2 sm:px-3 text-xs ${matrixMode === "VIEW" ? "bg-gray-500 hover:bg-gray-600" : ""}`}
+            >
+              <Eye className="h-3 w-3 sm:mr-1" />
+              <span className="hidden sm:inline">VIEW</span>
+            </Button>
+          </div>
+          
+          {!canEdit && (
+            <Badge variant="secondary" className="text-xs">
+              <Lock className="h-3 w-3 mr-1" />
+              {isPastWeek ? "Past" : "Read Only"}
+            </Badge>
+          )}
+        </div>
+
+        {/* Row 3: Week Navigation */}
+        <div className="flex items-center gap-1 sm:gap-2 mb-2">
+          <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev - 1)} className="h-8 w-8 p-0">
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Badge variant={isCurrentWeek ? "default" : "secondary"} className="px-2 py-1 text-xs flex-1 justify-center max-w-[250px] truncate">
+            <Calendar className="h-3 w-3 mr-1 flex-shrink-0" />
+            <span className="truncate">
+              {weekRange?.label || 'Current Week'}
+            </span>
+            {isCurrentWeek && <span className="ml-1 hidden sm:inline">(Current)</span>}
+          </Badge>
+          <Button variant="outline" size="sm" onClick={() => setWeekOffset(prev => prev + 1)} className="h-8 w-8 p-0">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          
+          {/* Confirm PreOrders Button */}
+          {matrixMode === "PREORDER" && (isCurrentWeek || isFutureWeek) && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={fetchPendingPreOrders}
+              disabled={confirmLoading || !canConfirmPreOrders}
+              className={`h-8 text-xs ${canConfirmPreOrders ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400'}`}
+            >
+              {confirmLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
+              <span className="ml-1 hidden sm:inline">Confirm</span>
+            </Button>
+          )}
+          
+          {/* Link to Vendor Button */}
+          {hasUnlinkedIncoming && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openLinkVendorModal}
+              className="h-8 text-xs border-purple-500 text-purple-600"
+            >
+              <Truck className="h-3 w-3" />
+              <span className="ml-1 hidden sm:inline">Link</span>
+              <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">!</Badge>
+            </Button>
+          )}
+        </div>
         
-        {/* Mode Description */}
-        <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
+        {/* Mode Description - Hidden on mobile */}
+        <div className="hidden sm:flex text-xs text-gray-500 items-center gap-2">
           <modeInfo.icon className="h-3 w-3" />
           <span>{modeInfo.desc}</span>
-          {matrixMode === "PREORDER" && isCurrentWeek && (
-            <span className="text-orange-600 font-medium">• PreOrders for this week will be linked when Orders are created</span>
-          )}
         </div>
       </CardHeader>
 
       <CardContent className={`p-2 ${isMaximized ? '' : ''}`}>
         {/* Filters Row */}
         <div className="flex flex-wrap items-center gap-2 mb-3 p-2 bg-gray-50 rounded-lg">
-          <div className="relative flex-1 min-w-[200px]">
+          <div className="relative flex-1 min-w-[120px] sm:min-w-[200px]">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search products..."
+              placeholder="Search..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="pl-8 h-8 text-sm"
@@ -1361,8 +1341,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           </div>
           
           <Select value={selectedState} onValueChange={setSelectedState}>
-            <SelectTrigger className="w-[140px] h-8">
-              <MapPin className="h-3 w-3 mr-1" />
+            <SelectTrigger className="w-[100px] sm:w-[140px] h-8 text-xs sm:text-sm">
+              <MapPin className="h-3 w-3 mr-1 hidden sm:inline" />
               <SelectValue placeholder="State" />
             </SelectTrigger>
             <SelectContent>
@@ -1381,10 +1361,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   variant={showOnlyActiveStores ? "default" : "outline"}
                   size="sm"
                   onClick={() => setShowOnlyActiveStores(!showOnlyActiveStores)}
-                  className={`h-8 ${showOnlyActiveStores ? "bg-green-600 hover:bg-green-700" : ""}`}
+                  className={`h-8 text-xs ${showOnlyActiveStores ? "bg-green-600 hover:bg-green-700" : ""}`}
                 >
-                  <Store className="h-3 w-3 mr-1" />
-                  {showOnlyActiveStores ? "Active Only" : "All Stores"}
+                  <Store className="h-3 w-3 sm:mr-1" />
+                  <span className="hidden sm:inline">{showOnlyActiveStores ? "Active Only" : "All Stores"}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -1397,10 +1377,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             variant={showOnlyWithOrders ? "default" : "outline"}
             size="sm"
             onClick={() => setShowOnlyWithOrders(!showOnlyWithOrders)}
-            className="h-8"
+            className="h-8 text-xs"
           >
-            <Filter className="h-3 w-3 mr-1" />
-            {showOnlyWithOrders ? "All" : "With Orders"}
+            <Filter className="h-3 w-3 sm:mr-1" />
+            <span className="hidden sm:inline">{showOnlyWithOrders ? "All" : "With Orders"}</span>
           </Button>
 
           {/* Size Control */}
