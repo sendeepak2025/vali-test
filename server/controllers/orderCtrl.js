@@ -19,7 +19,7 @@ const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
 // ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
 // const BASE_STOCK_DATE = new Date("2026-01-01T00:00:00.000Z");
-const BASE_STOCK_DATE = new Date("2025-08-01T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2025-12-29T00:00:00.000Z");
 
 // ✅ Helper: Sum array by field
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
@@ -35,15 +35,20 @@ const filterByDate = (arr, from, to) => {
   });
 };
 
-// ✅ Calculate ACTUAL STOCK (01-01-2026 se ab tak)
+// ✅ Calculate ACTUAL STOCK (BASE_STOCK_DATE se current week ke Sunday tak)
 const calculateActualStock = (product) => {
   const now = new Date();
   
-  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, now);
-  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, now);
-  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, now);
-  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, now);
-  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, now);
+  // Get current week's Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
+  
+  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, sunday);
+  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, sunday);
+  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, sunday);
+  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, sunday);
+  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, sunday);
 
   const trashBox = stockTrash.filter(t => t.type === "box").reduce((s, t) => s + (t.quantity || 0), 0);
   const trashUnit = stockTrash.filter(t => t.type === "unit").reduce((s, t) => s + (t.quantity || 0), 0);
@@ -849,17 +854,11 @@ const updateOrderCtrl = async (req, res) => {
 
     // Stock validation for updated items
     if (updateFields.items && Array.isArray(updateFields.items)) {
-      // Get current week range (Monday to Sunday) in UTC
+      // Get current week's Sunday (UTC) - same as calculateActualStock
       const now = new Date();
       const dayOfWeek = now.getUTCDay();
-      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday, 0, 0, 0, 0));
-      const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
-
-      const isWithinRange = (date) => {
-        const d = new Date(date);
-        return d >= monday && d <= sunday;
-      };
+      const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+      const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
 
       // Build map of old quantities to calculate net change
       const oldItemsQuantityMap = {};
@@ -887,28 +886,8 @@ const updateOrderCtrl = async (req, res) => {
 
         // Only check stock if we're increasing quantity
         if (additionalQuantity > 0) {
-          const filteredPurchase = (product?.purchaseHistory || []).filter(p => isWithinRange(p.date));
-          const filteredSell = (product?.salesHistory || []).filter(s => isWithinRange(s.date));
-          const filteredUnitPurchase = (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date));
-          const filteredUnitSell = (product?.lbSellHistory || []).filter(s => isWithinRange(s.date));
-          const filteredTrash = (product?.quantityTrash || []).filter(t => isWithinRange(t.date));
-
-          const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-          const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-          const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-          const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
-
-          const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
-          const trashUnit = filteredTrash.filter(t => t.type === "unit").reduce((sum, t) => sum + t.quantity, 0);
-
-          const totalRemaining = Math.max(
-            totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-            0
-          );
-          const unitRemaining = Math.max(
-            unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-            0
-          );
+          // Use same calculation as calculateActualStock (BASE_STOCK_DATE to Sunday)
+          const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
           // Check if additional quantity exceeds available stock
           if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
@@ -3119,16 +3098,18 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 
     // console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
 
-    // Get all orders for TARGET week
+    // Get all orders for TARGET week (only Regular orders)
     const currentWeekOrders = await orderModel.find({
       createdAt: { $gte: monday, $lte: sunday },
-      isDelete: { $ne: true }
+      isDelete: { $ne: true },
+      orderType: "Regural"
     }).populate("store", "storeName ownerName city state").lean();
 
-    // Get all orders for PREVIOUS week (relative to target)
+    // Get all orders for PREVIOUS week (relative to target) (only Regular orders)
     const previousWeekOrders = await orderModel.find({
       createdAt: { $gte: prevMonday, $lte: prevSunday },
-      isDelete: { $ne: true }
+      isDelete: { $ne: true },
+      orderType: "Regural"
     }).lean();
 
     // Get PreOrders for the TARGET week
@@ -3373,10 +3354,11 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       // Get incoming stock for this product
       const incomingStock = matrixData[productId].incomingStock || 0;
       
-      // Get total preorder demand
+      // Get total preorder demand (PreOrders are NOT yet converted to orders, so subtract them)
       const preOrderTotal = matrixData[productId].preOrderTotal || 0;
 
       // Calculate FINAL: Stock + Incoming - PreOrders
+      // NOTE: Orders are already subtracted in calculateActualStock (salesHistory), so don't subtract again
       const finalStock = currentStock + incomingStock - preOrderTotal;
       const isShort = finalStock < 0;
 

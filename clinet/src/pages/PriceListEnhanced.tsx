@@ -1121,16 +1121,29 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
   // Quick Add - Handle input change and show preview
   const handleQuickAddChange = (value: string) => {
     setQuickAddInput(value)
-    const code = value.trim().padStart(2, '0')
-    const product = productCodeMap.get(code)
-    if (product) {
-      setQuickAddPreview(product)
-    } else if (value.trim()) {
-      // If not a code, search by name
-      const foundProduct = searchProductByName(value)
-      setQuickAddPreview(foundProduct)
-    } else {
+    const trimmedValue = value.trim()
+    
+    if (!trimmedValue) {
       setQuickAddPreview(null)
+      return
+    }
+    
+    // Check if input is numeric (product code) or text (product name)
+    const isNumeric = /^\d+$/.test(trimmedValue)
+    
+    if (isNumeric) {
+      // Search by product code
+      const code = trimmedValue.padStart(2, '0')
+      const product = productCodeMap.get(code)
+      if (product) {
+        setQuickAddPreview(product)
+      } else {
+        setQuickAddPreview(null)
+      }
+    } else {
+      // Search by product name
+      const foundProduct = searchProductByName(trimmedValue)
+      setQuickAddPreview(foundProduct)
     }
   }
 
@@ -1430,7 +1443,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-600 font-bold">#</span>
                       <Input
                         ref={quickAddRef}
-                        placeholder="Enter product code (e.g., 21)"
+                        placeholder="Enter product code (e.g., 21) or name"
                         value={quickAddInput}
                         onChange={(e) => handleQuickAddChange(e.target.value)}
                         onKeyDown={handleQuickAddKeyDown}
@@ -1460,7 +1473,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                   
                   {quickAddInput && !quickAddPreview && (
                     <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 text-red-600 text-sm">
-                      No product found with code "{quickAddInput}"
+                      No product found with "{quickAddInput}"
                     </div>
                   )}
                 </CardContent>

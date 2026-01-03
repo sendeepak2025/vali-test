@@ -1195,7 +1195,7 @@ const resetAndRebuildHistoryForAllProducts = async (
 };
 
 // ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
-const BASE_STOCK_DATE = new Date("2025-08-01T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2025-12-29T00:00:00.000Z");
 
 // ✅ Helper: Sum array by field (reduce shortcut)
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
@@ -1211,16 +1211,21 @@ const filterByDate = (arr, from, to) => {
   });
 };
 
-// ✅ Calculate ACTUAL STOCK (01-01-2026 se ab tak - system truth)
+// ✅ Calculate ACTUAL STOCK (BASE_STOCK_DATE se current week ke Sunday tak)
 const calculateActualStock = (product) => {
   const now = new Date();
   
-  // Stock data - hamesha BASE_STOCK_DATE se ab tak
-  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, now);
-  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, now);
-  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, now);
-  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, now);
-  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, now);
+  // Get current week's Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
+  
+  // Stock data - BASE_STOCK_DATE se current week ke Sunday tak
+  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, sunday);
+  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, sunday);
+  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, sunday);
+  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, sunday);
+  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, sunday);
 
   // Trash calculations
   const trashBox = stockTrash.filter(t => t.type === "box").reduce((s, t) => s + (t.quantity || 0), 0);
@@ -1382,7 +1387,7 @@ const getAllProductsWithHistorySummary = async (req, res) => {
         startDate: startDate || null, 
         endDate: endDate || null 
       },
-      stockCalculationBase: BASE_STOCK_DATE.toISOString().split('T')[0]
+      stockCalculationBase: `${BASE_STOCK_DATE.toISOString().split('T')[0]} to current week Sunday`
     });
 
   } catch (error) {
