@@ -115,6 +115,7 @@ export const order = {
 
   // Order Matrix APIs
   GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
+  EXPORT_ORDER_MATRIX: BASE_URL + "/order/matrix/export",
   UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
   UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",
   

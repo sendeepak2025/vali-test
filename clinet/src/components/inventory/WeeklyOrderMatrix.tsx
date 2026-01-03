@@ -59,7 +59,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
-import { getOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
+import { getOrderMatrixDataAPI, exportOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
 import { addIncomingStockAPI, bulkLinkIncomingStockAPI } from "@/services2/operations/incomingStock";
 import { getAllVendorsAPI } from "@/services2/operations/vendor";
 import { useSelector } from "react-redux";
@@ -317,6 +317,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [unlinkedIncoming, setUnlinkedIncoming] = useState<any[]>([]);
   const [linkingPrices, setLinkingPrices] = useState<Record<string, number>>({});
   const [linkLoading, setLinkLoading] = useState(false);
+  
+  // Export loading state
+  const [exportLoading, setExportLoading] = useState(false);
   
   // Confirm validation state from API
   const [canConfirmPreOrders, setCanConfirmPreOrders] = useState(true);
@@ -873,27 +876,49 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
   }, [filteredStores.length]);
 
-  const handleExport = useCallback(() => {
-    const headers = ["PRODUCT", ...filteredStores.map(s => s.storeName || 'Store'), "TOT", "STK", "PRE", "REQ", "PUR", "ST"];
-    const csvData = matrixData.map(row => {
-      const rowPreOrder = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.preOrderQty || 0), 0);
-      const rowPending = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.pendingReq || 0), 0);
-      const rowOrder = Object.values(row.storeOrders || {}).reduce((sum: number, d: any) => sum + (d?.currentQty || 0), 0);
-      const status = (row.totalPurchase || 0) >= rowPending ? "OK" : "NEED";
-      return [
-        row.productName,
-        ...filteredStores.map(s => row.storeOrders?.[s._id]?.currentQty || 0),
-        rowOrder, row.totalStock || 0, rowPreOrder, rowPending, row.totalPurchase || 0, status
-      ];
-    });
-    const csvContent = [headers.join(","), ...csvData.map(row => row.map(cell => `"${cell}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `order_matrix_page${currentPage}.csv`;
-    link.click();
-    toast.success("Exported!");
-  }, [filteredStores, matrixData, currentPage]);
+  const handleExport = useCallback(async () => {
+    setExportLoading(true);
+    
+    try {
+      const response = await exportOrderMatrixDataAPI(token, weekOffset);
+      
+      if (!response?.success || !response?.data) {
+        toast.error("Failed to fetch export data");
+        return;
+      }
+
+      const allMatrix = response.data.matrix || [];
+      const allStores = response.data.stores || [];
+      
+      // Build CSV with all products and all stores
+      const headers = ["PRODUCT", ...allStores.map((s: any) => s.storeName || 'Store'), "TOT", "STK", "INC", "PRE", "FIN", "ST"];
+      const csvData = allMatrix.map((row: any) => {
+        const rowPreOrder = row.preOrderTotal || 0;
+        const rowOrder = row.orderTotal || 0;
+        const rowIncoming = row.incomingStock || 0;
+        const rowFinal = row.finalStock ?? ((row.totalStock || 0) + rowIncoming - rowPreOrder);
+        const status = rowFinal < 0 ? "SHORT" : "OK";
+        return [
+          row.productName,
+          ...allStores.map((s: any) => row.storeOrders?.[s._id]?.currentQty || 0),
+          rowOrder, row.totalStock || 0, rowIncoming, rowPreOrder, rowFinal, status
+        ];
+      });
+      
+      const csvContent = [headers.join(","), ...csvData.map((row: any) => row.map((cell: any) => `"${cell}"`).join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `order_matrix_full_${response.data.weekRange?.label?.replace(/\s/g, '_') || 'export'}.csv`;
+      link.click();
+      toast.success(`Exported ${allMatrix.length} products!`);
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export data");
+    } finally {
+      setExportLoading(false);
+    }
+  }, [token, weekOffset]);
 
   const storesWithOrdersCount = useMemo(() => {
     const set = new Set<string>();
@@ -1275,9 +1300,22 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="h-4 w-4" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading}>
+                    {exportLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{exportLoading ? "Downloading order matrix data..." : "Download Full Matrix (CSV)"}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {/* Maximize/Minimize Button */}
             <TooltipProvider>
               <Tooltip>

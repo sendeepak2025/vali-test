@@ -24,6 +24,7 @@ const { CREATE_PRODUCT,
     ASSIGN_PRODUCT_TO_STORE,
     GET_USER_LATEST_ORDERS,
     GET_ORDER_MATRIX,
+    EXPORT_ORDER_MATRIX,
     UPDATE_ORDER_MATRIX_ITEM,
     UPDATE_PREORDER_MATRIX_ITEM,
     GET_REGIONAL_ORDER_TRENDS
@@ -772,6 +773,35 @@ export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, lim
         }
       }
     };
+  }
+};
+
+// Export Order Matrix Data - All products without pagination for CSV download
+export const exportOrderMatrixDataAPI = async (token, weekOffset = 0) => {
+  try {
+    const params = new URLSearchParams({
+      weekOffset: weekOffset.toString(),
+    });
+
+    const response = await apiConnector(
+      "GET",
+      `${EXPORT_ORDER_MATRIX}?${params.toString()}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to export order matrix data");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("exportOrderMatrixDataAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to export order matrix data");
+    return null;
   }
 };
 

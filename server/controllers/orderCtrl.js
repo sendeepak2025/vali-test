@@ -3456,6 +3456,168 @@ const getOrderMatrixDataCtrl = async (req, res) => {
   }
 };
 
+// Export Order Matrix Data - All products without pagination for CSV download
+const exportOrderMatrixDataCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0 } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the TARGET week (based on offset)
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // Previous week for comparison
+    const prevMonday = new Date(monday);
+    prevMonday.setDate(prevMonday.getDate() - 7);
+    const prevSunday = new Date(sunday);
+    prevSunday.setDate(prevSunday.getDate() - 7);
+
+    // Run all queries in parallel
+    const [
+      currentWeekOrders,
+      previousWeekOrders,
+      preOrders,
+      incomingStockData,
+      products,
+      stores
+    ] = await Promise.all([
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+      orderModel.find({
+        createdAt: { $gte: prevMonday, $lte: prevSunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+      PreOrderModel.find({
+        $or: [
+          { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: { $exists: false } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: null }
+        ],
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).lean(),
+      IncomingStock.find({
+        weekStart: monday,
+        weekEnd: sunday,
+        status: { $in: ["draft", "linked"] }
+      }).lean(),
+      Product.find({}).sort({ name: 1 }).lean(),
+      authModel.find({ role: "store" }).select("storeName ownerName city state").lean()
+    ]);
+
+    // Group incoming stock by product
+    const incomingByProduct = {};
+    incomingStockData.forEach(item => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+      if (!incomingByProduct[productId]) {
+        incomingByProduct[productId] = { totalIncoming: 0 };
+      }
+      incomingByProduct[productId].totalIncoming += item.quantity || 0;
+    });
+
+    // Build matrix data
+    const matrixData = {};
+    products.forEach(product => {
+      const productId = product._id.toString();
+      const incomingData = incomingByProduct[productId] || { totalIncoming: 0 };
+      
+      matrixData[productId] = {
+        productId,
+        productName: product.name,
+        storeOrders: {},
+        preOrderTotal: 0,
+        orderTotal: 0,
+        totalStock: product.remaining || 0,
+        incomingStock: incomingData.totalIncoming
+      };
+    });
+
+    // Fill current week orders
+    currentWeekOrders.forEach(order => {
+      const storeId = order.store?.toString();
+      if (!storeId) return;
+      order.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].currentQty += item.quantity || 0;
+        matrixData[productId].orderTotal += item.quantity || 0;
+      });
+    });
+
+    // Fill previous week orders
+    previousWeekOrders.forEach(order => {
+      const storeId = order.store?.toString();
+      if (!storeId) return;
+      order.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].previousQty += item.quantity || 0;
+      });
+    });
+
+    // Fill preorders
+    preOrders.forEach(preOrder => {
+      const storeId = preOrder.store?.toString();
+      if (!storeId) return;
+      preOrder.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].preOrderQty += item.quantity || 0;
+        matrixData[productId].preOrderTotal += item.quantity || 0;
+      });
+    });
+
+    // Calculate final stock for each product
+    for (const productId in matrixData) {
+      const row = matrixData[productId];
+      row.finalStock = (row.totalStock || 0) + (row.incomingStock || 0) - (row.preOrderTotal || 0);
+      row.isShort = row.finalStock < 0;
+    }
+
+    const matrixArray = Object.values(matrixData);
+
+    res.status(200).json({
+      success: true,
+      message: "Order matrix export data fetched successfully",
+      data: {
+        matrix: matrixArray,
+        stores: stores,
+        weekRange: {
+          start: monday.toISOString(),
+          end: sunday.toISOString(),
+          label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        },
+        totalProducts: matrixArray.length
+      }
+    });
+
+  } catch (error) {
+    console.error("Error exporting order matrix data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error exporting order matrix data",
+      error: error.message
+    });
+  }
+};
+
 // Update or Create Order Item in Matrix - Smart PreOrder Integration
 const updateOrderMatrixItemCtrl = async (req, res) => {
   try {
@@ -4572,6 +4734,7 @@ module.exports = {
   assignProductToStore,
   getUserLatestOrdersCtrl,
   getOrderMatrixDataCtrl,
+  exportOrderMatrixDataCtrl,
   updateOrderMatrixItemCtrl,
   updatePreOrderMatrixItemCtrl,
   confirmPreOrdersCtrl,
