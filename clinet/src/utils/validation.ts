@@ -79,7 +79,7 @@ export const isValidMessage = (message: string): boolean => {
   }
   
   const trimmedMessage = message.trim();
-  return trimmedMessage.length >= 10;
+  return trimmedMessage.length >= 4;
 };
 
 /**

@@ -54,16 +54,30 @@ const ContactPage: React.FC = () => {
     setErrors({});
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      setStatus('success');
-      setFormData({ name: '', email: '', phone: '', message: '' });
-      
-      // Reset after 5 seconds
-      setTimeout(() => setStatus('idle'), 5000);
+      const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/email/contact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStatus('success');
+        setFormData({ name: '', email: '', phone: '', message: '' });
+        
+        // Reset after 5 seconds
+        setTimeout(() => setStatus('idle'), 5000);
+      } else {
+        throw new Error(data.message || 'Failed to send message');
+      }
     } catch (error) {
+      console.error('Contact form error:', error);
       setStatus('error');
+      setErrors({ submit: 'Failed to send message. Please try again.' });
+      setTimeout(() => setStatus('idle'), 3000);
     }
   };
 
@@ -173,6 +187,12 @@ const ContactPage: React.FC = () => {
                         <p className="text-red-500 text-sm mt-1">{errors.message}</p>
                       )}
                     </div>
+
+                    {errors.submit && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+                        {errors.submit}
+                      </div>
+                    )}
 
                     <Button
                       type="submit"

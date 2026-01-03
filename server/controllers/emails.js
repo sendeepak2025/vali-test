@@ -399,3 +399,124 @@ exports.sendWorkOrderEmail = async (req, res) => {
     });
   }
 };
+
+
+// Send Contact Form Email
+exports.sendContactFormEmail = async (req, res) => {
+  try {
+    const { name, email, phone, message } = req.body;
+
+    if (!name || !email || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email, and message are required",
+      });
+    }
+
+    // Email to admin/business
+    // const adminEmail = "rishimaheshwari040@gmail.com";
+    const adminEmail = "order@valiproduce.shop";
+    const subject = `New Contact Form Submission from ${name}`;
+    
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background: #ffffff;">
+        <h2 style="color: #16a34a; text-align: center;">📬 New Contact Form Message</h2>
+        
+        <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #16a34a;">
+          <h3 style="color: #166534; margin-top: 0;">Contact Details</h3>
+          <p style="color: #333; font-size: 14px; margin: 8px 0;">
+            <strong>Name:</strong> ${name}
+          </p>
+          <p style="color: #333; font-size: 14px; margin: 8px 0;">
+            <strong>Email:</strong> <a href="mailto:${email}" style="color: #16a34a;">${email}</a>
+          </p>
+          ${phone ? `<p style="color: #333; font-size: 14px; margin: 8px 0;"><strong>Phone:</strong> <a href="tel:${phone}" style="color: #16a34a;">${phone}</a></p>` : ''}
+        </div>
+
+        <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #333; margin-top: 0;">Message</h3>
+          <p style="color: #555; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</p>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+        <p style="color: #888; font-size: 12px; text-align: center;">
+          This message was sent from the Vali Produce website contact form.<br>
+          Reply directly to this email to respond to ${name}.
+        </p>
+      </div>
+    `;
+
+    const nodemailer = require("nodemailer");
+    let transporter = nodemailer.createTransport({
+      host: process.env.MAIL_HOST,
+      auth: {
+        user: process.env.MAIL_USER,
+        pass: process.env.MAIL_PASS,
+      },
+      secure: false,
+    });
+
+    await transporter.sendMail({
+      from: "order@valiproduce.shop",
+      to: adminEmail,
+      replyTo: email,
+      subject: subject,
+      html: html,
+    });
+
+    // Send confirmation email to the user
+    const userSubject = "Thank you for contacting Vali Produce!";
+    const userHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px; background: #ffffff;">
+        <h2 style="color: #16a34a; text-align: center;">🌿 Thank You for Reaching Out!</h2>
+        
+        <p style="color: #555; font-size: 16px;">Hello ${name},</p>
+        
+        <p style="color: #555; font-size: 16px;">Thank you for contacting Vali Produce. We have received your message and will get back to you within 24 hours.</p>
+
+        <div style="background: #f0fdf4; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #16a34a;">
+          <p style="color: #166534; font-size: 14px; margin: 0;">
+            <strong>Your message:</strong><br>
+            <span style="color: #555;">${message.substring(0, 200)}${message.length > 200 ? '...' : ''}</span>
+          </p>
+        </div>
+
+        <p style="color: #555; font-size: 16px;">In the meantime, feel free to:</p>
+        <ul style="color: #555; font-size: 14px;">
+          <li>Browse our <a href="https://valiproduce.shop/shop" style="color: #16a34a;">product catalog</a></li>
+          <li>Call us at <a href="tel:+14044514450" style="color: #16a34a;">(404) 451-4450</a></li>
+          <li>Visit us at 4300 Pleasantdale Rd, Atlanta, GA 30340</li>
+        </ul>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+
+        <p style="color: #888; font-size: 12px; text-align: center;">
+          Vali Produce LLC<br>
+          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          order@valiproduce.shop | (404) 451-4450
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: "order@valiproduce.shop",
+      to: email,
+      subject: userSubject,
+      html: userHtml,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Message sent successfully! We'll get back to you soon.",
+    });
+
+  } catch (error) {
+    console.error("Send contact form email error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error sending message. Please try again later.",
+      error: error.message,
+    });
+  }
+};
