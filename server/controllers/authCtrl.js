@@ -2904,6 +2904,45 @@ const adminCreateStoreCtrl = async (req, res) => {
   }
 };
 
+// Search stores with pagination - for order creation
+const searchStoresCtrl = async (req, res) => {
+  try {
+    const { search = "", limit = 10, skip = 0 } = req.query;
+    
+    let query = { role: "store" };
+    
+    // Add search filter if search term provided
+    if (search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
+      query.$or = [
+        { storeName: searchRegex },
+        { ownerName: searchRegex },
+        { city: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex }
+      ];
+    }
+    
+    const stores = await authModel.find(query)
+      .select("_id storeName ownerName email phone address city state zipCode shippingCost priceCategory")
+      .sort({ storeName: 1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit));
+    
+    return res.status(200).json({
+      success: true,
+      stores,
+      count: stores.length
+    });
+  } catch (error) {
+    console.error("Error in searchStoresCtrl:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error searching stores",
+    });
+  }
+};
+
 
 module.exports = {
   registerCtrl,
@@ -2951,4 +2990,6 @@ module.exports = {
   forgotPasswordCtrl,
   verifyResetTokenCtrl,
   resetPasswordCtrl,
+  // Search stores for order creation
+  searchStoresCtrl,
 };

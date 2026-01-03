@@ -18,7 +18,8 @@ const {
   addToManually,
   calculateTripWeight,
   generateShortCodesCtrl,
-  getProductByShortCodeCtrl
+  getProductByShortCodeCtrl,
+  searchProductsCtrl
 } = require("../controllers/productCtrl");
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.get('/reset-history/:productId', resetAndRebuildHistoryForSingleProductCt
 // Short code routes for quick product entry
 router.post("/generate-short-codes", generateShortCodesCtrl);
 router.get("/by-code/:code", getProductByShortCodeCtrl);
+router.get("/search", searchProductsCtrl);
 
 router.post("/calculate-weight", calculateTripWeight);
 

@@ -58,8 +58,9 @@ import {
   Keyboard,
   Edit3,
 } from "lucide-react"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { getAllProductAPI, searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
 import { getOrderAPI, updateOrderAPI } from "@/services2/operations/order"
+import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
 
 type SalesMode = "case" | "unit" | "both"
@@ -136,9 +137,12 @@ const EditOrder = () => {
   const [productSearch, setProductSearch] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [displayedProducts, setDisplayedProducts] = useState<ProductType[]>([])
-  const [productsPerPage] = useState(20)
+  const [productsPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
   const [categories, setCategories] = useState<string[]>([])
+  const [hasMoreProducts, setHasMoreProducts] = useState(true)
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
+  const [productSearchLoading, setProductSearchLoading] = useState(false)
 
   // Address states
   const [billingAddress, setBillingAddress] = useState<AddressType>({
@@ -157,21 +161,14 @@ const EditOrder = () => {
   const quickAddRef = useRef<HTMLInputElement>(null)
   const [quickAddQuantity, setQuickAddQuantity] = useState(1)
   const [quickAddPricingType, setQuickAddPricingType] = useState<"box" | "unit">("box")
+  const [quickAddLoading, setQuickAddLoading] = useState(false)
+  const quickAddSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const productSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Product add with quantity selection state
   const [selectedProductForAdd, setSelectedProductForAdd] = useState<ProductType | null>(null)
   const [addQuantity, setAddQuantity] = useState(1)
   const [addPricingType, setAddPricingType] = useState<"box" | "unit">("box")
-
-  // Product code map for quick lookup
-  const productCodeMap = useMemo(() => {
-    const map = new Map<string, ProductType>()
-    products.forEach((p, index) => {
-      const code = p.shortCode || String(index + 1).padStart(2, '0')
-      map.set(code, { ...p, shortCode: code })
-    })
-    return map
-  }, [products])
 
   // Parse quick add input
   const parseQuickAddInput = useCallback((input: string) => {
@@ -188,43 +185,59 @@ const EditOrder = () => {
     }
   }, [])
 
-  // Search product by name
-  const searchProductByName = useCallback((searchTerm: string): ProductType | null => {
-    const term = searchTerm.toLowerCase()
-    const found = products.find(p => 
-      p.name?.toLowerCase().includes(term) ||
-      p.shortCode?.toLowerCase().includes(term)
-    )
-    return found ? { ...found, shortCode: found.shortCode || '' } : null
-  }, [products])
-
-  // Handle quick add input change
+  // Handle quick add input change - search from backend
   const handleQuickAddChange = useCallback((value: string) => {
     setQuickAddInput(value)
-    const parsed = parseQuickAddInput(value)
-    if (parsed) {
-      const product = productCodeMap.get(parsed.code)
-      setQuickAddPreview(product || null)
-      if (product) {
-        const salesMode = product.salesMode || "both"
-        const defaultType = salesMode === "unit" ? "unit" : "box"
-        setQuickAddPricingType(defaultType)
-        setQuickAddQuantity(1)
-      }
-    } else if (value.trim()) {
-      // If not a code pattern, search by name
-      const product = searchProductByName(value)
-      setQuickAddPreview(product)
-      if (product) {
-        const salesMode = product.salesMode || "both"
-        const defaultType = salesMode === "unit" ? "unit" : "box"
-        setQuickAddPricingType(defaultType)
-        setQuickAddQuantity(1)
-      }
-    } else {
-      setQuickAddPreview(null)
+    
+    // Clear previous timeout
+    if (quickAddSearchTimeoutRef.current) {
+      clearTimeout(quickAddSearchTimeoutRef.current)
     }
-  }, [parseQuickAddInput, productCodeMap, searchProductByName])
+    
+    if (!value.trim()) {
+      setQuickAddPreview(null)
+      return
+    }
+    
+    const parsed = parseQuickAddInput(value)
+    
+    // Debounce backend search
+    quickAddSearchTimeoutRef.current = setTimeout(async () => {
+      setQuickAddLoading(true)
+      try {
+        let product = null
+        
+        if (parsed) {
+          // Search by short code from backend
+          product = await getProductByShortCodeAPI(parsed.code)
+          if (product) {
+            product = { ...product, id: product._id || product.id, shortCode: product.shortCode || parsed.code }
+          }
+        }
+        
+        if (!product && value.trim()) {
+          // Search by name from backend
+          const results = await searchProductsForOrderAPI(value, 1)
+          if (results.length > 0) {
+            product = { ...results[0], id: results[0]._id || results[0].id }
+          }
+        }
+        
+        setQuickAddPreview(product)
+        if (product) {
+          const salesMode = product.salesMode || "both"
+          const defaultType = salesMode === "unit" ? "unit" : "box"
+          setQuickAddPricingType(defaultType)
+          setQuickAddQuantity(1)
+        }
+      } catch (error) {
+        console.error("Error searching product:", error)
+        setQuickAddPreview(null)
+      } finally {
+        setQuickAddLoading(false)
+      }
+    }, 300)
+  }, [parseQuickAddInput])
 
   // Handle quick add submit
   const handleQuickAddSubmit = useCallback(() => {
@@ -295,21 +308,25 @@ const EditOrder = () => {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const productsData = await getAllProductAPI()
+        // Fetch only 10 products initially and all categories
+        const [productsData, categoriesData] = await Promise.all([
+          searchProductsForOrderAPI("", 10),
+          fetchCategoriesAPI()
+        ])
+        
         const formattedProducts: ProductType[] = productsData.map((p: any, index: number) => ({
           ...p,
-          id: p._id,
+          id: p._id || p.id,
           shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
           salesMode: p.salesMode || "both"
         }))
         setProducts(formattedProducts)
+        setDisplayedProducts(formattedProducts)
+        setHasMoreProducts(productsData.length === 10)
 
-        const uniqueCategories: string[] = formattedProducts
-          .filter((p: ProductType) => p.category && typeof p.category === 'string')
-          .map((p: ProductType) => p.category as string)
-          .filter((cat, index, arr) => arr.indexOf(cat) === index)
-          .sort()
-        setCategories(uniqueCategories)
+        // Set categories
+        const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
+        setCategories(categoryNames)
 
         const res = await getOrderAPI(orderId, token)
         
@@ -360,52 +377,139 @@ setOrderStatus(formattedOrder.status.toLowerCase())
     }
   }, [orderId, token])
 
-  // Filter products
-  const filteredProducts = useMemo(() => {
-    let filtered = products
-    if (selectedCategory !== "all") {
-      filtered = filtered.filter(p => p.category === selectedCategory)
-    }
-    if (productSearch) {
-      const search = productSearch.toLowerCase()
-      filtered = filtered.filter(p => 
-        p.name?.toLowerCase().includes(search) ||
-        p.category?.toLowerCase().includes(search)
-      )
-    }
-    return filtered
-  }, [products, productSearch, selectedCategory])
-
-  useEffect(() => {
+  // Search products from backend with debounce
+  const handleProductSearchChange = useCallback(async (value: string) => {
+    setProductSearch(value)
     setCurrentPage(1)
-    setDisplayedProducts(filteredProducts.slice(0, productsPerPage))
-  }, [filteredProducts, productsPerPage])
-
-  const loadMoreProducts = () => {
-    const nextPage = currentPage + 1
-    const startIndex = (nextPage - 1) * productsPerPage
-    const endIndex = startIndex + productsPerPage
-    const newProducts = filteredProducts.slice(startIndex, endIndex)
-    if (newProducts.length > 0) {
-      setDisplayedProducts(prev => [...prev, ...newProducts])
-      setCurrentPage(nextPage)
+    setHasMoreProducts(true)
+    
+    // Clear previous timeout
+    if (productSearchTimeoutRef.current) {
+      clearTimeout(productSearchTimeoutRef.current)
     }
-  }
+    
+    // Debounce search - wait 300ms after user stops typing
+    productSearchTimeoutRef.current = setTimeout(async () => {
+      setProductSearchLoading(true)
+      try {
+        const results = await searchProductsForOrderAPI(value, 10, selectedCategory === "all" ? "" : selectedCategory)
+        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
+        }))
+        setProducts(formattedProducts)
+        setDisplayedProducts(formattedProducts)
+        setHasMoreProducts(results.length === 10)
+      } catch (error) {
+        console.error("Error searching products:", error)
+      } finally {
+        setProductSearchLoading(false)
+      }
+    }, 300)
+  }, [selectedCategory])
 
-  const handleProductModalScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  // Handle category change - fetch products from backend
+  const handleCategoryChange = useCallback(async (category: string) => {
+    setSelectedCategory(category)
+    setCurrentPage(1)
+    setHasMoreProducts(true)
+    setProductSearchLoading(true)
+    try {
+      const results = await searchProductsForOrderAPI(productSearch, 10, category === "all" ? "" : category)
+      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+        ...p,
+        id: p._id || p.id,
+        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+        salesMode: p.salesMode || "both"
+      }))
+      setProducts(formattedProducts)
+      setDisplayedProducts(formattedProducts)
+      setHasMoreProducts(results.length === 10)
+    } catch (error) {
+      console.error("Error fetching products by category:", error)
+    } finally {
+      setProductSearchLoading(false)
+    }
+  }, [productSearch])
+
+  // Filter products - now just returns products from backend search
+  const filteredProducts = products
+
+  // Load more products from backend (infinite scroll)
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMoreProducts || !hasMoreProducts) return
+    
+    setLoadingMoreProducts(true)
+    try {
+      const skip = displayedProducts.length
+      const results = await searchProductsForOrderAPI(
+        productSearch, 
+        10, 
+        selectedCategory === "all" ? "" : selectedCategory,
+        skip
+      )
+      
+      if (results.length > 0) {
+        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          shortCode: p.shortCode || String(skip + index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
+        }))
+        setDisplayedProducts(prev => [...prev, ...formattedProducts])
+        setCurrentPage(prev => prev + 1)
+      }
+      
+      // If less than 10 results, no more products available
+      if (results.length < 10) {
+        setHasMoreProducts(false)
+      }
+    } catch (error) {
+      console.error("Error loading more products:", error)
+    } finally {
+      setLoadingMoreProducts(false)
+    }
+  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory])
+
+  // Handle scroll in product modal - load more on scroll
+  const handleProductModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    
+    // Load more when scrolled to bottom (with 100px threshold)
     if (scrollHeight - scrollTop <= clientHeight + 100) {
-      const hasMore = displayedProducts.length < filteredProducts.length
-      if (hasMore) loadMoreProducts()
+      if (hasMoreProducts && !loadingMoreProducts) {
+        loadMoreProducts()
+      }
     }
-  }
+  }, [hasMoreProducts, loadingMoreProducts, loadMoreProducts])
 
-  const openProductModal = () => {
+  const openProductModal = async () => {
     setShowProductModal(true)
     setProductSearch("")
     setSelectedCategory("all")
     setCurrentPage(1)
-    setDisplayedProducts(products.slice(0, productsPerPage))
+    setHasMoreProducts(true)
+    
+    // Fetch fresh products
+    setProductSearchLoading(true)
+    try {
+      const results = await searchProductsForOrderAPI("", 10)
+      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+        ...p,
+        id: p._id || p.id,
+        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+        salesMode: p.salesMode || "both"
+      }))
+      setProducts(formattedProducts)
+      setDisplayedProducts(formattedProducts)
+      setHasMoreProducts(results.length === 10)
+    } catch (error) {
+      console.error("Error fetching products:", error)
+    } finally {
+      setProductSearchLoading(false)
+    }
   }
 
   const updateQuantity = (index: number, delta: number) => {
@@ -603,8 +707,11 @@ setOrderStatus(formattedOrder.status.toLowerCase())
                           }}
                           className="pl-9 font-mono text-lg"
                         />
+                        {quickAddLoading && (
+                          <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                        )}
                       </div>
-                      <Button onClick={handleQuickAddSubmit} disabled={!quickAddPreview} className="px-6">
+                      <Button onClick={handleQuickAddSubmit} disabled={!quickAddPreview || quickAddLoading} className="px-6">
                         <Plus className="h-4 w-4 mr-1" />
                         Add
                       </Button>
@@ -955,7 +1062,7 @@ setOrderStatus(formattedOrder.status.toLowerCase())
             <DialogTitle className="flex items-center justify-between">
               <span>Add Product</span>
               <Badge variant="outline" className="text-xs">
-                {displayedProducts.length} of {filteredProducts.length} products
+                {displayedProducts.length} products {hasMoreProducts && "(scroll for more)"}
               </Badge>
             </DialogTitle>
           </DialogHeader>
@@ -964,11 +1071,14 @@ setOrderStatus(formattedOrder.status.toLowerCase())
             <div className="flex gap-3 items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search products..." value={productSearch} onChange={(e) => setProductSearch(e.target.value)} className="pl-9" autoFocus />
+                <Input placeholder="Search products..." value={productSearch} onChange={(e) => handleProductSearchChange(e.target.value)} className="pl-9" autoFocus />
+                {productSearchLoading && (
+                  <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
               </div>
 
               <div className="w-52">
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <Select value={selectedCategory} onValueChange={handleCategoryChange}>
                   <SelectTrigger className="h-10">
                     <div className="flex items-center gap-2">
                       <Package className="h-4 w-4 text-muted-foreground" />
@@ -979,16 +1089,13 @@ setOrderStatus(formattedOrder.status.toLowerCase())
                     <SelectItem value="all">
                       <div className="flex items-center gap-2">
                         <span>All Categories</span>
-                        <Badge variant="outline" className="text-xs ml-auto">{products.length}</Badge>
                       </div>
                     </SelectItem>
                     {categories.map(cat => {
-                      const categoryCount = products.filter(p => p.category === cat).length
                       return (
                         <SelectItem key={cat} value={cat}>
                           <div className="flex items-center justify-between w-full">
                             <span>{cat}</span>
-                            <Badge variant="outline" className="text-xs ml-2">{categoryCount}</Badge>
                           </div>
                         </SelectItem>
                       )
@@ -1000,7 +1107,7 @@ setOrderStatus(formattedOrder.status.toLowerCase())
 
             {(selectedCategory !== "all" || productSearch) && (
               <div className="text-xs text-muted-foreground flex items-center gap-2">
-                <span>Showing {filteredProducts.length} of {products.length} products</span>
+                <span>Showing {displayedProducts.length} products</span>
                 {selectedCategory !== "all" && <Badge variant="outline" className="text-xs">{selectedCategory}</Badge>}
                 {productSearch && <Badge variant="outline" className="text-xs">"{productSearch}"</Badge>}
               </div>
@@ -1009,8 +1116,8 @@ setOrderStatus(formattedOrder.status.toLowerCase())
 
           <div className="flex-1 overflow-auto mt-4" onScroll={handleProductModalScroll}>
             <div className="grid grid-cols-1 gap-2">
-              {displayedProducts.map((product) => {
-                const shortCode = product.shortCode || String(products.findIndex(p => p.id === product.id) + 1).padStart(2, '0')
+              {displayedProducts.map((product, index) => {
+                const shortCode = product.shortCode || String(index + 1).padStart(2, '0')
                 const salesMode = product.salesMode || "both"
                 const showBoxButton = salesMode === "case" || salesMode === "both"
                 const showUnitButton = salesMode === "unit" || salesMode === "both"
@@ -1057,14 +1164,15 @@ setOrderStatus(formattedOrder.status.toLowerCase())
                 )
               })}
               
-              {displayedProducts.length < filteredProducts.length && (
-                <div className="text-center py-4 text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
-                  <p className="text-sm">Scroll down to load more products...</p>
+              {/* Loading more products indicator */}
+              {loadingMoreProducts && (
+                <div className="text-center py-4">
+                  <Loader2 className="h-6 w-6 mx-auto animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground mt-2">Loading more products...</p>
                 </div>
               )}
               
-              {filteredProducts.length === 0 && (
+              {filteredProducts.length === 0 && !productSearchLoading && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-2 opacity-20" />
                   <p>No products found</p>
@@ -1072,10 +1180,11 @@ setOrderStatus(formattedOrder.status.toLowerCase())
                 </div>
               )}
               
-              {displayedProducts.length > 0 && displayedProducts.length === filteredProducts.length && (
+              {/* All products loaded */}
+              {displayedProducts.length > 0 && !hasMoreProducts && !loadingMoreProducts && (
                 <div className="text-center py-4 text-muted-foreground">
                   <CheckCircle2 className="h-5 w-5 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">All products loaded ({filteredProducts.length} total)</p>
+                  <p className="text-sm">All products loaded ({displayedProducts.length} total)</p>
                 </div>
               )}
             </div>

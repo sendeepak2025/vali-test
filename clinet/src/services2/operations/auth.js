@@ -13,6 +13,7 @@ const {
   UPDATE_MEMBER_PERMISSION_API,
   UPDATE_STORE,
   GET_ALL_STORES_API,
+  SEARCH_STORES_API,
   GET_USER_API,
   FETCH_MY_PROFILE_API,
   UPDATE_PASSWORD_API,
@@ -447,6 +448,28 @@ export const getAllStoresAPI = async () => {
     return [];
   }
 
+};
+
+// Search stores with pagination - for order creation
+export const searchStoresAPI = async (search = "", limit = 10, skip = 0) => {
+  try {
+    const queryParams = new URLSearchParams({
+      search,
+      limit: limit.toString(),
+      skip: skip.toString()
+    }).toString();
+    
+    const response = await apiConnector("GET", `${SEARCH_STORES_API}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.stores || [];
+  } catch (error) {
+    console.error("Search Stores API ERROR:", error);
+    return [];
+  }
 };
 
 export function logout(navigate) {

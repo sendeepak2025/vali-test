@@ -2107,6 +2107,60 @@ const getProductByShortCodeCtrl = async (req, res) => {
     }
 };
 
+// Search products with pagination - for order creation
+const searchProductsCtrl = async (req, res) => {
+    try {
+        const { search = "", limit = 10, category = "", skip = 0 } = req.query;
+        
+        let query = {};
+        
+        // Add search filter if search term provided
+        if (search.trim()) {
+            const searchRegex = new RegExp(search.trim(), "i");
+            query.$or = [
+                { name: searchRegex },
+                { shortCode: searchRegex }
+            ];
+        }
+        
+        // Add category filter if provided
+        if (category && category !== "all") {
+            query.category = category;
+        }
+        
+        const products = await productModel.find(query)
+            .populate({
+                path: "category",
+                select: "categoryName",
+            })
+            .select("_id name price pricePerBox shippinCost shortCode salesMode image")
+            .sort({ name: 1 })
+            .skip(parseInt(skip))
+            .limit(parseInt(limit))
+            .lean();
+        
+        // Format products
+        const formattedProducts = products.map(product => ({
+            ...product,
+            id: product._id,
+            category: product.category?.categoryName || null,
+            salesMode: product.salesMode || "both"
+        }));
+        
+        return res.status(200).json({
+            success: true,
+            products: formattedProducts,
+            count: formattedProducts.length
+        });
+    } catch (error) {
+        console.error("Error in searchProductsCtrl:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error searching products",
+        });
+    }
+};
+
 module.exports = { 
     createProductCtrl, 
     getAllProductCtrl, 
@@ -2124,5 +2178,6 @@ module.exports = {
     addToManually,
     calculateTripWeight,
     generateShortCodesCtrl,
-    getProductByShortCodeCtrl
+    getProductByShortCodeCtrl,
+    searchProductsCtrl
 };

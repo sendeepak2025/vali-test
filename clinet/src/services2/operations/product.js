@@ -15,7 +15,8 @@ const { CREATE_PRODUCT,
     TRASH_PRODUCT,
     REFRESH_PRODUCT,
     QUANITY_ADD_PRODUCT,
-    CALCULATE_PRODUCT_WEIGHT
+    CALCULATE_PRODUCT_WEIGHT,
+    SEARCH_PRODUCTS_ORDER
 } = product
 
 export const createProductAPI = async (formData, token) => {
@@ -425,5 +426,28 @@ export const getProductByShortCodeAPI = async (code) => {
     // Don't show toast for not found - it's expected during typing
     console.log("Product not found for code:", code);
     return null;
+  }
+};
+
+// Search products for order creation - paginated backend search
+export const searchProductsForOrderAPI = async (search = "", limit = 10, category = "", skip = 0) => {
+  try {
+    const queryParams = new URLSearchParams({
+      search,
+      limit: limit.toString(),
+      category,
+      skip: skip.toString()
+    }).toString();
+    
+    const response = await apiConnector("GET", `${SEARCH_PRODUCTS_ORDER}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.products || [];
+  } catch (error) {
+    console.error("Search Products For Order API ERROR:", error);
+    return [];
   }
 };
