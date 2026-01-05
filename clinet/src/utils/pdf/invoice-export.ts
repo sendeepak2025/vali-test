@@ -108,7 +108,8 @@ export const exportInvoiceToPDF = (
     } else {
       doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
     }
-    doc.text("INVOICE", MARGIN, yStart + 4);
+    doc.text(isPreOrder ? "PREORDER" : "INVOICE", MARGIN, yStart + 4);
+
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
@@ -374,6 +375,8 @@ export const exportInvoiceToPDF = (
     doc.text(`Payment due by ${dueDate} • Fresh Produce Wholesale`, PAGE_WIDTH / 2, thankYouY + 6, { align: "center" });
   }
 
-  doc.save(`Invoice-${order.id}-${order?.billingAddress?.name || 'Customer'}.pdf`);
+const fileType = isPreOrder ? "PreOrder" : "Invoice";
+
+doc.save(`${fileType}-${order.id}-${order?.billingAddress?.name || 'Customer'}.pdf`);
   return doc;
 };
