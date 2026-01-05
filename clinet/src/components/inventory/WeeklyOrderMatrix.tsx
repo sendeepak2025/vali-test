@@ -1653,7 +1653,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                     </td>
                   );
                 })}
-                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-200`}>{totals.orderTotal}</td>
+                <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-200`}>{totals.orderTotal + totals.preOrderTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-200`}>{totals.stockTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-purple-200`}>{totals.incomingTotal}</td>
                 <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-orange-200`}>{totals.preOrderTotal}</td>
