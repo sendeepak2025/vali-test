@@ -1592,7 +1592,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                         />
                       );
                     })}
-                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-50 font-bold`}>{rowOrderTotal}</td>
+                    <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-blue-50 font-bold`}>{rowOrderTotal + rowPreOrderTotal}</td>
                     <td className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-green-50`}>{row.totalStock || 0}</td>
                     {/* Incoming Stock Cell - Editable in INCOMING mode */}
                     <td 
@@ -1644,7 +1644,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   TOTAL
                 </td>
                 {visibleStores.map(store => {
-                  const storeTotal = matrixData.reduce((sum, row) => sum + (row.storeOrders?.[store._id]?.currentQty || 0), 0);
+                  const storeOrderTotal = matrixData.reduce((sum, row) => sum + (row.storeOrders?.[store._id]?.currentQty || 0), 0);
+                  const storePreOrderTotal = matrixData.reduce((sum, row) => sum + (row.storeOrders?.[store._id]?.preOrderQty || 0), 0);
+                  const storeTotal = storeOrderTotal + storePreOrderTotal;
                   return (
                     <td key={store._id} className={`${currentSize.cellPadding} ${currentSize.fontSize} text-center border bg-gray-100`}>
                       {storeTotal > 0 ? storeTotal : '-'}

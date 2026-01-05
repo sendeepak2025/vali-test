@@ -543,6 +543,25 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     })
   }
 
+  // Remove selected products from the price list
+  const removeSelectedProducts = () => {
+    if (selectedProductIds.length === 0) return
+    
+    const removedCount = selectedProductIds.length
+    
+    setFormData(prev => ({
+      ...prev,
+      products: prev.products.filter(p => !selectedProductIds.includes(p.id))
+    }))
+    
+    setSelectedProductIds([])
+    
+    toast({ 
+      title: "Products Removed", 
+      description: `Removed ${removedCount} products from the price list` 
+    })
+  }
+
   // Import products from existing price list
   const importFromTemplate = (template: any) => {
     if (!template?.products?.length) return
@@ -1956,6 +1975,19 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       className="text-blue-600"
                     >
                       <Zap className="h-3 w-3 mr-1" /> Copy Base → All Tiers
+                    </Button>
+                    
+                    <div className="h-4 w-px bg-border mx-2" />
+                    
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={removeSelectedProducts}
+                      disabled={selectedProductIds.length === 0}
+                      className="text-red-600"
+                      title={selectedProductIds.length > 0 ? `Remove ${selectedProductIds.length} selected products` : "Select products to remove"}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Clear Selected
                     </Button>
                   </div>
 
