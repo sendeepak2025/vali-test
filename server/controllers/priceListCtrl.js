@@ -30,7 +30,7 @@ exports.createPriceListTemplate = async (req, res) => {
     if (sendEmailNotification || status === "active") {
       try {
         // 🧪 TEST MODE: Only send to test email
-        const TEST_MODE = true;
+        const TEST_MODE = false;
         const TEST_EMAIL = "rishimaheshwari040@gmail.com";
 
         let stores;
@@ -155,7 +155,7 @@ exports.updatePriceListTemplate = async (req, res) => {
     if (sendEmailNotification || status === "active") {
       try {
         // 🧪 TEST MODE: Only send to test email
-        const TEST_MODE = true;
+        const TEST_MODE = false;
         const TEST_EMAIL = "rishimaheshwari040@gmail.com";
 
         let stores;
@@ -233,7 +233,7 @@ exports.sendPriceListNotification = async (req, res) => {
     }
 
     // 🧪 TEST MODE: Only send to test email
-    const TEST_MODE = true;
+    const TEST_MODE = false;
     const TEST_EMAIL = "rishimaheshwari040@gmail.com";
 
     let stores;
