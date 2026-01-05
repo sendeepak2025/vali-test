@@ -21,7 +21,12 @@ import DocumentsSection from "@/components/store/registration/DocumentsSection";
 import AccountSection from "@/components/store/registration/AccountSection";
 import { useDispatch } from "react-redux";
 
-const StoreRegistration = () => {
+interface StoreRegistrationProps {
+  onSuccess?: () => void;
+  isAdminCreating?: boolean;
+}
+
+const StoreRegistration = ({ onSuccess, isAdminCreating = false }: StoreRegistrationProps) => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -117,7 +122,10 @@ const StoreRegistration = () => {
 
     setIsSubmitting(true);
     try {
-      await signUp(values, navigate, dispatch);
+      const success = await signUp(values, navigate, dispatch, isAdminCreating);
+      if (success && onSuccess) {
+        onSuccess();
+      }
     } finally {
       setIsSubmitting(false);
     }

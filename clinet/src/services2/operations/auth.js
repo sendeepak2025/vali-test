@@ -224,7 +224,7 @@ export async function verifyStoreOrderOtp(email, otp) {
   }
 }
 
-export async function signUp(formData, navigate, dispatch) {
+export async function signUp(formData, navigate, dispatch, skipNavigation = false) {
   Swal.fire({
     title: "Loading",
     allowOutsideClick: false,
@@ -249,8 +249,11 @@ export async function signUp(formData, navigate, dispatch) {
     const isStoreRegistration = formData.role === "store";
     const registrationRef = response?.data?.user?.registrationRef;
 
-    if (isStoreRegistration && registrationRef) {
-      // Show pending approval message for store registrations
+    // Close loading first
+    Swal.close();
+
+    if (isStoreRegistration && registrationRef && !skipNavigation) {
+      // Show pending approval message for store registrations (only for public registration)
       await Swal.fire({
         title: "Registration Submitted!",
         html: `
@@ -271,6 +274,17 @@ export async function signUp(formData, navigate, dispatch) {
       
       // Navigate to login page after store registration
       navigate("/auth");
+    } else if (skipNavigation) {
+      // Admin creating store - just show simple success
+      Swal.fire({
+        title: "Store Created!",
+        text: "Store has been created successfully.",
+        icon: "success",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#3B82F6",
+        timer: 2000,
+        timerProgressBar: true,
+      });
     } else {
       Swal.fire({
         title: `User Register Successful!`,
@@ -282,21 +296,18 @@ export async function signUp(formData, navigate, dispatch) {
       });
     }
 
-    return response?.data?.success;
+    return true;
   } catch (error) {
     console.log("SIGNUP API ERROR............", error);
 
-    // toast.error(error.response?.data?.message)
     Swal.fire({
       title: "Error",
       text: error.response?.data?.message || "Something went wrong. Please try again later.",
       icon: "error",
       confirmButtonText: "OK",
     });
+    return false;
   }
-
-  // Close the loading alert after completion
-  // Swal.close();
 }
 export async function createMemberAPI(formData) {
   Swal.fire({

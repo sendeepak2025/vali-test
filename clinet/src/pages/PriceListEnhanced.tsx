@@ -49,6 +49,7 @@ import { priceListEmailMulti } from "@/services2/operations/email"
 import { exportPriceListToPDF } from "@/utils/pdf"
 import SelecteStores from "@/components/inventory/pricelist/SelecteStores"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
+import { getAllStoresAPI, searchStoresAPI } from "@/services2/operations/auth"
 
 // Stats Card Component
 const StatsCard = ({ title, value, subtitle, icon: Icon, color = "blue" }: any) => {
@@ -121,6 +122,15 @@ const PriceListEnhanced = () => {
   })
   const [selectedStores, setSelectedStores] = useState<any[]>([])
   const [isSending, setIsSending] = useState(false)
+  
+  // Category mode stores
+  const [categoryStores, setCategoryStores] = useState<any[]>([])
+  const [selectedCategoryStores, setSelectedCategoryStores] = useState<string[]>([])
+  const [loadingCategoryStores, setLoadingCategoryStores] = useState(false)
+  const [categoryStoresPage, setCategoryStoresPage] = useState(1)
+  const [totalCategoryStores, setTotalCategoryStores] = useState(0)
+  const [storeSearchQuery, setStoreSearchQuery] = useState("")
+  const STORES_LIMIT = 20
 
   // Stats
   const [stats, setStats] = useState({
@@ -369,6 +379,11 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       toast({ variant: "destructive", title: "Error", description: "Select at least one store" })
       return
     }
+    
+    if (sendMode === "category" && selectedCategoryStores.length === 0) {
+      toast({ variant: "destructive", title: "Error", description: "Select at least one store" })
+      return
+    }
 
     setIsSending(true)
     try {
@@ -378,27 +393,101 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
         await priceListEmailMulti({ url, selectedStore: selectedStores }, token)
         toast({ title: "Sent!", description: `Price list sent to ${selectedStores.length} stores` })
       } else if (sendMode === "category") {
-        const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL || 'http://localhost:5000/api'}/email/send-by-price-category`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ templateId: selectedTemplate.id }),
+        // Send to selected stores from category list
+        // Note: selectedCategoryStores contains emails, we need to send them directly
+        const selectedStoreObjects = selectedCategoryStores.map(email => {
+          const store = categoryStores.find(s => s.email === email)
+          return { 
+            value: email, 
+            label: store?.storeName || email 
+          }
         })
-        const data = await response.json()
-        if (data.success) {
-          toast({ title: "Sent!", description: `Price list sent to ${data.totalSent} stores by category` })
-        } else {
-          throw new Error(data.message)
-        }
+        
+        console.log("=== Email Send Debug ===")
+        console.log("Selected emails:", selectedCategoryStores)
+        console.log("Store objects to send:", selectedStoreObjects)
+        console.log("Total count:", selectedStoreObjects.length)
+        
+        const url = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
+        await priceListEmailMulti({ url, selectedStore: selectedStoreObjects }, token)
+        toast({ title: "Sent!", description: `Price list sent to ${selectedStoreObjects.length} stores` })
       }
       setSendModalOpen(false)
       setSelectedStores([])
+      setSelectedCategoryStores([])
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Failed to send" })
     } finally {
       setIsSending(false)
+    }
+  }
+  
+  // Fetch stores for category mode
+  const fetchCategoryStores = async (pageNum = 1, search = storeSearchQuery) => {
+    setLoadingCategoryStores(true)
+    
+    try {
+      const skip = (pageNum - 1) * STORES_LIMIT
+      const storesData = await searchStoresAPI(search, STORES_LIMIT, skip)
+      
+      if (storesData && storesData.length > 0) {
+        setCategoryStores(storesData)
+        // If we got full page, assume there might be more
+        if (storesData.length === STORES_LIMIT) {
+          setTotalCategoryStores(Math.max(totalCategoryStores, skip + storesData.length + 1))
+        } else {
+          setTotalCategoryStores(skip + storesData.length)
+        }
+      } else {
+        setCategoryStores([])
+        if (pageNum === 1) setTotalCategoryStores(0)
+      }
+      setCategoryStoresPage(pageNum)
+    } catch (error) {
+      console.error("Error fetching stores:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to fetch stores" })
+    } finally {
+      setLoadingCategoryStores(false)
+    }
+  }
+  
+  // Handle store search
+  const handleStoreSearch = (value: string) => {
+    setStoreSearchQuery(value)
+    setCategoryStoresPage(1)
+    fetchCategoryStores(1, value)
+  }
+  
+  // Pagination handlers
+  const totalStorePages = Math.ceil(totalCategoryStores / STORES_LIMIT)
+  
+  const goToNextStorePage = () => {
+    if (categoryStoresPage < totalStorePages) {
+      fetchCategoryStores(categoryStoresPage + 1)
+    }
+  }
+  
+  const goToPrevStorePage = () => {
+    if (categoryStoresPage > 1) {
+      fetchCategoryStores(categoryStoresPage - 1)
+    }
+  }
+  
+  // Toggle store selection in category mode
+  const toggleCategoryStore = (email: string) => {
+    setSelectedCategoryStores(prev => 
+      prev.includes(email) 
+        ? prev.filter(e => e !== email)
+        : [...prev, email]
+    )
+  }
+  
+  // Select all stores in category mode
+  const selectAllCategoryStores = () => {
+    if (selectedCategoryStores.length === categoryStores.length) {
+      setSelectedCategoryStores([])
+    } else {
+      setSelectedCategoryStores(categoryStores.map(s => s.email))
     }
   }
 
@@ -2644,8 +2733,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       </Dialog>
 
       {/* Send Modal */}
-      <Dialog open={sendModalOpen} onOpenChange={setSendModalOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={sendModalOpen} onOpenChange={(open) => {
+        setSendModalOpen(open)
+        if (!open) {
+          setSelectedCategoryStores([])
+          setCategoryStores([])
+          setCategoryStoresPage(1)
+          setTotalCategoryStores(0)
+          setStoreSearchQuery("")
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Send Price List</DialogTitle>
             <DialogDescription>
@@ -2668,12 +2766,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               </Card>
               <Card 
                 className={`cursor-pointer transition-all ${sendMode === "category" ? "border-orange-500 bg-orange-50" : "hover:border-gray-300"}`}
-                onClick={() => setSendMode("category")}
+                onClick={() => {
+                  setSendMode("category")
+                  if (categoryStores.length === 0) {
+                    fetchCategoryStores()
+                  }
+                }}
               >
                 <CardContent className="p-4 text-center">
                   <Globe className="h-8 w-8 mx-auto mb-2 text-orange-600" />
                   <h4 className="font-medium">By Price Category</h4>
-                  <p className="text-xs text-muted-foreground">Auto-send by store pricing</p>
+                  <p className="text-xs text-muted-foreground">Select stores by category</p>
                 </CardContent>
               </Card>
             </div>
@@ -2689,16 +2792,95 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               </div>
             )}
 
-            {/* Category Mode Info */}
+            {/* Category Mode - Direct Store List */}
             {sendMode === "category" && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <h4 className="font-medium text-orange-900 mb-2">How it works:</h4>
-                <ul className="text-sm text-orange-800 space-y-1 list-disc list-inside">
-                  <li>Stores get their assigned price category URL</li>
-                  <li>A Price stores → A Price URL</li>
-                  <li>B Price stores → B Price URL</li>
-                  <li>And so on...</li>
-                </ul>
+              <div>
+                {/* Search Input */}
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search stores by name or email..."
+                    value={storeSearchQuery}
+                    onChange={(e) => handleStoreSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                
+                {loadingCategoryStores ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                    <span>Loading stores...</span>
+                  </div>
+                ) : categoryStores.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {storeSearchQuery ? "No stores found for your search" : "No stores found"}
+                  </div>
+                ) : (
+                  <>
+                    {/* Select All Header */}
+                    <div className="flex items-center justify-between mb-3 p-3 bg-gray-50 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={selectedCategoryStores.length === categoryStores.length && categoryStores.length > 0}
+                          onCheckedChange={selectAllCategoryStores}
+                          className="h-5 w-5"
+                        />
+                        <span className="font-medium cursor-pointer" onClick={selectAllCategoryStores}>
+                          Select All (Page {categoryStoresPage})
+                        </span>
+                      </div>
+                      <Badge className={selectedCategoryStores.length > 0 ? "bg-blue-600" : "bg-gray-400"}>
+                        {selectedCategoryStores.length} selected
+                      </Badge>
+                    </div>
+                    
+                    {/* Simple Stores List */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="h-[280px] overflow-y-auto divide-y">
+                        {categoryStores.map((store: any) => (
+                          <label 
+                            key={store.email} 
+                            className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                          >
+                            <Checkbox
+                              checked={selectedCategoryStores.includes(store.email)}
+                              onCheckedChange={() => toggleCategoryStore(store.email)}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{store.storeName}</p>
+                              <p className="text-xs text-muted-foreground truncate">{store.email}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Pagination */}
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                      <span className="text-sm text-muted-foreground">
+                        Page {categoryStoresPage} of {totalStorePages || 1}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={goToPrevStorePage}
+                          disabled={categoryStoresPage <= 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={goToNextStorePage}
+                          disabled={categoryStores.length < STORES_LIMIT}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -2720,7 +2902,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
             <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={isSending}>
               Cancel
             </Button>
-            <Button onClick={handleSend} disabled={isSending || (sendMode === "bulk" && selectedStores.length === 0)}>
+            <Button 
+              onClick={handleSend} 
+              disabled={isSending || (sendMode === "bulk" && selectedStores.length === 0) || (sendMode === "category" && selectedCategoryStores.length === 0)}
+            >
               {isSending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...

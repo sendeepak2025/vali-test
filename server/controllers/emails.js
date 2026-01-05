@@ -50,6 +50,11 @@ exports.priceListSendMulti = async (req, res) => {
   try {
     const { url, selectedStore } = req.body;
 
+    console.log("=== priceListSendMulti Debug ===");
+    console.log("URL:", url);
+    console.log("Selected Stores:", JSON.stringify(selectedStore, null, 2));
+    console.log("Total stores to send:", selectedStore?.length);
+
     if (!url || !selectedStore || !Array.isArray(selectedStore)) {
       return res.status(400).json({
         success: false,
@@ -84,16 +89,31 @@ exports.priceListSendMulti = async (req, res) => {
     const bcc = null;
 
     // Send email to each selected store
+    let successCount = 0;
+    let failedEmails = [];
+    
     for (const store of selectedStore) {
       const email = store.value;
-      const data = { email };
-
-      await mailSender(email, subject, html, file, cc, bcc);
+      console.log(`Sending email to: ${email} (${store.label})`);
+      
+      try {
+        await mailSender(email, subject, html, file, cc, bcc);
+        console.log(`✅ Email sent successfully to: ${email}`);
+        successCount++;
+      } catch (emailError) {
+        console.error(`❌ Failed to send email to ${email}:`, emailError);
+        failedEmails.push(email);
+      }
     }
+
+    console.log(`=== Email Send Complete ===`);
+    console.log(`Success: ${successCount}, Failed: ${failedEmails.length}`);
 
     return res.status(200).json({
       success: true,
-      message: "Messages sent successfully!",
+      message: `Messages sent successfully! (${successCount}/${selectedStore.length})`,
+      successCount,
+      failedEmails
     });
 
   } catch (error) {

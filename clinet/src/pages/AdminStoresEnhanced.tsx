@@ -1970,7 +1970,13 @@ const AdminStoresEnhanced = () => {
           <DialogHeader>
             <DialogTitle>Add New Store</DialogTitle>
           </DialogHeader>
-          <StoreRegistration />
+          <StoreRegistration 
+            isAdminCreating={true}
+            onSuccess={() => {
+              setAddStoreOpen(false);
+              fetchStores();
+            }} 
+          />
         </DialogContent>
       </Dialog>
 
