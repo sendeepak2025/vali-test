@@ -255,7 +255,7 @@ export const getStatement = async (id,token) => {
         return response?.data.data|| [];
     } catch (error) {
         console.error("GET GET_ALL_ORDER API ERROR:", error);
-        toast.error(error?.response?.data?.message || "Failed to get GET_ALL_ORDER!");
+        // toast.error(error?.response?.data?.message || "Failed to get GET_ALL_ORDER!");
         return [];
     }
 
