@@ -5,7 +5,7 @@ require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const Product = require("../models/productModel");
 
 const PRODUCT_ID = "68b9ccb574069ff726f3c2bc";
-const FROM_DATE = new Date("2025-12-29T00:00:00.000Z");
+const FROM_DATE = new Date("2026-01-05T00:00:00.000Z");
 const TO_DATE = new Date(); // Current date
 
 const filterByDate = (arr, from, to) => {

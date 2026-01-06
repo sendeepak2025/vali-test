@@ -102,10 +102,28 @@ exports.getAllPriceListTemplates = async (req, res) => {
 
     const total = await PriceListTemplate.countDocuments(match);
 
-    const templates = await PriceListTemplate.find(match)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    const templates = await PriceListTemplate.aggregate([
+  { $match: match },
+  { $sort: { createdAt: -1 } },
+  { $skip: skip },
+  { $limit: limit },
+  {
+    $addFields: {
+      products: {
+        $map: {
+          input: "$products",
+          as: "p",
+          in: {
+            $mergeObjects: [
+              "$$p",
+              { price: "$$p.aPrice" }
+            ]
+          }
+        }
+      }
+    }
+  }
+]);
 
     res.status(200).json({
       success: true,
