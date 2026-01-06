@@ -380,6 +380,11 @@ export const exportInvoiceToPDF = (
 
 const fileType = isPreOrder ? "PreOrder" : "Invoice";
 
-doc.save(`${fileType}-${order.id}-${order?.billingAddress?.name || 'Customer'}.pdf`);
-  return doc;
+const customerName = (order?.billingAddress?.name || "Customer")
+  .trim()                 // start/end ke extra spaces hatao
+  .replace(/\s+/g, " ");  // multiple spaces → single space
+
+doc.save(`${fileType}-${order.id}-${customerName}.pdf`);
+return doc;
+
 };
