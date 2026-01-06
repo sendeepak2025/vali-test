@@ -52,7 +52,8 @@ const createPreOrderCtrl = async (req, res) => {
       orderType,
       preOrderNumber,
       priceListId: priceListId || null,
-      createdAt: createdAt ? new Date(createdAt) : undefined,
+      createdAt: new Date(),
+
     });
 
     await newPreOrder.save();

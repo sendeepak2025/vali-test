@@ -102,7 +102,7 @@ exports.getAllPriceListTemplates = async (req, res) => {
 
     const total = await PriceListTemplate.countDocuments(match);
 
-   const templates = await PriceListTemplate.aggregate([
+    const templates = await PriceListTemplate.aggregate([
   { $match: match },
   { $sort: { createdAt: -1 } },
   { $skip: skip },
@@ -125,8 +125,6 @@ exports.getAllPriceListTemplates = async (req, res) => {
   }
 ]);
 
-
-      
     res.status(200).json({
       success: true,
       data: templates,
