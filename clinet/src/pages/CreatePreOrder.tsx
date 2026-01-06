@@ -712,6 +712,12 @@ const CreatePreOrder = () => {
 
   const total = subtotal
 
+  const totalQuantity = useMemo(() => 
+  orderItems.reduce((sum, item) => sum + item.quantity, 0)
+, [orderItems])
+
+  
+
   const handleSubmit = async () => {
     if (!selectedStore) {
       toast({ title: "Error", description: "Please select a store", variant: "destructive" })
@@ -1350,7 +1356,7 @@ const CreatePreOrder = () => {
 
                     <div className="border-t pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span>Subtotal ({orderItems.length} items)</span>
+                        <span>Subtotal ({orderItems.length} items) QT - {totalQuantity}</span>
                         <span>${subtotal.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between font-bold text-lg border-t pt-2">

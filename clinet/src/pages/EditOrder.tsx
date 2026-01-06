@@ -526,6 +526,11 @@ setOrderStatus(formattedOrder.status.toLowerCase())
     orderItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   , [orderItems])
 
+  const totalQuantity = useMemo(() => 
+  orderItems.reduce((sum, item) => sum + item.quantity, 0)
+, [orderItems])
+
+
   const shippingCost = order?.shipping || 0
   const total = subtotal + shippingCost
 
@@ -1017,7 +1022,7 @@ setOrderStatus(formattedOrder.status.toLowerCase())
 
                     <div className="border-t pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span>Subtotal ({orderItems.length} items)</span>
+                        <span>Subtotal ({orderItems.length} items) QT - {totalQuantity}</span>
                         <span>${subtotal.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
