@@ -420,31 +420,58 @@ const InventoryEnhanced = () => {
     }
   }
 
-  const handleExport = () => {
-    if (products.length === 0) {
-      toast({ title: "No Data", description: "No products to export" })
-      return
+  const handleExport = async () => {
+    try {
+      // Fetch ALL products for export (not just current page)
+      toast({ title: "Exporting...", description: "Fetching all products for export" })
+      
+      const queryParams = new URLSearchParams({
+        page: "1",
+        limit: "10000", // Large limit to get all products
+        ...(debouncedSearch && { search: debouncedSearch }),
+        ...(filters.category !== "all" && { categoryId: filters.category }),
+        ...(filters.startDate && { startDate: filters.startDate }),
+        ...(filters.endDate && { endDate: filters.endDate }),
+        ...(filters.stockLevel !== "all" && { stockLevel: filters.stockLevel }),
+      })
+
+      const response = await getAllProductSummaryAPI(`?${queryParams.toString()}`)
+      
+      const allExportProducts = (response?.products || response?.data || response || []).map((p: any) => ({
+        ...p,
+        id: p._id,
+        summary: p.summary || { totalPurchase: 0, totalSell: 0, totalRemaining: 0 },
+      }))
+
+      if (allExportProducts.length === 0) {
+        toast({ title: "No Data", description: "No products to export" })
+        return
+      }
+
+      const headers = ["Product Name", "Category", "Purchased", "Sold", "Remaining", "Price", "Value"]
+      const csvData = allExportProducts.map((p: any) => [
+        `"${(p.name || '').replace(/"/g, '""')}"`,
+        p.category?.categoryName || "N/A",
+        p.summary?.totalPurchase || 0,
+        p.summary?.totalSell || 0,
+        p.summary?.totalRemaining || 0,
+        p.price || 0,
+        ((p.price || 0) * (p.summary?.totalRemaining || 0)).toFixed(2)
+      ].join(','))
+      
+      const csvContent = [headers.join(','), ...csvData].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast({ title: "Exported", description: `${allExportProducts.length} products exported successfully` })
+    } catch (error) {
+      console.error("Export error:", error)
+      toast({ variant: "destructive", title: "Export Failed", description: "Failed to export products" })
     }
-    const headers = ["Product Name", "Category", "Purchased", "Sold", "Remaining", "Price", "Value"]
-    const csvData = products.map(p => [
-      `"${(p.name || '').replace(/"/g, '""')}"`,
-      p.category?.categoryName || "N/A",
-      p.summary?.totalPurchase || 0,
-      p.summary?.totalSell || 0,
-      p.summary?.totalRemaining || 0,
-      p.price || 0,
-      ((p.price || 0) * (p.summary?.totalRemaining || 0)).toFixed(2)
-    ].join(','))
-    
-    const csvContent = [headers.join(','), ...csvData].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-    toast({ title: "Exported", description: "Inventory data downloaded" })
   }
 
   const { shortcuts } = useInventoryShortcuts({
