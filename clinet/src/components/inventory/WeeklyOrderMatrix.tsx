@@ -890,28 +890,65 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       const allMatrix = response.data.matrix || [];
       const allStores = response.data.stores || [];
       
-      // Build CSV with all products and all stores
-      const headers = ["PRODUCT", ...allStores.map((s: any) => s.storeName || 'Store'), "TOT", "STK", "INC", "PRE", "FIN", "ST"];
+      // Filter stores: Only include stores that have orders OR pre-orders
+      const storesWithData = allStores.filter((store: any) => {
+        const storeId = store._id;
+        return allMatrix.some((row: any) => {
+          const storeData = row.storeOrders?.[storeId];
+          return (storeData?.currentQty > 0) || (storeData?.preOrderQty > 0);
+        });
+      });
+      
+      // Build CSV with all products and only stores with orders/pre-orders
+      // Combined column: ORD (Orders) + PRE (Pre-orders) = Combined Total
+      const headers = [
+        "PRODUCT", 
+        ...storesWithData.map((s: any) => s.storeName || 'Store'), 
+        "COMBINED", // Orders + Pre-orders combined total
+        "STK", 
+        "INC", 
+        "FIN", 
+        "ST"
+      ];
+      
       const csvData = allMatrix.map((row: any) => {
-        const rowPreOrder = row.preOrderTotal || 0;
         const rowOrder = row.orderTotal || 0;
+        const rowPreOrder = row.preOrderTotal || 0;
+        const rowCombined = rowOrder + rowPreOrder; // Combined total
         const rowIncoming = row.incomingStock || 0;
-        const rowFinal = row.finalStock ?? ((row.totalStock || 0) + rowIncoming - rowPreOrder);
+        const rowStock = row.totalStock || 0;
+        const rowFinal = row.finalStock ?? (rowStock + rowIncoming - rowPreOrder);
         const status = rowFinal < 0 ? "SHORT" : "OK";
+        
         return [
           row.productName,
-          ...allStores.map((s: any) => row.storeOrders?.[s._id]?.currentQty || 0),
-          rowOrder, row.totalStock || 0, rowIncoming, rowPreOrder, rowFinal, status
+          // For each store, show combined (orders + pre-orders)
+          ...storesWithData.map((s: any) => {
+            const storeData = row.storeOrders?.[s._id];
+            const storeOrders = storeData?.currentQty || 0;
+            const storePreOrders = storeData?.preOrderQty || 0;
+            return storeOrders + storePreOrders; // Combined per store
+          }),
+          rowCombined, // Total combined
+          rowStock,
+          rowIncoming,
+          rowFinal,
+          status
         ];
       });
       
-      const csvContent = [headers.join(","), ...csvData.map((row: any) => row.map((cell: any) => `"${cell}"`).join(","))].join("\n");
+      const csvContent = [
+        headers.join(","), 
+        ...csvData.map((row: any) => row.map((cell: any) => `"${cell}"`).join(","))
+      ].join("\n");
+      
       const blob = new Blob([csvContent], { type: "text/csv" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `order_matrix_full_${response.data.weekRange?.label?.replace(/\s/g, '_') || 'export'}.csv`;
+      link.download = `order_matrix_combined_${response.data.weekRange?.label?.replace(/\s/g, '_') || 'export'}.csv`;
       link.click();
-      toast.success(`Exported ${allMatrix.length} products!`);
+      
+      toast.success(`Exported ${allMatrix.length} products × ${storesWithData.length} stores with orders!`);
     } catch (error) {
       console.error("Export error:", error);
       toast.error("Failed to export data");
