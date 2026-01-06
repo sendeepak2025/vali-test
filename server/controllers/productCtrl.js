@@ -1195,7 +1195,7 @@ const resetAndRebuildHistoryForAllProducts = async (
 };
 
 // ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
-const BASE_STOCK_DATE = new Date("2025-12-29T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2026-01-05T00:00:00.000Z");
 
 // ✅ Helper: Sum array by field (reduce shortcut)
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
@@ -1214,50 +1214,98 @@ const filterByDate = (arr, from, to) => {
 // ✅ Calculate ACTUAL STOCK (BASE_STOCK_DATE se current week ke Sunday tak)
 const calculateActualStock = (product) => {
   const now = new Date();
-  
-  // Get current week's Sunday (UTC)
-  const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
-  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-  const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
-  
-  // Stock data - BASE_STOCK_DATE se current week ke Sunday tak
-  const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, sunday);
-  const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, sunday);
-  const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, sunday);
-  const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, sunday);
-  const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, sunday);
 
-  // Trash calculations
-  const trashBox = stockTrash.filter(t => t.type === "box").reduce((s, t) => s + (t.quantity || 0), 0);
-  const trashUnit = stockTrash.filter(t => t.type === "unit").reduce((s, t) => s + (t.quantity || 0), 0);
+  // Get current week's Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const sunday = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + daysUntilSunday,
+      23, 59, 59, 999
+    )
+  );
+
+  // Filter stock data
+  const stockPurchase = filterByDate(
+    product?.purchaseHistory || [],
+    BASE_STOCK_DATE,
+    sunday
+  );
+
+  const stockSell = filterByDate(
+    product?.salesHistory || [],
+    BASE_STOCK_DATE,
+    sunday
+  );
+
+  const stockUnitPurchase = filterByDate(
+    product?.lbPurchaseHistory || [],
+    BASE_STOCK_DATE,
+    sunday
+  );
+
+  const stockUnitSell = filterByDate(
+    product?.lbSellHistory || [],
+    BASE_STOCK_DATE,
+    sunday
+  );
+
+  const stockTrash = filterByDate(
+    product?.quantityTrash || [],
+    BASE_STOCK_DATE,
+    sunday
+  );
+
+  // Trash calculation
+  const trashBox = stockTrash
+    .filter(t => t.type?.toLowerCase() === "box")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  const trashUnit = stockTrash
+    .filter(t => t.type?.toLowerCase() === "unit")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
 
   // Totals
   const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
   const stockSellTotal = sumBy(stockSell, "quantity");
+
   const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
   const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
 
-  // Carry forward (agar hai to)
-  const carryForwardBox = product?.carryForwardBox || 0;
-  const carryForwardUnit = product?.carryForwardUnit || 0;
+  // Carry forward
+  const carryForwardBox = Number(product?.carryForwardBox || 0);
+  const carryForwardUnit = Number(product?.carryForwardUnit || 0);
 
-  // FINAL FORMULA: carryForward + purchase - sell - trash + manuallyAdded
-  const totalRemaining = Math.max(
-    carryForwardBox + stockPurchaseTotal - stockSellTotal - trashBox + (product?.manuallyAddBox?.quantity || 0),
-    0
-  );
-  const unitRemaining = Math.max(
-    carryForwardUnit + stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-    0
-  );
+  // Manual add
+  const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
+  const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
+
+  // FINAL CALCULATION (NEGATIVE ALLOWED)
+  const totalRemaining =
+    carryForwardBox +
+    stockPurchaseTotal -
+    stockSellTotal -
+    trashBox +
+    manualBox;
+
+  const unitRemaining =
+    carryForwardUnit +
+    stockUnitPurchaseTotal -
+    stockUnitSellTotal -
+    trashUnit +
+    manualUnit;
 
   return {
-    totalRemaining,
-    unitRemaining,
+    totalRemaining, // can be negative
+    unitRemaining,  // can be negative
     trashBox,
-    trashUnit
+    trashUnit,
+    isOverSold: totalRemaining < 0
   };
 };
+
 
 // ✅ Calculate REPORT DATA (user ke date filter ke hisaab se - sirf dikhane ke liye)
 const calculateReportData = (product, reportFrom, reportTo) => {
