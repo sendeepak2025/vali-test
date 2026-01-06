@@ -212,7 +212,7 @@ export const exportInvoiceToPDF = (
     startY: yPos,
     head: [tableHeaders],
     body: tableRows,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { left: MARGIN, right: MARGIN, top: HEADER_HEIGHT + 10 },
     headStyles: {
       fillColor: [colors.primary[0], colors.primary[1], colors.primary[2]],
       textColor: invoiceTemplate === "minimal" ? [50, 50, 50] : [255, 255, 255],
@@ -242,7 +242,10 @@ export const exportInvoiceToPDF = (
     },
     tableWidth: CONTENT_WIDTH,
     didDrawPage: (data) => {
-      if (data.pageNumber > 1) drawHeader(doc, false);
+      // Draw header on all pages after the first
+      if (data.pageNumber > 1) {
+        drawHeader(doc, false);
+      }
     },
   });
 
@@ -372,7 +375,7 @@ export const exportInvoiceToPDF = (
     else doc.setTextColor(120, 120, 120);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`Payment due by ${dueDate} • Fresh Produce Wholesale`, PAGE_WIDTH / 2, thankYouY + 6, { align: "center" });
+    // doc.text(`Payment due by ${dueDate} • Fresh Produce Wholesale`, PAGE_WIDTH / 2, thankYouY + 6, { align: "center" });
   }
 
 const fileType = isPreOrder ? "PreOrder" : "Invoice";
