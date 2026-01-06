@@ -3514,6 +3514,60 @@ const getOrderMatrixDataCtrl = async (req, res) => {
   }
 };
 
+// Helper function for stock calculation (same as in getAllProductSummary)
+const BASE_STOCK_DATE_EXPORT = new Date("2026-01-05T00:00:00.000Z");
+
+const calculateActualStockForExport = (product) => {
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay();
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+  const sunday = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + daysUntilSunday,
+      23, 59, 59, 999
+    )
+  );
+
+  const stockPurchase = filterByDate(
+    product?.purchaseHistory || [],
+    BASE_STOCK_DATE_EXPORT,
+    sunday
+  );
+
+  const stockSell = filterByDate(
+    product?.salesHistory || [],
+    BASE_STOCK_DATE_EXPORT,
+    sunday
+  );
+
+  const stockTrash = filterByDate(
+    product?.quantityTrash || [],
+    BASE_STOCK_DATE_EXPORT,
+    sunday
+  );
+
+  const trashBox = stockTrash
+    .filter(t => t.type?.toLowerCase() === "box")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+  const stockSellTotal = sumBy(stockSell, "quantity");
+
+  const carryForwardBox = Number(product?.carryForwardBox || 0);
+  const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
+
+  const totalRemaining =
+    carryForwardBox +
+    stockPurchaseTotal -
+    stockSellTotal -
+    trashBox +
+    manualBox;
+
+  return Math.max(0, totalRemaining); // Return 0 if negative for export
+};
+
 // Export Order Matrix Data - All products without pagination for CSV download
 const exportOrderMatrixDataCtrl = async (req, res) => {
   try {
@@ -3587,13 +3641,16 @@ const exportOrderMatrixDataCtrl = async (req, res) => {
       const productId = product._id.toString();
       const incomingData = incomingByProduct[productId] || { totalIncoming: 0 };
       
+      // Calculate actual stock from Jan 5th, 2026 to current week Sunday
+      const currentStock = calculateActualStockForExport(product);
+      
       matrixData[productId] = {
         productId,
         productName: product.name,
         storeOrders: {},
         preOrderTotal: 0,
         orderTotal: 0,
-        totalStock: product.remaining || 0,
+        totalStock: currentStock,
         incomingStock: incomingData.totalIncoming
       };
     });

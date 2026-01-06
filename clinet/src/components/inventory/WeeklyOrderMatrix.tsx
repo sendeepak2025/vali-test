@@ -899,19 +899,26 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         });
       });
       
-      // Build CSV with all products and only stores with orders/pre-orders
-      // Combined column: ORD (Orders) + PRE (Pre-orders) = Combined Total
+      console.log("Stores with data:", storesWithData.length, storesWithData.map(s => s.storeName));
+      
+      // Build CSV with proper escaping and alignment
       const headers = [
-        "PRODUCT", 
-        ...storesWithData.map((s: any) => s.storeName || 'Store'), 
-        "COMBINED", // Orders + Pre-orders combined total
-        "STK", 
-        "INC", 
-        "FIN", 
-        "ST"
+        "Product Name", 
+        ...storesWithData.map((s: any) => s.storeName || 'Unknown Store'), 
+        "Combined Total", // Orders + Pre-orders combined total
+        "Current Stock", 
+        "Incoming", 
+        "Final Stock", 
+        "Status"
       ];
       
-      const csvData = allMatrix.map((row: any) => {
+      const csvRows = [];
+      
+      // Add header row
+      csvRows.push(headers.map(h => `"${h}"`).join(","));
+      
+      // Add data rows
+      allMatrix.forEach((row: any) => {
         const rowOrder = row.orderTotal || 0;
         const rowPreOrder = row.preOrderTotal || 0;
         const rowCombined = rowOrder + rowPreOrder; // Combined total
@@ -920,8 +927,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         const rowFinal = row.finalStock ?? (rowStock + rowIncoming - rowPreOrder);
         const status = rowFinal < 0 ? "SHORT" : "OK";
         
-        return [
-          row.productName,
+        const dataRow = [
+          row.productName || 'Unknown Product',
           // For each store, show combined (orders + pre-orders)
           ...storesWithData.map((s: any) => {
             const storeData = row.storeOrders?.[s._id];
@@ -935,20 +942,34 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           rowFinal,
           status
         ];
+        
+        // Properly escape and format each cell
+        const formattedRow = dataRow.map((cell, index) => {
+          if (index === 0) {
+            // Product name - escape quotes
+            return `"${String(cell).replace(/"/g, '""')}"`;
+          } else {
+            // Numbers - no quotes needed
+            return cell;
+          }
+        }).join(",");
+        
+        csvRows.push(formattedRow);
       });
       
-      const csvContent = [
-        headers.join(","), 
-        ...csvData.map((row: any) => row.map((cell: any) => `"${cell}"`).join(","))
-      ].join("\n");
+      const csvContent = csvRows.join("\n");
       
-      const blob = new Blob([csvContent], { type: "text/csv" });
+      // Add BOM for proper Excel UTF-8 support
+      const BOM = "\uFEFF";
+      const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `order_matrix_combined_${response.data.weekRange?.label?.replace(/\s/g, '_') || 'export'}.csv`;
+      const weekLabel = response.data.weekRange?.label?.replace(/\s/g, '_') || 'export';
+      link.download = `order_matrix_combined_${weekLabel}.csv`;
       link.click();
+      URL.revokeObjectURL(link.href);
       
-      toast.success(`Exported ${allMatrix.length} products × ${storesWithData.length} stores with orders!`);
+      toast.success(`Exported ${allMatrix.length} products × ${storesWithData.length} stores!`);
     } catch (error) {
       console.error("Export error:", error);
       toast.error("Failed to export data");
