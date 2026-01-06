@@ -741,10 +741,21 @@ const CreatePreOrder = () => {
 
     setSubmitting(true)
     try {
+      // Map address fields to backend format (zipCode -> postalCode, state -> country)
+      const mapAddressToBackend = (addr: AddressType) => ({
+        name: addr.name,
+        email: addr.email,
+        phone: addr.phone,
+        address: addr.address,
+        city: addr.city,
+        postalCode: addr.zipCode,
+        country: addr.state
+      })
+
       const finalData = {
         items: orderItems,
-        billingAddress,
-        shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
+        billingAddress: mapAddressToBackend(billingAddress),
+        shippingAddress: mapAddressToBackend(sameAsBilling ? billingAddress : shippingAddress),
         total,
         clientId: selectedStore._id,
         status: orderStatus,
