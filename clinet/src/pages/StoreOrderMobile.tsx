@@ -496,7 +496,14 @@ const StoreOrderMobile = () => {
       }
       
       const orderRes = await createPreOrderAPI(order, token)
-      const orderNumber = orderRes?.preOrderNumber || "ORD-" + Date.now()
+      
+      // Check if order creation was successful
+      if (!orderRes || !orderRes.preOrderNumber) {
+        toast({ variant: "destructive", title: "Error", description: "Internal server error. Please try again later." })
+        return
+      }
+      
+      const orderNumber = orderRes.preOrderNumber
       
       setOrderDetails({ ...order, preOrderNumber: orderNumber })
       setCurrentStep("complete")
@@ -511,7 +518,7 @@ const StoreOrderMobile = () => {
       } catch (e) {}
       
       toast({ title: "Order Placed!", description: `Order #${orderNumber} created` })
-    } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to create order" }) }
+    } catch (error) { toast({ variant: "destructive", title: "Error", description: "Internal server error. Please try again later." }) }
     finally { setIsSubmitting(false) }
   }
 
