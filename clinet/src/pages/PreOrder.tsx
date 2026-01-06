@@ -64,21 +64,29 @@ const PreOrder = () => {
         <main className="flex-1 overflow-y-auto bg-muted/30 p-4">
           <div className="flex justify-between items-center mb-4">
             <h1 className="text-2xl font-bold">PreOrders</h1>
-            <form onSubmit={handleSearch} className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Search by Order Number"
-                className="border p-2 rounded-md"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+            <div className="flex gap-2 items-center">
+              <form onSubmit={handleSearch} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Search by Order Number"
+                  className="border p-2 rounded-md"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md"
+                >
+                  Search
+                </button>
+              </form>
               <button
-                type="submit"
-                className="bg-blue-600 text-white px-4 py-2 rounded-md"
+                onClick={() => navigate("/admin/pre-order/create")}
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md flex items-center gap-2"
               >
-                Search
+                <span>+</span> Create PreOrder
               </button>
-            </form>
+            </div>
           </div>
 
           {loading ? (

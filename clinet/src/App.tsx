@@ -70,6 +70,7 @@ import AccountingEnhanced from "./pages/AccountingEnhanced";
 import StoreChequePayment from "./pages/StoreChequePayment";
 import StoreChequePaymentEnhanced from "./pages/StoreChequePaymentEnhanced";
 import PreOrder from "./pages/PreOrder";
+import CreatePreOrder from "./pages/CreatePreOrder";
 import UpdatePreOrder from "./pages/UpdatePreOrder";
 import OrderToPOWorkflow from "./pages/OrderToPOWorkflow";
 import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
@@ -400,6 +401,14 @@ export default function App() {
           element={
             <PrivateRoute>
               <PreOrder />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/pre-order/create"
+          element={
+            <PrivateRoute>
+              <CreatePreOrder />
             </PrivateRoute>
           }
         />
