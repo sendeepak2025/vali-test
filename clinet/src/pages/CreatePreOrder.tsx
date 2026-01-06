@@ -115,8 +115,8 @@ interface AddressType {
   phone: string
   address: string
   city: string
-  postalCode: string
-  country: string
+  zipCode: string
+  state: string
 }
 
 interface StoreType {
@@ -183,10 +183,10 @@ const CreatePreOrder = () => {
 
   // Address states
   const [billingAddress, setBillingAddress] = useState<AddressType>({
-    name: "", email: "", phone: "", address: "", city: "", postalCode: "", country: ""
+    name: "", email: "", phone: "", address: "", city: "", zipCode: "", state: ""
   })
   const [shippingAddress, setShippingAddress] = useState<AddressType>({
-    name: "", email: "", phone: "", address: "", city: "", postalCode: "", country: ""
+    name: "", email: "", phone: "", address: "", city: "", zipCode: "", state: ""
   })
   const [sameAsBilling, setSameAsBilling] = useState(true)
   const [showAddressSection, setShowAddressSection] = useState(false)
@@ -279,8 +279,8 @@ const CreatePreOrder = () => {
       phone: store.phone || "",
       address: store.address || "",
       city: store.city || "",
-      postalCode: store.postalCode || "",
-      country: store.country || ""
+      zipCode: store.zipCode || "",
+      state: store.state || ""
     })
     
     // Clear order items when store changes (prices may differ)
@@ -723,7 +723,7 @@ const CreatePreOrder = () => {
       return
     }
 
-    const requiredFields = ["name", "email", "phone", "address", "city", "postalCode", "country"]
+    const requiredFields = ["name", "email", "phone", "address", "city", "zipCode", "state"]
     const checkEmptyFields = (address: any) => requiredFields.some((field) => !address?.[field])
     const billingInvalid = checkEmptyFields(billingAddress)
     const shippingInvalid = sameAsBilling ? false : checkEmptyFields(shippingAddress)
@@ -1289,11 +1289,11 @@ const CreatePreOrder = () => {
                         </div>
                         <div>
                           <label className="text-sm font-medium">State</label>
-                          <Input value={billingAddress.country} onChange={(e) => setBillingAddress({...billingAddress, country: e.target.value})} placeholder="State" />
+                          <Input value={billingAddress.state} onChange={(e) => setBillingAddress({...billingAddress, zipCode: e.target.value})} placeholder="State" />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Postal Code</label>
-                          <Input value={billingAddress.postalCode} onChange={(e) => setBillingAddress({...billingAddress, postalCode: e.target.value})} placeholder="Postal code" />
+                          <Input value={billingAddress.zipCode} onChange={(e) => setBillingAddress({...billingAddress, zipCode: e.target.value})} placeholder="Postal code" />
                         </div>
                       </div>
 
@@ -1328,10 +1328,10 @@ const CreatePreOrder = () => {
                         </Select>
                       </div>
                       
-                      <div>
+                      {/* <div>
                         <label className="text-sm font-medium">Order Date</label>
                         <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
-                      </div>
+                      </div> */}
 
                       {selectedStore && (
                         <div>
