@@ -527,8 +527,7 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
     <div className="container mx-auto py-6 space-y-6">
       <PageHeader
         title="Quality Control Assessment"
-        description={`Purchase #${purchase.id} from ${purchase.vendorName}`}
-     
+        description={`Purchase ${purchase.purchaseOrderNumber || purchaseId} from ${purchase.vendorName}`}
       />
 
       <Card>
@@ -554,13 +553,15 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
               <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                 {/* Column 1: Product Info */}
                 <div className="md:col-span-2 space-y-2">
-                  <h3 className="font-medium">{item.productName}</h3>
+                  <h3 className="font-medium text-lg">{item.productName} - Quantity({item.quantity})</h3>
                   <p className="text-sm text-muted-foreground">
-                    Quantity: {item.quantity} {item.unit}
+                    Unit: {item.unit}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Lb/Total: {String(item?.lb) } / {String(item?.totalWeight)}
-                  </p>
+                  {item.lb && item.totalWeight && (
+                    <p className="text-sm text-muted-foreground">
+                      Lb/Total: {String(item.lb)} / {String(item.totalWeight)}
+                    </p>
+                  )}
                   
                   <div className="flex items-center gap-2 mt-3">
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
