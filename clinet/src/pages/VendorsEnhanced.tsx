@@ -38,7 +38,7 @@ import { getAllInvoicesAPI, createInvoiceAPI, approveInvoiceAPI, disputeInvoiceA
 import { getAllVendorCreditMemosAPI, createVendorCreditMemoAPI, approveVendorCreditMemoAPI, applyVendorCreditMemoAPI, voidVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo"
 import { getAllVendorPaymentsAPI, createVendorPaymentAPI, updateCheckStatusAPI, voidVendorPaymentAPI, getVendorPaymentAPI, updateVendorPaymentAPI } from "@/services2/operations/vendorPayment"
 import { getAllVendorDisputesAPI, createVendorDisputeAPI, updateDisputeStatusAPI, addDisputeCommunicationAPI, resolveVendorDisputeAPI, escalateVendorDisputeAPI } from "@/services2/operations/vendorDispute"
-import { getAllPurchaseOrdersAPI } from "@/services2/operations/purchaseOrder"
+import { getAllPurchaseOrdersAPI, deletePurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getVendorDashboardAPI, getAgingReportAPI, getVendorStatementAPI, getVendorPerformanceAPI, getVendorComparisonAPI } from "@/services2/operations/vendorReports"
 import { PaymentStatusPopup } from "@/components/orders/PaymentUpdateModel"
@@ -301,6 +301,11 @@ const VendorManagementContent = () => {
   const [paymentDetailsModalOpen, setPaymentDetailsModalOpen] = useState(false)
   const [selectedPaymentDetails, setSelectedPaymentDetails] = useState<any>(null)
   const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false)
+
+  // Delete Purchase Order Modal state
+  const [deletePoModalOpen, setDeletePoModalOpen] = useState(false)
+  const [selectedPoForDelete, setSelectedPoForDelete] = useState<string>("")
+  const [deletePoLoading, setDeletePoLoading] = useState(false)
 
   // Reports state
   const [activeReportTab, setActiveReportTab] = useState("aging")
@@ -753,6 +758,30 @@ const VendorManagementContent = () => {
   const handlePayment = (order: any) => {
     setSelectedOrder(order)
     setPaymentModalOpen(true)
+  }
+
+  const handleDeletePurchaseOrder = (orderId: string) => {
+    setSelectedPoForDelete(orderId)
+    setDeletePoModalOpen(true)
+  }
+
+  const confirmDeletePurchaseOrder = async () => {
+    if (!selectedPoForDelete) return
+    
+    setDeletePoLoading(true)
+    try {
+      const result = await deletePurchaseOrderAPI(selectedPoForDelete, token)
+      if (result) {
+        toast({ title: "Success", description: "Purchase order deleted successfully" })
+        setDeletePoModalOpen(false)
+        setSelectedPoForDelete("")
+        fetchPurchaseOrders()
+      }
+    } catch (error) {
+      console.error("Error deleting purchase order:", error)
+    } finally {
+      setDeletePoLoading(false)
+    }
   }
 
   const handleResetDates = () => {
@@ -2595,6 +2624,13 @@ const VendorManagementContent = () => {
                                 <CreditCard className="h-4 w-4 mr-2" />
                                 Record Payment
                               </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDeletePurchaseOrder(po._id)}
+                                className="text-red-600 focus:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Order
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -3948,6 +3984,40 @@ const VendorManagementContent = () => {
           purchase={true}
         />
       )}
+
+      {/* Delete Purchase Order Confirmation Modal */}
+      <Dialog open={deletePoModalOpen} onOpenChange={setDeletePoModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Do you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeletePoModalOpen(false)
+                setSelectedPoForDelete("")
+              }}
+              disabled={deletePoLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeletePurchaseOrder}
+              disabled={deletePoLoading}
+            >
+              {deletePoLoading ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Vendor Details Modal */}
       <UserDetailsModal

@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { 
   CheckCircle, AlertTriangle, XCircle, ArrowLeft, 
-  ImagePlus, FileVideo, DollarSign, TrendingUp, Scale, Package, Thermometer
+  ImagePlus, FileVideo, DollarSign, TrendingUp, Scale, Package, Thermometer, Trash2
 } from 'lucide-react';
 import { 
   Tooltip,
@@ -44,7 +44,7 @@ import { VendorPurchase, PurchaseItem } from '@/types/vendor';
 import { useToast } from '@/hooks/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import MediaUploader from '@/components/shared/MediaUploader';
-import {getSinglePurchaseOrderAPI , updatePurchaseOrderQualityAPI} from "@/services2/operations/purchaseOrder"
+import {getSinglePurchaseOrderAPI , updatePurchaseOrderQualityAPI, deletePurchaseOrderAPI} from "@/services2/operations/purchaseOrder"
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 
@@ -493,6 +493,37 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
         ? 'rejected'
         : 'partially-approved';
   };
+
+  // Handle delete purchase order
+  const handleDeletePurchaseOrder = async () => {
+    toast({
+      title: "Delete Purchase Order",
+      description: "Do you want to delete this purchase order? This action cannot be undone.",
+      action: (
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={async () => {
+            try {
+              const result = await deletePurchaseOrderAPI(purchaseId, token);
+              if (result) {
+                toast({
+                  title: "Purchase Order Deleted",
+                  description: "The purchase order has been successfully deleted",
+                  variant: "default"
+                });
+                navigate('/vendors');
+              }
+            } catch (error) {
+              console.error("Error deleting purchase order:", error);
+            }
+          }}
+        >
+          Delete
+        </Button>
+      ),
+    });
+  };
   
   // Handle creating credit memo from suggestion
   const handleCreateCreditMemo = () => {
@@ -828,7 +859,16 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
           </Card>
         ))}
         
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <Button 
+            size="lg" 
+            variant="destructive"
+            onClick={handleDeletePurchaseOrder} 
+            disabled={loading}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Purchase Order
+          </Button>
           <Button size="lg" onClick={handleSubmit} disabled={loading}>
             {loading ? 'Processing...' : 'Complete Quality Assessment'}
           </Button>
