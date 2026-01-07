@@ -67,7 +67,7 @@ const Navbar: React.FC<NavbarProps> = ({
             </Link>
           ) : (
             <Link to="/" className="font-semibold text-lg flex items-center">
-              {showCart ? user.storeName || user.name : isMobile ? "FM" : "FreshMart Admin"}
+              {showCart ? user.storeName || user.name : isMobile ? "FM" : ""}
             </Link>
           )}
         </div>

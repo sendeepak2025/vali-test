@@ -149,13 +149,23 @@ export const exportBillOfLadingToPDF = (
     columnStyles: {
       1: { halign: 'left', cellWidth: 'auto' },
     },
-    foot: [[
-        data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString(),
-        "TOTALS",
-        `${order.items.reduce((a, b) => a + (b.quantity * 2), 0)} lbs`,
-        "", ""
-    ]],
-    footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' }
+  });
+
+  // Add TOTALS row only on the last page
+  const totalQty = data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString();
+  const totalWeight = `${order.items.reduce((a, b) => a + (b.quantity * 2), 0)} lbs`;
+  
+  autoTable(doc, {
+    startY: (doc as any).lastAutoTable.finalY,
+    body: [[totalQty, "TOTALS", totalWeight, "", ""]],
+    theme: 'plain',
+    margin: { left: MARGIN, right: MARGIN },
+    tableWidth: CONTENT_WIDTH,
+    styles: { fontSize: 9, cellPadding: 4, halign: 'center', fontStyle: 'bold' },
+    bodyStyles: { fillColor: [5, 150, 105], textColor: 255 },
+    columnStyles: {
+      1: { halign: 'left', cellWidth: 'auto' },
+    },
   });
 
   yPos = (doc as any).lastAutoTable.finalY + 20;

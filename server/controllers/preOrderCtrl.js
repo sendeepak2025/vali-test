@@ -365,6 +365,95 @@ const confirmOrderCtrl = async (req, res) => {
     const deduplicatedItems = Array.from(itemsMap.values());
     console.log(`PreOrder ${pre.preOrderNumber}: Original items: ${pre.items.length}, Deduplicated: ${deduplicatedItems.length}`);
 
+    // --- STOCK VALIDATION (Same as createOrderCtrl) ---
+    const BASE_STOCK_DATE = new Date("2026-01-05T00:00:00.000Z");
+    
+    // Helper function to calculate actual stock
+    const calculateActualStock = (product) => {
+      const now = new Date();
+      const dayOfWeek = now.getUTCDay();
+      const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+      const sunday = new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + daysUntilSunday,
+          23, 59, 59, 999
+        )
+      );
+
+      const filterByDate = (arr, from, to) => {
+        if (!arr || arr.length === 0) return [];
+        return arr.filter(item => {
+          const d = new Date(item.date);
+          if (from && d < from) return false;
+          if (to && d > to) return false;
+          return true;
+        });
+      };
+
+      const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
+
+      const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, sunday);
+      const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, sunday);
+      const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, sunday);
+      const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, sunday);
+      const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, sunday);
+
+      const trashBox = stockTrash.filter(t => t.type?.toLowerCase() === "box").reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+      const trashUnit = stockTrash.filter(t => t.type?.toLowerCase() === "unit").reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+      const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+      const stockSellTotal = sumBy(stockSell, "quantity");
+      const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
+      const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
+
+      const carryForwardBox = Number(product?.carryForwardBox || 0);
+      const carryForwardUnit = Number(product?.carryForwardUnit || 0);
+      const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
+      const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
+
+      const totalRemaining = carryForwardBox + stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+      const unitRemaining = carryForwardUnit + stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
+
+      return { totalRemaining, unitRemaining };
+    };
+
+    // Check stock for all items
+    let insufficientStock = [];
+    for (const item of deduplicatedItems) {
+      const { productId, quantity, pricingType } = item;
+      if (!productId || quantity <= 0) continue;
+
+      const product = await Product.findById(productId).lean();
+      if (!product) {
+        insufficientStock.push({ productId, message: "Product not found" });
+        continue;
+      }
+
+      const { totalRemaining, unitRemaining } = calculateActualStock(product);
+
+      if ((pricingType === "box" && quantity > totalRemaining) || (pricingType === "unit" && quantity > unitRemaining)) {
+        insufficientStock.push({
+          productId,
+          name: product.name,
+          available: pricingType === "box" ? totalRemaining : unitRemaining,
+          requested: quantity,
+          type: pricingType,
+          stockBase: BASE_STOCK_DATE.toISOString().split("T")[0]
+        });
+      }
+    }
+
+    // Block if insufficient stock
+    if (insufficientStock.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient stock for some items (week-wise check)",
+        insufficientStock,
+      });
+    }
+
     // --- Calculate Pallet Data ---
     let totalPallets = 0;
     let totalBoxes = 0;
