@@ -463,7 +463,8 @@ if (insufficientStock.length > 0  ) {
 
     await newOrder.save();
 
-    // Send order notifications
+    // Send order notifications - COMMENTED OUT (Email disabled for create order)
+    /*
     try {
       // Get store details for notification
       const storeDetails = await authModel.findById(clientId.value);
@@ -544,6 +545,7 @@ if (insufficientStock.length > 0  ) {
       // Log notification error but don't fail order creation
       console.error("Error sending order notifications:", notificationError);
     }
+    */
 
     // Calculate pallet estimate for the order
     let orderPalletEstimate = {
@@ -1098,7 +1100,8 @@ const updateOrderCtrl = async (req, res) => {
 
     await existingOrder.save();
 
-    // Send order updated email notification
+    // Send order updated email notification - COMMENTED OUT (Email disabled for edit order)
+    /*
     try {
       const storeDetails = await authModel.findById(existingOrder.store);
       
@@ -1169,6 +1172,7 @@ const updateOrderCtrl = async (req, res) => {
         console.error("Error sending order status notification:", notificationError);
       }
     }
+    */
 
     for (const item of existingOrder.items) {
       try {
