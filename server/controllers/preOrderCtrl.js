@@ -577,6 +577,7 @@ const confirmOrderCtrl = async (req, res) => {
 
     // --- Update PreOrder ---
     pre.confirmed = true;
+    pre.status = "confirmed";
     pre.orderId = createdOrderData._id;
     await pre.save();
 
