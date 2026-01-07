@@ -228,6 +228,6 @@ export const exportBillOfLadingToPDF = (
       }, 500);
     };
   } else {
-    doc.save(`BOL_${data.bolNumber}.pdf`);
+    doc.save(`BOL_${data.bolNumber}_${data.consigneeName}.pdf`);
   }
 };
