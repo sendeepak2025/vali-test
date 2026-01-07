@@ -317,6 +317,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [unlinkedIncoming, setUnlinkedIncoming] = useState<any[]>([]);
   const [linkingPrices, setLinkingPrices] = useState<Record<string, number>>({});
   const [linkLoading, setLinkLoading] = useState(false);
+  const [selectedItemsToLink, setSelectedItemsToLink] = useState<Set<string>>(new Set());
   
   // Export loading state
   const [exportLoading, setExportLoading] = useState(false);
@@ -778,6 +779,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
     setLinkingPrices(prices);
     
+    // Initialize selected items (all selected by default)
+    const selectedIds = new Set<string>();
+    unlinked.forEach(item => {
+      selectedIds.add(item.productId);
+    });
+    setSelectedItemsToLink(selectedIds);
+    
     setShowLinkVendorModal(true);
   }, [fetchVendors, matrixData]);
 
@@ -788,32 +796,34 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       return;
     }
 
-    // Build items to link - handle both data structures
+    // Build items to link - only for selected items
     const itemsToLink: { incomingStockId: string; unitPrice: number }[] = [];
     
-    unlinkedIncoming.forEach(item => {
-      // If item has incomingItems array (from matrixData)
-      if (item.incomingItems?.length > 0) {
-        item.incomingItems
-          .filter((i: any) => i.status === "draft")
-          .forEach((i: any) => {
-            itemsToLink.push({
-              incomingStockId: i._id,
-              unitPrice: linkingPrices[item.productId] || 0
+    unlinkedIncoming
+      .filter(item => selectedItemsToLink.has(item.productId)) // Only selected items
+      .forEach(item => {
+        // If item has incomingItems array (from matrixData)
+        if (item.incomingItems?.length > 0) {
+          item.incomingItems
+            .filter((i: any) => i.status === "draft")
+            .forEach((i: any) => {
+              itemsToLink.push({
+                incomingStockId: i._id,
+                unitPrice: linkingPrices[item.productId] || 0
+              });
             });
+        } 
+        // If item has _id directly (from API unlinkedIncomingItems)
+        else if (item._id) {
+          itemsToLink.push({
+            incomingStockId: item._id,
+            unitPrice: linkingPrices[item.productId] || 0
           });
-      } 
-      // If item has _id directly (from API unlinkedIncomingItems)
-      else if (item._id) {
-        itemsToLink.push({
-          incomingStockId: item._id,
-          unitPrice: linkingPrices[item.productId] || 0
-        });
-      }
-    });
+        }
+      });
 
     if (itemsToLink.length === 0) {
-      toast.error("No items to link");
+      toast.error("Please select at least one item to link");
       return;
     }
 
@@ -831,6 +841,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         setVendorSearch("");
         setVendorDropdownOpen(false);
         setLinkingPrices({});
+        setSelectedItemsToLink(new Set());
         // Refresh matrix data
         fetchMatrixData(currentPage, searchTerm);
       }
@@ -840,7 +851,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     } finally {
       setLinkLoading(false);
     }
-  }, [selectedVendor, unlinkedIncoming, linkingPrices, token, currentPage, searchTerm, fetchMatrixData]);
+  }, [selectedVendor, unlinkedIncoming, linkingPrices, selectedItemsToLink, token, currentPage, searchTerm, fetchMatrixData]);
 
   // Calculate totals - only from visible store data for this page
   const totals = useMemo(() => {
@@ -1897,31 +1908,77 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               
               {/* Items to Link */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Items to Link ({unlinkedIncoming.length})</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">
+                    Items to Link ({selectedItemsToLink.size} of {unlinkedIncoming.length} selected)
+                  </label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const allIds = new Set(unlinkedIncoming.map(item => item.productId));
+                        setSelectedItemsToLink(allIds);
+                      }}
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedItemsToLink(new Set())}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                </div>
                 <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
-                  {unlinkedIncoming.map(item => (
-                    <div key={item.productId} className="p-3 flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">{item.productName}</p>
-                        <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-600">Price/unit:</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={linkingPrices[item.productId] || ''}
-                          onChange={(e) => setLinkingPrices(prev => ({
-                            ...prev,
-                            [item.productId]: parseFloat(e.target.value) || 0
-                          }))}
-                          className="w-24 h-8"
-                          placeholder="0.00"
+                  {unlinkedIncoming.map(item => {
+                    const isSelected = selectedItemsToLink.has(item.productId);
+                    return (
+                      <div 
+                        key={item.productId} 
+                        className={`p-3 flex items-center gap-3 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedItemsToLink);
+                            if (e.target.checked) {
+                              newSelected.add(item.productId);
+                            } else {
+                              newSelected.delete(item.productId);
+                            }
+                            setSelectedItemsToLink(newSelected);
+                          }}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
+                        <div className="flex-1">
+                          <p className="font-medium">{item.productName}</p>
+                          <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-600">Price/unit:</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={linkingPrices[item.productId] || ''}
+                            onChange={(e) => setLinkingPrices(prev => ({
+                              ...prev,
+                              [item.productId]: parseFloat(e.target.value) || 0
+                            }))}
+                            className="w-24 h-8"
+                            placeholder="0.00"
+                            disabled={!isSelected}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1932,7 +1989,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               </Button>
               <Button 
                 onClick={handleBulkLinkToVendor}
-                disabled={linkLoading || !selectedVendor}
+                disabled={linkLoading || !selectedVendor || selectedItemsToLink.size === 0}
                 className="bg-purple-600 hover:bg-purple-700"
               >
                 {linkLoading ? (
@@ -1940,7 +1997,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 ) : (
                   <Truck className="h-4 w-4 mr-2" />
                 )}
-                Link & Create PRI Order
+                Link & Create PRI Order ({selectedItemsToLink.size} items)
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -2314,31 +2371,77 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             
             {/* Items to Link */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Items to Link ({unlinkedIncoming.length})</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">
+                  Items to Link ({selectedItemsToLink.size} of {unlinkedIncoming.length} selected)
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const allIds = new Set(unlinkedIncoming.map(item => item.productId));
+                      setSelectedItemsToLink(allIds);
+                    }}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedItemsToLink(new Set())}
+                  >
+                    Clear All
+                  </Button>
+                </div>
+              </div>
               <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
-                {unlinkedIncoming.map(item => (
-                  <div key={item.productId} className="p-3 flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">{item.productName}</p>
-                      <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm text-gray-600">Price/unit:</label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={linkingPrices[item.productId] || ''}
-                        onChange={(e) => setLinkingPrices(prev => ({
-                          ...prev,
-                          [item.productId]: parseFloat(e.target.value) || 0
-                        }))}
-                        className="w-24 h-8"
-                        placeholder="0.00"
+                {unlinkedIncoming.map(item => {
+                  const isSelected = selectedItemsToLink.has(item.productId);
+                  return (
+                    <div 
+                      key={item.productId} 
+                      className={`p-3 flex items-center gap-3 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedItemsToLink);
+                          if (e.target.checked) {
+                            newSelected.add(item.productId);
+                          } else {
+                            newSelected.delete(item.productId);
+                          }
+                          setSelectedItemsToLink(newSelected);
+                        }}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
+                      <div className="flex-1">
+                        <p className="font-medium">{item.productName}</p>
+                        <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-gray-600">Price/unit:</label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={linkingPrices[item.productId] || ''}
+                          onChange={(e) => setLinkingPrices(prev => ({
+                            ...prev,
+                            [item.productId]: parseFloat(e.target.value) || 0
+                          }))}
+                          className="w-24 h-8"
+                          placeholder="0.00"
+                          disabled={!isSelected}
+                        />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -2349,7 +2452,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             </Button>
             <Button 
               onClick={handleBulkLinkToVendor}
-              disabled={linkLoading || !selectedVendor}
+              disabled={linkLoading || !selectedVendor || selectedItemsToLink.size === 0}
               className="bg-purple-600 hover:bg-purple-700"
             >
               {linkLoading ? (
@@ -2357,7 +2460,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               ) : (
                 <Truck className="h-4 w-4 mr-2" />
               )}
-              Link & Create PRI Order
+              Link & Create PRI Order ({selectedItemsToLink.size} items)
             </Button>
           </DialogFooter>
         </DialogContent>
