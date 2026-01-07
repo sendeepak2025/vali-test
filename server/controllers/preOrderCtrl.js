@@ -155,9 +155,23 @@ const getAllPreOrdersCtrl = async (req, res) => {
       }
     }
     
-    // Add search filter
+    // Add search filter - search by preOrderNumber or store name
     if (search) {
-      filter.preOrderNumber = searchRegex;
+      // First get stores matching the search term
+      const matchingStores = await User.find({
+        $or: [
+          { storeName: searchRegex },
+          { ownerName: searchRegex }
+        ]
+      }).select('_id');
+      
+      const storeIds = matchingStores.map(store => store._id);
+      
+      // Search by preOrderNumber OR matching store IDs
+      filter.$or = [
+        { preOrderNumber: searchRegex },
+        { store: { $in: storeIds } }
+      ];
     }
     
     console.log("PreOrder filter:", filter, "userId:", userId, "role:", user.role);
