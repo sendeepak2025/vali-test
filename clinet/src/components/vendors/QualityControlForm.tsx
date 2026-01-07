@@ -260,6 +260,34 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
     setItems(updatedItems);
   };
 
+  // Handle approve all items
+  const handleApproveAll = () => {
+    const updatedItems = items.map(item => ({
+      ...item,
+      qualityStatus: 'approved' as const
+    }));
+    setItems(updatedItems);
+    toast({
+      title: "All Items Approved",
+      description: `${items.length} items have been approved`,
+      variant: "default"
+    });
+  };
+
+  // Handle reject all items
+  const handleRejectAll = () => {
+    const updatedItems = items.map(item => ({
+      ...item,
+      qualityStatus: 'rejected' as const
+    }));
+    setItems(updatedItems);
+    toast({
+      title: "All Items Rejected",
+      description: `${items.length} items have been rejected`,
+      variant: "destructive"
+    });
+  };
+
   // Handle actual weight change and calculate variance
   const handleActualWeightChange = (index: number, actualWeight: number) => {
     const updatedItems = [...items];
@@ -545,7 +573,26 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
       </Card>
 
       <div className="space-y-6">
-        <h2 className="text-xl font-semibold">Items Quality Assessment</h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-semibold">Items Quality Assessment</h2>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleApproveAll}
+              variant="default"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Approve All
+            </Button>
+            <Button
+              onClick={handleRejectAll}
+              variant="destructive"
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Reject All
+            </Button>
+          </div>
+        </div>
         
         {items.map((item, index) => (
           <Card key={item.productId} className="mb-4">

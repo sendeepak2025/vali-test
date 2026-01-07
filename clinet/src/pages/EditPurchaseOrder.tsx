@@ -608,6 +608,14 @@ navigate("/vendors")
                   )
                 })}
               </div>
+<br />
+            <div className="flex justify-center">
+  <Button type="button" variant="outline" size="sm" onClick={addItemRow}>
+    <Plus className="mr-2 h-4 w-4" />
+    Add Item
+  </Button>
+</div>
+
 
               <div className="mt-6 flex justify-end">
                 <div className="text-right space-y-2">
