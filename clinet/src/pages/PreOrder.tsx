@@ -232,28 +232,18 @@ const PreOrder = () => {
                             <td className="px-4 py-4 whitespace-nowrap text-sm">
                               {getStatusBadge(order.status)}
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm">
-                              {order.status?.toLowerCase() === "pending" ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-green-600 text-green-600 hover:bg-green-50"
-                                  onClick={() => handleConfirmOrder(order._id)}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-1" />
-                                  Confirm
-                                </Button>
-                              ) : order.status?.toLowerCase() === "confirmed" ? (
-                                <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Confirmed
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
-                                  Not Confirmed
-                                </Badge>
-                              )}
-                            </td>
+<td className="px-4 py-4 whitespace-nowrap text-sm">
+  {order.confirmed ? (
+    <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
+      Confirmed
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+      Not Confirmed
+    </Badge>
+  )}
+</td>
+
                             <td className="px-4 py-4 whitespace-nowrap text-sm">
                               <div className="flex gap-2">
                                 <Button
