@@ -115,7 +115,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
       shipperState: "GA",
       shipperZip: "30340, USA",
 
-      consigneeName: order.shippingAddress?.name || order.clientName || "",
+      consigneeName: order.store?.storeName || order.clientName || "",
       consigneeAddress: order.shippingAddress?.address || order.shippingAddress?.street || "",
       consigneeCity: order.shippingAddress?.city || "",
       consigneeState: order.shippingAddress?.state || order.shippingAddress?.country || "",
@@ -133,6 +133,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
     },
   });
 
+  console.log(order)
   const handleGenerateBOL = (data: BolFormValues) => {
 
     setBolGenerated(true);
@@ -190,7 +191,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
   };
   const handleDownload = () => {
     const formData = form.getValues();
-
+console.log(formData, "test")
     const bolData: BillOfLadingData = {
       bolNumber: ` ${order.orderNumber}`,
 
