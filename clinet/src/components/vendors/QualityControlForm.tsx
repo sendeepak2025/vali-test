@@ -121,6 +121,10 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
   // Credit memo suggestion state
   const [creditMemoSuggestion, setCreditMemoSuggestion] = useState<CreditMemoSuggestion | null>(null);
   const [showCreditMemoModal, setShowCreditMemoModal] = useState(false);
+  
+  // Delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     const fetchPurchaseData = async () => {
@@ -495,34 +499,28 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
   };
 
   // Handle delete purchase order
-  const handleDeletePurchaseOrder = async () => {
-    toast({
-      title: "Delete Purchase Order",
-      description: "Do you want to delete this purchase order? This action cannot be undone.",
-      action: (
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={async () => {
-            try {
-              const result = await deletePurchaseOrderAPI(purchaseId, token);
-              if (result) {
-                toast({
-                  title: "Purchase Order Deleted",
-                  description: "The purchase order has been successfully deleted",
-                  variant: "default"
-                });
-                navigate('/vendors');
-              }
-            } catch (error) {
-              console.error("Error deleting purchase order:", error);
-            }
-          }}
-        >
-          Delete
-        </Button>
-      ),
-    });
+  const handleDeletePurchaseOrder = () => {
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeletePurchaseOrder = async () => {
+    setDeleteLoading(true);
+    try {
+      const result = await deletePurchaseOrderAPI(purchaseId, token);
+      if (result) {
+        toast({
+          title: "Purchase Order Deleted",
+          description: "The purchase order has been successfully deleted",
+          variant: "default"
+        });
+        navigate('/vendors');
+      }
+    } catch (error) {
+      console.error("Error deleting purchase order:", error);
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteModal(false);
+    }
   };
   
   // Handle creating credit memo from suggestion
@@ -946,6 +944,37 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
             <Button onClick={handleCreateCreditMemo} className="bg-orange-600 hover:bg-orange-700">
               <DollarSign className="h-4 w-4 mr-2" />
               Create Credit Memo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Purchase Order Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Do you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeletePurchaseOrder}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
