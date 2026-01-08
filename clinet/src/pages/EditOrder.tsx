@@ -887,7 +887,21 @@ setOrderStatus(formattedOrder.status.toLowerCase())
                                   <Badge variant="outline" className="text-xs">
                                     {item.pricingType === "box" ? "Per Box" : "Per Unit"}
                                   </Badge>
-                                  <span>@ ${item.unitPrice.toFixed(2)}</span>
+                                  <span className="flex items-center gap-1">
+                                    @ $
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={item.unitPrice}
+                                      onChange={(e) => {
+                                        const updated = [...orderItems]
+                                        updated[index].unitPrice = Math.max(0, parseFloat(e.target.value) || 0)
+                                        setOrderItems(updated)
+                                      }}
+                                      className="w-20 h-6 text-center text-sm px-1"
+                                    />
+                                  </span>
                                 </div>
                               </div>
                             </div>
