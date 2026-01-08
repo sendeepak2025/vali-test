@@ -894,7 +894,7 @@ const UpdatePreOrder = () => {
                                   <Package className="h-3 w-3 mr-1" />
                                   Case
                                 </Button>
-                                <Button
+                                {/* <Button
                                   type="button"
                                   size="sm"
                                   variant={quickAddPricingType === "unit" ? "default" : "outline"}
@@ -903,7 +903,7 @@ const UpdatePreOrder = () => {
                                 >
                                   <DollarSign className="h-3 w-3 mr-1" />
                                   Unit
-                                </Button>
+                                </Button> */}
                               </div>
                             )}
                             
@@ -1381,8 +1381,8 @@ const UpdatePreOrder = () => {
                   </div>
                   <div className="text-sm text-muted-foreground mt-1">
                     {showBoxOption && <span>Box: ${boxPrice?.toFixed(2)}</span>}
-                    {showBoxOption && showUnitOption && <span> | </span>}
-                    {showUnitOption && <span>Unit: ${unitPrice?.toFixed(2)}</span>}
+                    {/* {showBoxOption && showUnitOption && <span> | </span>}
+                    {showUnitOption && <span>Unit: ${unitPrice?.toFixed(2)}</span>} */}
                   </div>
                 </div>
 
@@ -1393,9 +1393,9 @@ const UpdatePreOrder = () => {
                       <Button type="button" variant={addPricingType === "box" ? "default" : "outline"} className={cn("h-12", addPricingType === "box" && "bg-blue-600 hover:bg-blue-700")} onClick={() => setAddPricingType("box")}>
                         <Package className="h-4 w-4 mr-2" />Case/Box
                       </Button>
-                      <Button type="button" variant={addPricingType === "unit" ? "default" : "outline"} className={cn("h-12", addPricingType === "unit" && "bg-green-600 hover:bg-green-700")} onClick={() => setAddPricingType("unit")}>
+                      {/* <Button type="button" variant={addPricingType === "unit" ? "default" : "outline"} className={cn("h-12", addPricingType === "unit" && "bg-green-600 hover:bg-green-700")} onClick={() => setAddPricingType("unit")}>
                         <DollarSign className="h-4 w-4 mr-2" />Unit
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 )}

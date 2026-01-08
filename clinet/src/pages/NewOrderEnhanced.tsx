@@ -947,7 +947,7 @@ const NewOrderEnhanced = () => {
                                   <Package className="h-3 w-3 mr-1" />
                                   Case
                                 </Button>
-                                <Button
+                                {/* <Button
                                   type="button"
                                   size="sm"
                                   variant={quickAddPricingType === "unit" ? "default" : "outline"}
@@ -959,7 +959,7 @@ const NewOrderEnhanced = () => {
                                 >
                                   <DollarSign className="h-3 w-3 mr-1" />
                                   Unit
-                                </Button>
+                                </Button> */}
                               </div>
                             )}
                             
@@ -1654,8 +1654,8 @@ const NewOrderEnhanced = () => {
                   </div>
                   <div className="text-sm text-muted-foreground mt-1">
                     {showBoxOption && <span>Box: ${selectedProductForAdd.pricePerBox?.toFixed(2)}</span>}
-                    {showBoxOption && showUnitOption && <span> | </span>}
-                    {showUnitOption && <span>Unit: ${selectedProductForAdd.price?.toFixed(2)}</span>}
+                    {/* {showBoxOption && showUnitOption && <span> | </span>}
+                    {showUnitOption && <span>Unit: ${selectedProductForAdd.price?.toFixed(2)}</span>} */}
                   </div>
                 </div>
 
@@ -1676,7 +1676,7 @@ const NewOrderEnhanced = () => {
                         <Package className="h-4 w-4 mr-2" />
                         Case/Box
                       </Button>
-                      <Button
+                      {/* <Button
                         type="button"
                         variant={addPricingType === "unit" ? "default" : "outline"}
                         className={cn(
@@ -1687,7 +1687,7 @@ const NewOrderEnhanced = () => {
                       >
                         <DollarSign className="h-4 w-4 mr-2" />
                         Unit
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 )}
