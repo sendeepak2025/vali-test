@@ -387,6 +387,13 @@ exports.updatePurchaseOrder = async (req, res) => {
       totalAmount
     } = req.body.quantityData;
     console.log(items)
+
+    // Get the old purchase order to compare quantities
+    const oldOrder = await PurchaseOrder.findById(id);
+    if (!oldOrder) {
+      return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    }
+
     const updatedOrder = await PurchaseOrder.findByIdAndUpdate(
       id,
       {
@@ -401,7 +408,30 @@ exports.updatePurchaseOrder = async (req, res) => {
       { new: true }
     );
 
-    if (!updatedOrder) return res.status(404).json({ success: false, message: 'Purchase order not found' });
+    // Sync IncomingStock quantities with updated PO items
+    for (const newItem of items) {
+      const productId = newItem.productId?._id || newItem.productId;
+      const oldItem = oldOrder.items.find(
+        item => (item.productId?._id || item.productId)?.toString() === productId?.toString()
+      );
+
+      // If quantity changed, update the linked incoming stock
+      if (oldItem && oldItem.quantity !== newItem.quantity) {
+        // Find linked incoming stock for this PO and product
+        const incomingStock = await IncomingStock.findOne({
+          purchaseOrder: id,
+          product: productId,
+          status: { $in: ["linked"] } // Only update if not yet received
+        });
+
+        if (incomingStock) {
+          incomingStock.quantity = newItem.quantity;
+          incomingStock.calculateTotal();
+          await incomingStock.save();
+          console.log(`✅ Updated IncomingStock quantity to ${newItem.quantity} for product ${productId}`);
+        }
+      }
+    }
 
     res.status(200).json({ success: true, message: 'Purchase order updated successfully', data: updatedOrder });
   } catch (error) {

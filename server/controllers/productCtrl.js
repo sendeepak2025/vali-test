@@ -3,6 +3,7 @@ const productModel = require("../models/productModel")
 const categoryModel = require("../models/categoryModel")
 const Order = require("../models/orderModle");
 const Product = require("../models/productModel");
+const IncomingStock = require("../models/incomingStockModel");
 const mongoose = require("mongoose");
 const { calculateInventoryPallets } = require("../utils/palletCalculator");
 
@@ -1386,6 +1387,44 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       .limit(limitNum)
       .lean();
 
+    // ✅ Get current week's incoming stock for all products
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() - ((day + 6) % 7),
+        0, 0, 0, 0
+      )
+    );
+    const sunday = new Date(
+      Date.UTC(
+        monday.getUTCFullYear(),
+        monday.getUTCMonth(),
+        monday.getUTCDate() + 6,
+        23, 59, 59, 999
+      )
+    );
+
+    // Fetch incoming stock for current week (only draft and linked - not received/verified)
+    const incomingStockData = await IncomingStock.find({
+      weekStart: { $gte: monday },
+      weekEnd: { $lte: sunday },
+      status: { $in: ["draft", "linked"] },
+    }).lean();
+
+    // Create a map of productId -> total incoming quantity
+    const incomingStockMap = {};
+    incomingStockData.forEach((item) => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+      if (!incomingStockMap[productId]) {
+        incomingStockMap[productId] = 0;
+      }
+      incomingStockMap[productId] += item.quantity || 0;
+    });
+
     // ✅ Calculate summary for each product
     let productsWithSummary = products.map(product => {
       // 🔴 ACTUAL STOCK - hamesha 01-01-2026 se ab tak (system truth)
@@ -1393,6 +1432,10 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       
       // 🔵 REPORT DATA - user ke date filter se (sirf dikhane ke liye)
       const reportData = calculateReportData(product, reportFrom, reportTo);
+
+      // 🟢 INCOMING STOCK - current week ka incoming
+      const productId = product._id?.toString();
+      const incomingStock = incomingStockMap[productId] || 0;
 
       return {
         ...product,
@@ -1407,7 +1450,9 @@ const getAllProductsWithHistorySummary = async (req, res) => {
           totalRemaining: actualStock.totalRemaining,
           unitRemaining: actualStock.unitRemaining,
           trashBox: actualStock.trashBox,
-          trashUnit: actualStock.trashUnit
+          trashUnit: actualStock.trashUnit,
+          // Incoming stock for current week
+          incomingStock: incomingStock
         }
       };
     });
@@ -1435,7 +1480,11 @@ const getAllProductsWithHistorySummary = async (req, res) => {
         startDate: startDate || null, 
         endDate: endDate || null 
       },
-      stockCalculationBase: `${BASE_STOCK_DATE.toISOString().split('T')[0]} to current week Sunday`
+      stockCalculationBase: `${BASE_STOCK_DATE.toISOString().split('T')[0]} to current week Sunday`,
+      currentWeekRange: {
+        start: monday.toISOString(),
+        end: sunday.toISOString()
+      }
     });
 
   } catch (error) {

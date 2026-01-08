@@ -399,7 +399,7 @@ const bulkLinkIncomingStockCtrl = async (req, res) => {
       }
     }
 
-    // Create single PRI Order for all items
+    // Create single PRI Order for all items with auto-approved quality status
     let purchaseOrder = null;
     if (createPurchaseOrder && poItems.length > 0) {
       const counter = await Counter.findByIdAndUpdate(
@@ -409,29 +409,70 @@ const bulkLinkIncomingStockCtrl = async (req, res) => {
       );
       const poNumber = `PO-${String(counter.seq).padStart(6, "0")}`;
 
+      // Set qualityStatus to "approved" for auto-verification
+      const approvedPoItems = poItems.map(item => ({
+        ...item,
+        qualityStatus: "approved", // Auto-approve quality control
+      }));
+
       purchaseOrder = await PurchaseOrder.create({
         vendorId: vendorId,
         purchaseOrderNumber: poNumber,
         purchaseDate: new Date(),
         status: "pending",
         totalAmount: totalAmount,
-        items: poItems,
-        notes: `Auto-created from Matrix - ${poItems.length} items`,
+        items: approvedPoItems,
+        notes: `Auto-created from Matrix - ${poItems.length} items (Auto-Approved)`,
       });
 
-      // Update all linked items with PO reference
+      // Update all linked items with PO reference and mark as received
       await IncomingStock.updateMany(
         { _id: { $in: linkedItems.map((i) => i._id) } },
-        { purchaseOrder: purchaseOrder._id }
+        { 
+          purchaseOrder: purchaseOrder._id,
+          status: "received", // Mark as received since auto-approved
+          receivedAt: new Date(),
+        }
       );
+
+      // Update product stock for each item (since auto-approved)
+      for (const item of linkedItems) {
+        const product = await Product.findById(item.product);
+        if (product) {
+          const qty = item.quantity;
+          
+          // Update product quantities
+          product.quantity = (product.quantity || 0) + qty;
+          product.totalPurchase = (product.totalPurchase || 0) + qty;
+          product.remaining = (product.remaining || 0) + qty;
+
+          // Add to purchase history
+          product.purchaseHistory.push({
+            date: new Date(),
+            quantity: qty,
+          });
+
+          // Add to updatedFromOrders log
+          product.updatedFromOrders.push({
+            purchaseOrder: purchaseOrder._id,
+            oldQuantity: product.quantity - qty,
+            newQuantity: product.quantity,
+            difference: qty,
+          });
+
+          await product.save();
+          console.log(`✅ Auto-approved: Updated stock for ${product.name} (+${qty})`);
+        }
+      }
     }
 
     res.status(200).json({
       success: true,
-      message: `${linkedItems.length} items linked to vendor`,
+      message: `${linkedItems.length} items linked to vendor and auto-approved`,
       data: {
         linkedCount: linkedItems.length,
         purchaseOrder: purchaseOrder,
+        autoApproved: true,
         errors: errors.length > 0 ? errors : undefined,
       },
     });

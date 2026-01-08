@@ -31,6 +31,7 @@ import {
   Scale,
   Layers,
   Info,
+  Truck,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -91,6 +92,7 @@ interface Product {
     unitPurchase?: number;
     unitRemaining?: number;
     unitSell?: number;
+    incomingStock?: number;
   };
   weightVariation?: number;
   expiryDate?: string;
@@ -436,6 +438,12 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
             </TableHead>
             <TableHead className="text-center">
               <div className="flex items-center justify-center gap-1">
+                <Truck className="h-4 w-4 text-purple-600" />
+                Incoming
+              </div>
+            </TableHead>
+            <TableHead className="text-center">
+              <div className="flex items-center justify-center gap-1">
                 <Layers className="h-4 w-4" />
                 Pallets
               </div>
@@ -459,7 +467,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
           {sortedProducts.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={12}
+                colSpan={13}
                 className="text-center text-muted-foreground py-8"
               >
                 No products found
@@ -570,6 +578,30 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                   <div className="font-medium text-orange-600 hover:text-orange-800">
                     {product?.summary?.totalRemaining || 0}
                   </div>
+                </TableCell>
+                {/* Incoming Stock Column - Current Week */}
+                <TableCell className="text-center">
+                  {(product?.summary?.incomingStock || 0) > 0 ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center justify-center gap-1 cursor-help">
+                            <span className="font-medium text-purple-600">
+                              {product?.summary?.incomingStock || 0}
+                            </span>
+                            <Truck className="h-3 w-3 text-purple-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            {product?.summary?.incomingStock} units expected this week
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 {/* Pallet Estimate Column */}
                 <TableCell className="text-center">
