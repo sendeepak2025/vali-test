@@ -67,6 +67,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderNumber: {
       type: String,
+      index: true, // ✅ INDEX ADDED
     },
     shippinCost: {
       type: Number,
@@ -79,6 +80,7 @@ const orderSchema = new mongoose.Schema(
     store: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "auth",
+      index: true, // ✅ INDEX ADDED
     },
     preOrder: {
       type: mongoose.Schema.Types.ObjectId,
@@ -87,10 +89,12 @@ const orderSchema = new mongoose.Schema(
     status: {
       type: String,
       default: "Processing",
+      index: true, // ✅ INDEX ADDED
     },
     paymentStatus: {
       type: String,
       default: "pending",
+      index: true, // ✅ INDEX ADDED
     },
     paymentAmount: {
       type: String,
@@ -99,6 +103,7 @@ const orderSchema = new mongoose.Schema(
     orderType: {
       type: String,
       default: "Regural",
+      index: true, // ✅ INDEX ADDED
     },
     paymentDetails: {
       type: paymentDetailsSchema,
@@ -120,6 +125,7 @@ const orderSchema = new mongoose.Schema(
     isDelete: {
       type: Boolean,
       default: false,
+      index: true, // ✅ INDEX ADDED
     },
     deleted: {
       reason: { type: String },
@@ -164,5 +170,13 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// ✅ COMPOUND INDEXES FOR BETTER QUERY PERFORMANCE
+orderSchema.index({ store: 1, createdAt: -1 }); // Store orders listing
+orderSchema.index({ createdAt: -1 }); // Recent orders
+orderSchema.index({ orderType: 1, createdAt: -1 }); // Order type filtering
+orderSchema.index({ paymentStatus: 1, createdAt: -1 }); // Payment status filtering
+orderSchema.index({ isDelete: 1, createdAt: -1 }); // Active orders
+orderSchema.index({ 'items.productId': 1 }); // Product search in orders
 
 module.exports = mongoose.model("Order", orderSchema);
