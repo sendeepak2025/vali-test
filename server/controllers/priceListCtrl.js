@@ -103,27 +103,12 @@ exports.getAllPriceListTemplates = async (req, res) => {
     const total = await PriceListTemplate.countDocuments(match);
 
     const templates = await PriceListTemplate.aggregate([
-  { $match: match },
-  { $sort: { createdAt: -1 } },
-  { $skip: skip },
-  { $limit: limit },
-  {
-    $addFields: {
-      products: {
-        $map: {
-          input: "$products",
-          as: "p",
-          in: {
-            $mergeObjects: [
-              "$$p",
-              { price: "$$p.aPrice" }
-            ]
-          }
-        }
-      }
-    }
-  }
-]);
+      { $match: match },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit }
+      // ❌ price modify karne wala $addFields hata diya
+    ]);
 
     res.status(200).json({
       success: true,
@@ -134,7 +119,11 @@ exports.getAllPriceListTemplates = async (req, res) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error.", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+      error: error.message
+    });
   }
 };
 
