@@ -3569,7 +3569,7 @@ const calculateActualStockForExport = (product) => {
     trashBox +
     manualBox;
 
-  return Math.max(0, totalRemaining); // Return 0 if negative for export
+  return totalRemaining; // Allow negative values for accurate export
 };
 
 // Export Order Matrix Data - All products without pagination for CSV download
