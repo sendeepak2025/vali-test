@@ -2600,7 +2600,7 @@ const forgotPasswordCtrl = async (req, res) => {
 
     // Create reset URL
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}&email=${email}`;
-
+console.log(resetUrl)
     // Send email with reset link
     try {
       await notificationService.createNotificationWithEmail(

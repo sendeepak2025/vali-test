@@ -400,10 +400,10 @@ const PreOrder = () => {
                                 </td>
                                 <td className="px-4 py-3 text-sm text-right">{item.quantity || 0}</td>
                                 <td className="px-4 py-3 text-sm text-right">
-                                  ${Number(item.price || 0).toFixed(2)}
+                                  ${Number(item.unitPrice || item.price || 0).toFixed(2)}
                                 </td>
                                 <td className="px-4 py-3 text-sm text-right font-semibold">
-                                  ${Number((item.quantity || 0) * (item.price || 0)).toFixed(2)}
+                                  ${Number((item.quantity || 0) * (item.unitPrice || item.price || 0)).toFixed(2)}
                                 </td>
                               </tr>
                             ))

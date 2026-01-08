@@ -4080,6 +4080,10 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
     const store = await authModel.findById(storeId);
     if (!store) return res.status(404).json({ success: false, message: "Store not found" });
 
+    // Ensure store has a priceCategory, default to 'aPrice' if not set
+    const storePriceCategory = store.priceCategory || 'aPrice';
+    console.log(`Store ${store.storeName} - priceCategory: ${storePriceCategory}`);
+
     // Find existing PreOrder for this store for the target week
     // Check by expectedDeliveryDate first, then by createdAt
     let preOrder = await PreOrderModel.findOne({
@@ -4102,8 +4106,9 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
     console.log(`Found existing PreOrder: ${preOrder ? preOrder._id : 'None'}`);
 
     // Create new item object with proper price calculation
-    const calculatedPreOrderPrice = getProductPriceForStore(product, store.priceCategory, "box");
-    console.log(`PreOrder - Calculated price for ${product.name}: ${calculatedPreOrderPrice}`);
+    const calculatedPreOrderPrice = getProductPriceForStore(product, storePriceCategory, "box");
+    console.log(`PreOrder - Product: ${product.name}, Store: ${store.storeName}, PriceCategory: ${storePriceCategory}`);
+    console.log(`PreOrder - Calculated price: ${calculatedPreOrderPrice}, aPrice: ${product.aPrice}, bPrice: ${product.bPrice}, cPrice: ${product.cPrice}, pricePerBox: ${product.pricePerBox}`);
     
     const newItem = {
       productId: product._id.toString(),
@@ -4142,6 +4147,9 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
 
     // Create new PreOrder if doesn't exist
     if (!preOrder) {
+      const calculatedTotal = newItem.unitPrice * requestedQty;
+      console.log(`Creating new PreOrder - unitPrice: ${newItem.unitPrice}, quantity: ${requestedQty}, total: ${calculatedTotal}`);
+      
       const newPreOrder = new PreOrderModel({
         preOrderNumber: await getNextPreOrderNumber(),
         items: [newItem],
@@ -4162,12 +4170,14 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
           city: store.city || "",
           country: "USA",
         },
-        total: (newItem.unitPrice * requestedQty),
+        total: calculatedTotal,
         shippinCost: store.shippingCost || 0,
         expectedDeliveryDate: sunday, // Expected delivery by end of target week
       });
 
       await newPreOrder.save();
+      
+      console.log(`PreOrder created successfully - ID: ${newPreOrder._id}, Total: ${newPreOrder.total}`);
 
       return res.status(201).json({
         success: true,
@@ -4208,8 +4218,14 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
       });
     } else {
       // Add new item to existing preorder
+      const itemTotal = newItem.unitPrice * requestedQty;
+      console.log(`Adding new item to existing PreOrder - unitPrice: ${newItem.unitPrice}, quantity: ${requestedQty}, itemTotal: ${itemTotal}`);
+      console.log(`PreOrder before: total=${preOrder.total}, items count=${preOrder.items.length}`);
+      
       preOrder.items.push(newItem);
-      preOrder.total = preOrder.total + (newItem.unitPrice * requestedQty);
+      preOrder.total = preOrder.total + itemTotal;
+      
+      console.log(`PreOrder after: total=${preOrder.total}, items count=${preOrder.items.length}`);
       
       preOrder.markModified("items");
       await preOrder.save();

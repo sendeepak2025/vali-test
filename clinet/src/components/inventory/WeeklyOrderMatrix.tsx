@@ -261,11 +261,12 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [loading, setLoading] = useState(true);
   const [savingCell, setSavingCell] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [productSearchInput, setProductSearchInput] = useState("");
   
   // Matrix Mode State
   const [matrixMode, setMatrixMode] = useState<MatrixMode>("ORDER");
-  const [searchInput, setSearchInput] = useState("");
-  const debouncedSearch = useDebounce(searchInput, 500);
+  const [storeSearchInput, setStoreSearchInput] = useState("");
+  const [storeSearchTerm, setStoreSearchTerm] = useState("");
   
   // Maximize/Fullscreen state
   const [isMaximized, setIsMaximized] = useState(false);
@@ -387,12 +388,6 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     fetchMatrixData(1, searchTerm);
   }, [weekOffset]);
 
-  useEffect(() => {
-    setSearchTerm(debouncedSearch);
-    setCurrentPage(1);
-    fetchMatrixData(1, debouncedSearch);
-  }, [debouncedSearch]);
-
   // Trigger fetch when pageSize changes
   useEffect(() => {
     setCurrentPage(1);
@@ -488,6 +483,44 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const filteredStores = useMemo(() => {
     let result = stores;
     
+    // If product search is active, show only stores that have orders for the searched products
+    if (searchTerm.trim()) {
+      const storesWithSearchedProducts = new Set<string>();
+      
+      matrixData.forEach((row) => {
+        // Check if this product matches the search (already filtered by API)
+        if (row.storeOrders) {
+          Object.keys(row.storeOrders).forEach((storeId) => {
+            const storeData = row.storeOrders[storeId];
+            // Include store if it has current orders, preorders, or previous orders for this product
+            if (
+              (storeData.currentQty && storeData.currentQty > 0) ||
+              (storeData.preOrderQty && storeData.preOrderQty > 0) ||
+              (storeData.previousQty && storeData.previousQty > 0)
+            ) {
+              storesWithSearchedProducts.add(storeId);
+            }
+          });
+        }
+      });
+      
+      // Filter stores to only those that have purchased the searched products
+      if (storesWithSearchedProducts.size > 0) {
+        result = result.filter((store) => storesWithSearchedProducts.has(store._id));
+      }
+    }
+    
+    // Store search filter
+    if (storeSearchTerm.trim()) {
+      const searchLower = storeSearchTerm.toLowerCase();
+      result = result.filter((store) => 
+        store.storeName?.toLowerCase().includes(searchLower) ||
+        store.ownerName?.toLowerCase().includes(searchLower) ||
+        store.city?.toLowerCase().includes(searchLower) ||
+        store.state?.toLowerCase().includes(searchLower)
+      );
+    }
+    
     if (selectedState !== "all") {
       result = result.filter((store) => 
         store.state === selectedState || store.city === selectedState
@@ -511,7 +544,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
     
     return result;
-  }, [stores, selectedState, showOnlyWithOrders, showOnlyActiveStores, storesWithOrdersSet]);
+  }, [stores, selectedState, showOnlyWithOrders, showOnlyActiveStores, storesWithOrdersSet, storeSearchTerm, searchTerm, matrixData]);
 
   const visibleStores = useMemo(() => {
     if (showAllStores) return filteredStores;
@@ -1399,14 +1432,90 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       <CardContent className={`p-2 ${isMaximized ? '' : ''}`}>
         {/* Filters Row */}
         <div className="flex flex-wrap items-center gap-2 mb-3 p-2 bg-gray-50 rounded-lg">
-          <div className="relative flex-1 min-w-[120px] sm:min-w-[200px]">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Search..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-8 h-8 text-sm"
-            />
+          {/* Product Search with Button */}
+          <div className="flex items-center gap-1 flex-1 min-w-[120px] sm:min-w-[200px]">
+            <div className="relative flex-1">
+              <Package className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search products..."
+                value={productSearchInput}
+                onChange={(e) => setProductSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setSearchTerm(productSearchInput);
+                    setCurrentPage(1);
+                    fetchMatrixData(1, productSearchInput);
+                  }
+                }}
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                setSearchTerm(productSearchInput);
+                setCurrentPage(1);
+                fetchMatrixData(1, productSearchInput);
+              }}
+              className="h-8 px-3 bg-blue-600 hover:bg-blue-700"
+            >
+              <Search className="h-3 w-3" />
+            </Button>
+            {searchTerm && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setProductSearchInput("");
+                  setSearchTerm("");
+                  setCurrentPage(1);
+                  fetchMatrixData(1, "");
+                }}
+                className="h-8 px-2"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+
+          {/* Store Search with Button */}
+          <div className="flex items-center gap-1 flex-1 min-w-[120px] sm:min-w-[200px]">
+            <div className="relative flex-1">
+              <Store className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search stores..."
+                value={storeSearchInput}
+                onChange={(e) => setStoreSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setStoreSearchTerm(storeSearchInput);
+                  }
+                }}
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setStoreSearchTerm(storeSearchInput)}
+              className="h-8 px-3 bg-blue-600 hover:bg-blue-700"
+            >
+              <Search className="h-3 w-3" />
+            </Button>
+            {storeSearchTerm && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setStoreSearchInput("");
+                  setStoreSearchTerm("");
+                }}
+                className="h-8 px-2"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
           </div>
           
           <Select value={selectedState} onValueChange={setSelectedState}>
