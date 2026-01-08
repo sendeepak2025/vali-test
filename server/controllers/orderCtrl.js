@@ -900,6 +900,319 @@ const resetAndRebuildHistoryForSingleProduct = async (productId, from, to) => {
 
 
 
+// const updateOrderCtrl = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const updateFields = req.body;
+
+//     const existingOrder = await orderModel.findById(id);
+//     if (!existingOrder) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Order not found!" });
+//     }
+
+//     // Stock validation for updated items
+//     if (updateFields.items && Array.isArray(updateFields.items)) {
+//       // Get current week's Sunday (UTC) - same as calculateActualStock
+//       const now = new Date();
+//       const dayOfWeek = now.getUTCDay();
+//       const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+//       const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
+
+//       // Build map of old quantities to calculate net change
+//       const oldItemsQuantityMap = {};
+//       existingOrder.items.forEach((item) => {
+//         const key = `${item.productId.toString()}_${item.pricingType}`;
+//         oldItemsQuantityMap[key] = item.quantity;
+//       });
+
+//       let insufficientStock = [];
+
+//       for (const item of updateFields.items) {
+//         const { productId, quantity, pricingType } = item;
+//         if (!productId || quantity <= 0) continue;
+
+//         const product = await Product.findById(productId).lean();
+//         if (!product) {
+//           insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
+//           continue;
+//         }
+
+//         // Calculate net additional quantity needed
+//         const key = `${productId}_${pricingType}`;
+//         const oldQuantity = oldItemsQuantityMap[key] || 0;
+//         const additionalQuantity = quantity - oldQuantity;
+
+//         // Only check stock if we're increasing quantity
+//         if (additionalQuantity > 0) {
+//           // Use same calculation as calculateActualStock (BASE_STOCK_DATE to Sunday)
+//           const { totalRemaining, unitRemaining } = calculateActualStock(product);
+
+//           // Check if additional quantity exceeds available stock
+//           if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
+//               (pricingType === "unit" && additionalQuantity > unitRemaining)) {
+//             insufficientStock.push({
+//               productId,
+//               name: product.name,
+//               available: pricingType === "box" ? totalRemaining : unitRemaining,
+//               requested: quantity,
+//               currentInOrder: oldQuantity,
+//               additionalNeeded: additionalQuantity,
+//               type: pricingType,
+//             });
+//           }
+//         }
+//       }
+
+//       if (insufficientStock.length > 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Insufficient stock for some items",
+//           insufficientStock,
+//         });
+//       }
+//     }
+
+//     // Track status change for notifications
+//     const oldStatus = existingOrder.status;
+//     const newStatus = updateFields.status;
+//     const statusChanged = newStatus && newStatus !== oldStatus;
+
+//     const oldItemsMap = {};
+//     existingOrder.items.forEach((item) => {
+
+//       oldItemsMap[item.productId.toString()] = {
+//         quantity: item.quantity,
+//         pricingType: item.pricingType,
+//       };
+//     });
+
+//     // Update order fields (excluding items)
+//     Object.keys(updateFields).forEach((key) => {
+//       if (key !== "items" && updateFields[key] !== undefined) {
+//         existingOrder[key] = updateFields[key];
+//       }
+//     });
+
+//     // If items are updated, process inventory changes
+//     if (updateFields.items && Array.isArray(updateFields.items)) {
+//       existingOrder.items = updateFields.items;
+
+//       for (const item of updateFields.items) {
+//         const { productId, quantity, pricingType } = item;
+//         // if (!productId || quantity <= 0) continue;
+
+
+//         // const product = await Product.findById(productId);
+//         // if (!product) continue;
+//         // const saleDate = existingOrder.createdAt || new Date();
+
+//         // // Remove old sales history for this date
+//         // const orderDateISO = new Date(existingOrder.createdAt).toISOString();
+
+//         // // Remove only matching entries (pricingType-wise)
+//         // product.salesHistory = product.salesHistory.filter(
+//         //   (p) =>
+//         //     !(
+//         //       new Date(p.date).toISOString() === orderDateISO &&
+//         //       oldItemsMap[product._id]?.pricingType === "box"
+//         //     )
+//         // );
+
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) =>
+//         //     !(
+//         //       new Date(p.date).toISOString() === orderDateISO &&
+//         //       p.lb === oldItemsMap[product._id]?.pricingType
+//         //     )
+//         // );
+
+//         // // Add updated sales history
+//         // if (pricingType === "unit") {
+//         //   product.salesHistory.push({
+//         //     date: saleDate,
+//         //     quantity: quantity,
+//         //   });
+
+//         //   product.lbSellHistory.push({
+//         //     date: saleDate,
+//         //     weight: quantity,
+//         //     lb: "unit",
+//         //   });
+//         // } else if (pricingType === "box") {
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+
+//         //   product.salesHistory.push({
+//         //     date: saleDate,
+//         //     quantity: quantity,
+//         //   });
+
+//         //   product.lbSellHistory.push({
+//         //     date: saleDate,
+//         //     weight: estimatedUnitsUsed,
+//         //     lb: "box",
+//         //   });
+//         // }
+
+//         // const old = oldItemsMap[productId.toString()] || {
+//         //   quantity: 0,
+//         //   pricingType,
+//         // };
+
+//         // // Reverse old impact
+//         // if (old.pricingType === "unit") {
+//         //   product.unitSell -= old.quantity;
+//         //   product.unitRemaining += old.quantity;
+//         // } else if (old.pricingType === "box") {
+//         //   product.totalSell -= old.quantity;
+//         //   product.remaining += old.quantity;
+
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   product.unitRemaining += avgUnitsPerBox * old.quantity;
+//         // }
+
+//         // // Apply new impact
+//         // if (pricingType === "unit") {
+//         //   product.unitSell += quantity;
+//         //   product.unitRemaining = Math.max(0, product.unitRemaining - quantity);
+//         // } else if (pricingType === "box") {
+//         //   product.totalSell += quantity;
+//         //   product.remaining = Math.max(0, product.remaining - quantity);
+
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+//         //   product.unitRemaining = Math.max(
+//         //     0,
+//         //     product.unitRemaining - estimatedUnitsUsed
+//         //   );
+//         // }
+
+//         // await product.save();
+
+
+//       }
+//     }
+
+//     await existingOrder.save();
+
+//     // Send order updated email notification - COMMENTED OUT (Email disabled for edit order)
+//     /*
+//     try {
+//       const storeDetails = await authModel.findById(existingOrder.store);
+      
+//       if (storeDetails) {
+//         await notificationService.createNotificationWithEmail(
+//           storeDetails._id,
+//           storeDetails.email,
+//           "order_updated",
+//           "Order Updated",
+//           `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
+//           "ORDER_UPDATED",
+//           {
+//             ownerName: storeDetails.ownerName || storeDetails.storeName,
+//             storeName: storeDetails.storeName,
+//             orderNumber: existingOrder.orderNumber,
+//             total: existingOrder.total.toFixed(2),
+//             itemCount: existingOrder.items.length,
+//             items: existingOrder.items,
+//             orderDate: new Date().toLocaleDateString(),
+//             orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+//           },
+//           { 
+//             orderId: existingOrder._id, 
+//             orderNumber: existingOrder.orderNumber,
+//             total: existingOrder.total 
+//           },
+//           `/orders/edit/${existingOrder._id}`
+//         );
+        
+//         console.log("📧 Order update email sent to:", storeDetails.email);
+//       }
+//     } catch (notificationError) {
+//       console.error("Error sending order update notification:", notificationError);
+//     }
+
+//     // Send status change notification if status was updated
+//     if (statusChanged) {
+//       try {
+//         const storeDetails = await authModel.findById(existingOrder.store);
+        
+//         if (storeDetails) {
+//           await notificationService.createNotificationWithEmail(
+//             storeDetails._id,
+//             storeDetails.email,
+//             "order_status_changed",
+//             "Order Status Updated",
+//             `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
+//             "ORDER_STATUS_UPDATE",
+//             {
+//               ownerName: storeDetails.ownerName || storeDetails.storeName,
+//               storeName: storeDetails.storeName,
+//               orderNumber: existingOrder.orderNumber,
+//               oldStatus: oldStatus,
+//               newStatus: newStatus,
+//               total: existingOrder.total.toFixed(2),
+//             },
+//             { 
+//               orderId: existingOrder._id, 
+//               orderNumber: existingOrder.orderNumber,
+//               oldStatus,
+//               newStatus 
+//             },
+//             `/orders/edit/${existingOrder._id}`
+//           );
+//         }
+//       } catch (notificationError) {
+//         // Log notification error but don't fail order update
+//         console.error("Error sending order status notification:", notificationError);
+//       }
+//     }
+//     */
+
+//     for (const item of existingOrder.items) {
+//       try {
+//         if (!item.productId) {
+//           console.warn("⚠️ Skipping item without productId:", item);
+//           continue;
+//         }
+
+//         console.log(`🔁 Rebuilding product history for: ${item.productId}`);
+//         const result = await resetAndRebuildHistoryForSingleProduct(item.productId);
+
+//         if (result.success) {
+//           console.log(`✅ Success: ${result.message}`);
+//         } else {
+//           console.error(`❌ Failed to rebuild for product ${item.productId}:`, result.error);
+//         }
+//       } catch (err) {
+//         console.error(`🔥 Error processing item ${item.productId}:`, err.message);
+//       }
+//     }
+
+
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Order updated successfully",
+//       updatedOrder: existingOrder,
+//     });
+//   } catch (error) {
+//     console.error("Error updating order:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal Server Error while updating order",
+//     });
+//   }
+// };
+
+
+
+// UPDATE 08 Jan 2026
 const updateOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
@@ -914,18 +1227,20 @@ const updateOrderCtrl = async (req, res) => {
 
     // Stock validation for updated items
     if (updateFields.items && Array.isArray(updateFields.items)) {
-      // Get current week's Sunday (UTC) - same as calculateActualStock
-      const now = new Date();
-      const dayOfWeek = now.getUTCDay();
-      const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-      const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
-
       // Build map of old quantities to calculate net change
       const oldItemsQuantityMap = {};
       existingOrder.items.forEach((item) => {
-        const key = `${item.productId.toString()}_${item.pricingType}`;
-        oldItemsQuantityMap[key] = item.quantity;
+        if (item.productId) {
+          // Use just productId as key (convert to string for consistency)
+          const key = item.productId.toString();
+          oldItemsQuantityMap[key] = {
+            quantity: item.quantity || 0,
+            pricingType: item.pricingType
+          };
+        }
       });
+
+      console.log("📦 Old items map:", oldItemsQuantityMap);
 
       let insufficientStock = [];
 
@@ -933,32 +1248,36 @@ const updateOrderCtrl = async (req, res) => {
         const { productId, quantity, pricingType } = item;
         if (!productId || quantity <= 0) continue;
 
-        const product = await Product.findById(productId).lean();
-        if (!product) {
-          insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
-          continue;
-        }
-
-        // Calculate net additional quantity needed
-        const key = `${productId}_${pricingType}`;
-        const oldQuantity = oldItemsQuantityMap[key] || 0;
+        const productIdStr = productId.toString();
+        const oldItem = oldItemsQuantityMap[productIdStr];
+        const oldQuantity = oldItem?.quantity || 0;
         const additionalQuantity = quantity - oldQuantity;
+
+        console.log(`🔍 ${productIdStr}: old=${oldQuantity}, new=${quantity}, diff=${additionalQuantity}`);
 
         // Only check stock if we're increasing quantity
         if (additionalQuantity > 0) {
-          // Use same calculation as calculateActualStock (BASE_STOCK_DATE to Sunday)
+          const product = await Product.findById(productId).lean();
+          if (!product) {
+            insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
+            continue;
+          }
+
+          // Use calculateActualStock for consistent calculation
           const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
-          // Check if additional quantity exceeds available stock
+          console.log(`📊 ${product.name}: available=${pricingType === "box" ? totalRemaining : unitRemaining}, needed=${additionalQuantity}`);
+
+          // Check if ADDITIONAL quantity exceeds available stock
           if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
               (pricingType === "unit" && additionalQuantity > unitRemaining)) {
             insufficientStock.push({
               productId,
               name: product.name,
               available: pricingType === "box" ? totalRemaining : unitRemaining,
-              requested: quantity,
+              requested: additionalQuantity, // ✅ Show only additional needed, not total
               currentInOrder: oldQuantity,
-              additionalNeeded: additionalQuantity,
+              newQuantity: quantity,
               type: pricingType,
             });
           }
@@ -999,102 +1318,97 @@ const updateOrderCtrl = async (req, res) => {
     if (updateFields.items && Array.isArray(updateFields.items)) {
       existingOrder.items = updateFields.items;
 
+      // ✅ OPTIMIZED: Calculate difference and update stock using bulkWrite
+      const bulkOps = [];
+      const saleDate = existingOrder.createdAt || new Date(); // ✅ Order ki original date
+
       for (const item of updateFields.items) {
         const { productId, quantity, pricingType } = item;
-        // if (!productId || quantity <= 0) continue;
+        if (!productId) continue;
 
+        const oldItem = oldItemsMap[productId.toString()];
+        const oldQty = oldItem?.quantity || 0;
+        const diff = quantity - oldQty; // Positive = increased, Negative = decreased
 
-        // const product = await Product.findById(productId);
-        // if (!product) continue;
-        // const saleDate = existingOrder.createdAt || new Date();
+        // Skip if no change
+        if (diff === 0) continue;
 
-        // // Remove old sales history for this date
-        // const orderDateISO = new Date(existingOrder.createdAt).toISOString();
+        if (pricingType === "unit") {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: new mongoose.Types.ObjectId(productId) },
+              update: {
+                $inc: {
+                  unitSell: diff,
+                  unitRemaining: -diff
+                },
+                $push: {
+                  lbSellHistory: { date: saleDate, weight: diff, lb: "unit" } // ✅ Always add (positive or negative)
+                }
+              }
+            }
+          });
+        } else if (pricingType === "box") {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: new mongoose.Types.ObjectId(productId) },
+              update: {
+                $inc: {
+                  totalSell: diff,
+                  remaining: -diff
+                },
+                $push: {
+                  salesHistory: { date: saleDate, quantity: diff } // ✅ Always add (positive or negative)
+                }
+              }
+            }
+          });
+        }
+      }
 
-        // // Remove only matching entries (pricingType-wise)
-        // product.salesHistory = product.salesHistory.filter(
-        //   (p) =>
-        //     !(
-        //       new Date(p.date).toISOString() === orderDateISO &&
-        //       oldItemsMap[product._id]?.pricingType === "box"
-        //     )
-        // );
+      // Handle removed items (items in old order but not in new)
+      const newItemIds = new Set(updateFields.items.map(i => i.productId?.toString()).filter(Boolean));
+      for (const [productId, oldItem] of Object.entries(oldItemsMap)) {
+        if (!newItemIds.has(productId)) {
+          // Item was removed - restore stock with order's original date
+          if (oldItem.pricingType === "unit") {
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: new mongoose.Types.ObjectId(productId) },
+                update: {
+                  $inc: {
+                    unitSell: -oldItem.quantity,
+                    unitRemaining: oldItem.quantity
+                  },
+                  $push: {
+                    lbSellHistory: { date: saleDate, weight: -oldItem.quantity, lb: "unit" }
+                  }
+                }
+              }
+            });
+          } else if (oldItem.pricingType === "box") {
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: new mongoose.Types.ObjectId(productId) },
+                update: {
+                  $inc: {
+                    totalSell: -oldItem.quantity,
+                    remaining: oldItem.quantity
+                  },
+                  $push: {
+                    salesHistory: { date: saleDate, quantity: -oldItem.quantity }
+                  }
+                }
+              }
+            });
+          }
+        }
+      }
 
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) =>
-        //     !(
-        //       new Date(p.date).toISOString() === orderDateISO &&
-        //       p.lb === oldItemsMap[product._id]?.pricingType
-        //     )
-        // );
-
-        // // Add updated sales history
-        // if (pricingType === "unit") {
-        //   product.salesHistory.push({
-        //     date: saleDate,
-        //     quantity: quantity,
-        //   });
-
-        //   product.lbSellHistory.push({
-        //     date: saleDate,
-        //     weight: quantity,
-        //     lb: "unit",
-        //   });
-        // } else if (pricingType === "box") {
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-
-        //   product.salesHistory.push({
-        //     date: saleDate,
-        //     quantity: quantity,
-        //   });
-
-        //   product.lbSellHistory.push({
-        //     date: saleDate,
-        //     weight: estimatedUnitsUsed,
-        //     lb: "box",
-        //   });
-        // }
-
-        // const old = oldItemsMap[productId.toString()] || {
-        //   quantity: 0,
-        //   pricingType,
-        // };
-
-        // // Reverse old impact
-        // if (old.pricingType === "unit") {
-        //   product.unitSell -= old.quantity;
-        //   product.unitRemaining += old.quantity;
-        // } else if (old.pricingType === "box") {
-        //   product.totalSell -= old.quantity;
-        //   product.remaining += old.quantity;
-
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   product.unitRemaining += avgUnitsPerBox * old.quantity;
-        // }
-
-        // // Apply new impact
-        // if (pricingType === "unit") {
-        //   product.unitSell += quantity;
-        //   product.unitRemaining = Math.max(0, product.unitRemaining - quantity);
-        // } else if (pricingType === "box") {
-        //   product.totalSell += quantity;
-        //   product.remaining = Math.max(0, product.remaining - quantity);
-
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-        //   product.unitRemaining = Math.max(
-        //     0,
-        //     product.unitRemaining - estimatedUnitsUsed
-        //   );
-        // }
-
-        // await product.save();
-
-
+      // Execute all updates in single operation
+      if (bulkOps.length > 0) {
+        await Product.bulkWrite(bulkOps);
+        console.log(`✅ Stock updated for ${bulkOps.length} products (difference-based)`);
       }
     }
 
@@ -1174,27 +1488,10 @@ const updateOrderCtrl = async (req, res) => {
     }
     */
 
-    for (const item of existingOrder.items) {
-      try {
-        if (!item.productId) {
-          console.warn("⚠️ Skipping item without productId:", item);
-          continue;
-        }
-
-        console.log(`🔁 Rebuilding product history for: ${item.productId}`);
-        const result = await resetAndRebuildHistoryForSingleProduct(item.productId);
-
-        if (result.success) {
-          console.log(`✅ Success: ${result.message}`);
-        } else {
-          console.error(`❌ Failed to rebuild for product ${item.productId}:`, result.error);
-        }
-      } catch (err) {
-        console.error(`🔥 Error processing item ${item.productId}:`, err.message);
-      }
-    }
-
-
+    // ✅ REMOVED: Full history rebuild was causing massive slowdown
+    // Each product was scanning 100-800+ orders - extremely slow!
+    // Stock is already tracked via salesHistory/lbSellHistory arrays
+    // No need to rebuild on every update
 
     return res.status(200).json({
       success: true,
@@ -1605,6 +1902,120 @@ const markOrderAsUnpaid = async (req, res) => {
   }
 };
 
+// const deleteOrderCtrl = async (req, res) => {
+//   const { id } = req.params;
+//   const { reason } = req.body;
+
+//   if (!reason) {
+//     return res
+//       .status(400)
+//       .json({ success: false, message: "Reason is required" });
+//   }
+
+//   try {
+//     const order = await orderModel.findById(id);
+//     if (!order) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Order not found" });
+//     }
+
+//     const amount = order.total ?? 0;
+
+//     // Soft delete flags
+//     order.isDelete = true;
+//     order.deleted = { reason, amount };
+//     order.total = 0;
+
+//     // Loop through each item and reverse its effect
+//     for (const item of order.items) {
+//       const { productId, quantity, pricingType } = item;
+//       if (!productId || quantity <= 0) continue;
+
+//       const product = await Product.findById(productId);
+//       if (!product) continue;
+
+//       const saleDate = order.createdAt;
+//       const totalBoxes = product.totalPurchase || 1;
+//       const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//       const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+
+//       if (pricingType === "unit") {
+//         product.unitSell -= quantity;
+//         product.unitRemaining += quantity;
+
+//         // Remove unit lbSellHistory
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "unit" && p.weight === quantity)
+//         // );
+
+//         product.lbSellHistory.push({
+//           date: Date.now(),
+//           weight: -Math.abs(quantity),
+//           lb: "unit",
+//         });
+
+//         // Remove estimated box lbSellHistory
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "box" && p.weight === estimatedUnitsUsed)
+//         // );
+//       }
+
+//       if (pricingType === "box") {
+//         product.totalSell -= quantity;
+//         product.remaining += quantity;
+//         product.unitRemaining += estimatedUnitsUsed;
+
+//         // Remove box sales history
+//         // product.salesHistory = product.salesHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.quantity === quantity)
+//         // );
+//         product.salesHistory.push({
+//           date: new Date(),
+//           quantity: -Math.abs(quantity), // ensure negative value
+//         });
+//         product.lbSellHistory.push({
+//           date: Date.now(),
+//           weight: -Math.abs(estimatedUnitsUsed),
+//           lb: "box",
+//         });
+//       }
+
+//       await product.save();
+//     }
+
+//     // Zero out order items and preserve deleted info
+//     order.items = order.items.map((item) => {
+//       const qty = item.quantity ?? 0;
+//       const price = item.unitPrice || item.price || 0;
+//       const total = item.total ?? qty * price;
+
+//       return {
+//         ...item,
+//         deletedQuantity: qty,
+//         deletedTotal: total,
+//         quantity: 0,
+//         total: 0,
+//       };
+//     });
+
+//     await order.save();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Order soft-deleted successfully",
+//       deletedOrder: order,
+//     });
+//   } catch (err) {
+//     console.error("Soft delete error:", err);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
+
+
+// update 08 jan 2026
+
 const deleteOrderCtrl = async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -1630,61 +2041,58 @@ const deleteOrderCtrl = async (req, res) => {
     order.deleted = { reason, amount };
     order.total = 0;
 
-    // Loop through each item and reverse its effect
+    // ✅ OPTIMIZED: Restore stock using bulkWrite (single DB operation)
+    const bulkOps = [];
+    const orderDate = order.createdAt; // ✅ Use order's original date
+
     for (const item of order.items) {
       const { productId, quantity, pricingType } = item;
       if (!productId || quantity <= 0) continue;
 
-      const product = await Product.findById(productId);
-      if (!product) continue;
-
-      const saleDate = order.createdAt;
-      const totalBoxes = product.totalPurchase || 1;
-      const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-      const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-
       if (pricingType === "unit") {
-        product.unitSell -= quantity;
-        product.unitRemaining += quantity;
-
-        // Remove unit lbSellHistory
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "unit" && p.weight === quantity)
-        // );
-
-        product.lbSellHistory.push({
-          date: Date.now(),
-          weight: -Math.abs(quantity),
-          lb: "unit",
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(productId) },
+            update: {
+              $inc: {
+                unitSell: -quantity,
+                unitRemaining: quantity
+              },
+              $push: {
+                lbSellHistory: {
+                  date: orderDate, // ✅ Order ki original date
+                  weight: -Math.abs(quantity),
+                  lb: "unit"
+                }
+              }
+            }
+          }
         });
-
-        // Remove estimated box lbSellHistory
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "box" && p.weight === estimatedUnitsUsed)
-        // );
-      }
-
-      if (pricingType === "box") {
-        product.totalSell -= quantity;
-        product.remaining += quantity;
-        product.unitRemaining += estimatedUnitsUsed;
-
-        // Remove box sales history
-        // product.salesHistory = product.salesHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.quantity === quantity)
-        // );
-        product.salesHistory.push({
-          date: new Date(),
-          quantity: -Math.abs(quantity), // ensure negative value
-        });
-        product.lbSellHistory.push({
-          date: Date.now(),
-          weight: -Math.abs(estimatedUnitsUsed),
-          lb: "box",
+      } else if (pricingType === "box") {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(productId) },
+            update: {
+              $inc: {
+                totalSell: -quantity,
+                remaining: quantity
+              },
+              $push: {
+                salesHistory: {
+                  date: orderDate, // ✅ Order ki original date
+                  quantity: -Math.abs(quantity)
+                }
+              }
+            }
+          }
         });
       }
+    }
 
-      await product.save();
+    // Execute all stock restores in single operation
+    if (bulkOps.length > 0) {
+      await Product.bulkWrite(bulkOps);
+      console.log(`✅ Stock restored for ${bulkOps.length} products`);
     }
 
     // Zero out order items and preserve deleted info
