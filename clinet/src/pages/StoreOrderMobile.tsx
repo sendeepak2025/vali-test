@@ -1023,7 +1023,7 @@ const StoreOrderMobile = () => {
               )}
 
               {/* Unit Quantity - Show if salesMode is "unit" or "both" */}
-              {(product.salesMode === "unit" || product.salesMode === "both") && (
+              {/* {(product.salesMode === "unit" || product.salesMode === "both") && (
               <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg p-2">
                 <div className="flex items-center gap-1">
                   <Scale className="h-4 w-4 text-green-600" />
@@ -1051,7 +1051,7 @@ const StoreOrderMobile = () => {
                   </button>
                 </div>
               </div>
-              )}
+              )} */}
             </div>
           </div>
         </CardContent>
