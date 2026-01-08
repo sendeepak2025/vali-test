@@ -2793,7 +2793,7 @@ const invoiceMailCtrl = async (req, res) => {
 
     Best regards,
 
-    Nada Saiyed
+    Ishika Yadav
     Sales Manager
     Vali Produce LLC, Atlanta, GA
     501-559-0123
