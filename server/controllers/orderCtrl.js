@@ -3225,6 +3225,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     const totalPages = Math.ceil(totalProducts / pageLimit);
 
     // Group incoming stock by product
+    // Only count "draft" items for incoming display (linked items are already in purchase orders)
     const incomingByProduct = {};
 
     incomingStockData.forEach(item => {
@@ -3239,7 +3240,13 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         };
       }
 
-      incomingByProduct[productId].totalIncoming += item.quantity || 0;
+      // Only add draft items to the incoming total (linked items are already processed)
+      if (item.status === "draft") {
+        incomingByProduct[productId].totalIncoming += item.quantity || 0;
+        incomingByProduct[productId].allLinked = false;
+      }
+      
+      // Still track all items for reference
       incomingByProduct[productId].items.push({
         _id: item._id,
         quantity: item.quantity,
@@ -3248,10 +3255,6 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         status: item.status,
         isLinked: item.status === "linked" || item.status === "received"
       });
-
-      if (item.status === "draft") {
-        incomingByProduct[productId].allLinked = false;
-      }
     });
 
     // Build matrix data

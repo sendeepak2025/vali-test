@@ -289,6 +289,7 @@ const linkIncomingStockCtrl = async (req, res) => {
 
 /**
  * Bulk link multiple incoming stocks to vendor
+ * Supports partial quantity linking - remaining stays in incoming
  */
 const bulkLinkIncomingStockCtrl = async (req, res) => {
   try {
@@ -329,24 +330,70 @@ const bulkLinkIncomingStockCtrl = async (req, res) => {
           continue;
         }
 
-        incomingStock.vendor = vendorId;
-        incomingStock.unitPrice = item.unitPrice || 0;
-        incomingStock.status = "linked";
-        incomingStock.linkedBy = userId;
-        incomingStock.linkedAt = new Date();
-        incomingStock.calculateTotal();
+        // Get the quantity to link (from request or full quantity)
+        const linkQuantity = item.quantity != null ? Math.min(item.quantity, incomingStock.quantity) : incomingStock.quantity;
+        
+        if (linkQuantity <= 0) {
+          errors.push({ id: item.incomingStockId, error: "Invalid quantity" });
+          continue;
+        }
 
-        await incomingStock.save();
-        linkedItems.push(incomingStock);
+        const remainingQuantity = incomingStock.quantity - linkQuantity;
 
-        totalAmount += incomingStock.totalPrice;
-        poItems.push({
-          productId: incomingStock.product,
-          quantity: incomingStock.quantity,
-          unitPrice: incomingStock.unitPrice,
-          totalPrice: incomingStock.totalPrice,
-          qualityStatus: "pending",
-        });
+        if (remainingQuantity > 0) {
+          // Partial linking: Create new linked entry, update original with remaining
+          
+          // Create new linked incoming stock entry
+          const linkedEntry = await IncomingStock.create({
+            product: incomingStock.product,
+            quantity: linkQuantity,
+            weekStart: incomingStock.weekStart,
+            weekEnd: incomingStock.weekEnd,
+            vendor: vendorId,
+            unitPrice: item.unitPrice || 0,
+            status: "linked",
+            linkedBy: userId,
+            linkedAt: new Date(),
+            addedBy: incomingStock.addedBy,
+            notes: incomingStock.notes ? `${incomingStock.notes} (partial link)` : "Partial link from incoming",
+          });
+          linkedEntry.calculateTotal();
+          await linkedEntry.save();
+
+          // Update original with remaining quantity
+          incomingStock.quantity = remainingQuantity;
+          await incomingStock.save();
+
+          linkedItems.push(linkedEntry);
+          totalAmount += linkedEntry.totalPrice;
+          poItems.push({
+            productId: linkedEntry.product,
+            quantity: linkedEntry.quantity,
+            unitPrice: linkedEntry.unitPrice,
+            totalPrice: linkedEntry.totalPrice,
+            qualityStatus: "pending",
+          });
+        } else {
+          // Full linking: Link the entire incoming stock
+          incomingStock.vendor = vendorId;
+          incomingStock.unitPrice = item.unitPrice || 0;
+          incomingStock.status = "linked";
+          incomingStock.linkedBy = userId;
+          incomingStock.linkedAt = new Date();
+          incomingStock.calculateTotal();
+
+          await incomingStock.save();
+          linkedItems.push(incomingStock);
+
+          totalAmount += incomingStock.totalPrice;
+          poItems.push({
+            productId: incomingStock.product,
+            quantity: incomingStock.quantity,
+            unitPrice: incomingStock.unitPrice,
+            totalPrice: incomingStock.totalPrice,
+            qualityStatus: "pending",
+          });
+        }
       } catch (err) {
         errors.push({ id: item.incomingStockId, error: err.message });
       }

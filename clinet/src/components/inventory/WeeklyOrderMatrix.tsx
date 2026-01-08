@@ -317,6 +317,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [vendorDropdownOpen, setVendorDropdownOpen] = useState(false);
   const [unlinkedIncoming, setUnlinkedIncoming] = useState<any[]>([]);
   const [linkingPrices, setLinkingPrices] = useState<Record<string, number>>({});
+  const [linkingQuantities, setLinkingQuantities] = useState<Record<string, number>>({});
   const [linkLoading, setLinkLoading] = useState(false);
   const [selectedItemsToLink, setSelectedItemsToLink] = useState<Set<string>>(new Set());
   
@@ -812,6 +813,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     });
     setLinkingPrices(prices);
     
+    // Initialize quantities (default to full quantity)
+    const quantities: Record<string, number> = {};
+    unlinked.forEach(item => {
+      quantities[item.productId] = item.quantity;
+    });
+    setLinkingQuantities(quantities);
+    
     // Initialize selected items (all selected by default)
     const selectedIds = new Set<string>();
     unlinked.forEach(item => {
@@ -829,12 +837,15 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       return;
     }
 
-    // Build items to link - only for selected items
-    const itemsToLink: { incomingStockId: string; unitPrice: number }[] = [];
+    // Build items to link - only for selected items with quantity > 0
+    const itemsToLink: { incomingStockId: string; unitPrice: number; quantity: number }[] = [];
     
     unlinkedIncoming
       .filter(item => selectedItemsToLink.has(item.productId)) // Only selected items
       .forEach(item => {
+        const linkQty = linkingQuantities[item.productId] || 0;
+        if (linkQty <= 0) return; // Skip if no quantity to link
+        
         // If item has incomingItems array (from matrixData)
         if (item.incomingItems?.length > 0) {
           item.incomingItems
@@ -842,7 +853,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             .forEach((i: any) => {
               itemsToLink.push({
                 incomingStockId: i._id,
-                unitPrice: linkingPrices[item.productId] || 0
+                unitPrice: linkingPrices[item.productId] || 0,
+                quantity: linkQty // Use manually entered quantity
               });
             });
         } 
@@ -850,13 +862,14 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         else if (item._id) {
           itemsToLink.push({
             incomingStockId: item._id,
-            unitPrice: linkingPrices[item.productId] || 0
+            unitPrice: linkingPrices[item.productId] || 0,
+            quantity: linkQty // Use manually entered quantity
           });
         }
       });
 
     if (itemsToLink.length === 0) {
-      toast.error("Please select at least one item to link");
+      toast.error("Please select at least one item with quantity to link");
       return;
     }
 
@@ -874,6 +887,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         setVendorSearch("");
         setVendorDropdownOpen(false);
         setLinkingPrices({});
+        setLinkingQuantities({});
         setSelectedItemsToLink(new Set());
         // Refresh matrix data
         fetchMatrixData(currentPage, searchTerm);
@@ -884,7 +898,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     } finally {
       setLinkLoading(false);
     }
-  }, [selectedVendor, unlinkedIncoming, linkingPrices, selectedItemsToLink, token, currentPage, searchTerm, fetchMatrixData]);
+  }, [selectedVendor, unlinkedIncoming, linkingPrices, linkingQuantities, selectedItemsToLink, token, currentPage, searchTerm, fetchMatrixData]);
 
   // Calculate totals - only from visible store data for this page
   const totals = useMemo(() => {
@@ -2046,6 +2060,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
                   {unlinkedIncoming.map(item => {
                     const isSelected = selectedItemsToLink.has(item.productId);
+                    const currentLinkQty = linkingQuantities[item.productId] || 0;
+                    const remainingQty = item.quantity - currentLinkQty;
                     return (
                       <div 
                         key={item.productId} 
@@ -2058,6 +2074,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                             const newSelected = new Set(selectedItemsToLink);
                             if (e.target.checked) {
                               newSelected.add(item.productId);
+                              // Reset quantity to full when selecting
+                              setLinkingQuantities(prev => ({
+                                ...prev,
+                                [item.productId]: item.quantity
+                              }));
                             } else {
                               newSelected.delete(item.productId);
                             }
@@ -2067,23 +2088,54 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                         />
                         <div className="flex-1">
                           <p className="font-medium">{item.productName}</p>
-                          <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                          <p className="text-sm text-gray-500">
+                            Available: {item.quantity} 
+                            {isSelected && currentLinkQty < item.quantity && (
+                              <span className="text-orange-600 ml-2">
+                                (Remaining in Incoming: {remainingQty})
+                              </span>
+                            )}
+                          </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-sm text-gray-600">Price/unit:</label>
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={linkingPrices[item.productId] || ''}
-                            onChange={(e) => setLinkingPrices(prev => ({
-                              ...prev,
-                              [item.productId]: parseFloat(e.target.value) || 0
-                            }))}
-                            className="w-24 h-8"
-                            placeholder="0.00"
-                            disabled={!isSelected}
-                          />
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm text-gray-600">Qty:</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max={item.quantity}
+                              value={linkingQuantities[item.productId] || ''}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                // Ensure quantity doesn't exceed available
+                                const clampedVal = Math.min(Math.max(0, val), item.quantity);
+                                setLinkingQuantities(prev => ({
+                                  ...prev,
+                                  [item.productId]: clampedVal
+                                }));
+                              }}
+                              className="w-20 h-8"
+                              placeholder="0"
+                              disabled={!isSelected}
+                            />
+                            <span className="text-xs text-gray-400">/ {item.quantity}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm text-gray-600">Price/unit:</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={linkingPrices[item.productId] || ''}
+                              onChange={(e) => setLinkingPrices(prev => ({
+                                ...prev,
+                                [item.productId]: parseFloat(e.target.value) || 0
+                              }))}
+                              className="w-24 h-8"
+                              placeholder="0.00"
+                              disabled={!isSelected}
+                            />
+                          </div>
                         </div>
                       </div>
                     );
@@ -2509,6 +2561,8 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               <div className="border rounded-lg divide-y max-h-[300px] overflow-auto">
                 {unlinkedIncoming.map(item => {
                   const isSelected = selectedItemsToLink.has(item.productId);
+                  const currentLinkQty = linkingQuantities[item.productId] || 0;
+                  const remainingQty = item.quantity - currentLinkQty;
                   return (
                     <div 
                       key={item.productId} 
@@ -2521,6 +2575,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                           const newSelected = new Set(selectedItemsToLink);
                           if (e.target.checked) {
                             newSelected.add(item.productId);
+                            // Reset quantity to full when selecting
+                            setLinkingQuantities(prev => ({
+                              ...prev,
+                              [item.productId]: item.quantity
+                            }));
                           } else {
                             newSelected.delete(item.productId);
                           }
@@ -2530,23 +2589,54 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                       />
                       <div className="flex-1">
                         <p className="font-medium">{item.productName}</p>
-                        <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                        <p className="text-sm text-gray-500">
+                          Available: {item.quantity}
+                          {isSelected && currentLinkQty < item.quantity && (
+                            <span className="text-orange-600 ml-2">
+                              (Remaining in Incoming: {remainingQty})
+                            </span>
+                          )}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-sm text-gray-600">Price/unit:</label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={linkingPrices[item.productId] || ''}
-                          onChange={(e) => setLinkingPrices(prev => ({
-                            ...prev,
-                            [item.productId]: parseFloat(e.target.value) || 0
-                          }))}
-                          className="w-24 h-8"
-                          placeholder="0.00"
-                          disabled={!isSelected}
-                        />
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-600">Qty:</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            max={item.quantity}
+                            value={linkingQuantities[item.productId] || ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              // Ensure quantity doesn't exceed available
+                              const clampedVal = Math.min(Math.max(0, val), item.quantity);
+                              setLinkingQuantities(prev => ({
+                                ...prev,
+                                [item.productId]: clampedVal
+                              }));
+                            }}
+                            className="w-20 h-8"
+                            placeholder="0"
+                            disabled={!isSelected}
+                          />
+                          <span className="text-xs text-gray-400">/ {item.quantity}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-600">Price/unit:</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={linkingPrices[item.productId] || ''}
+                            onChange={(e) => setLinkingPrices(prev => ({
+                              ...prev,
+                              [item.productId]: parseFloat(e.target.value) || 0
+                            }))}
+                            className="w-24 h-8"
+                            placeholder="0.00"
+                            disabled={!isSelected}
+                          />
+                        </div>
                       </div>
                     </div>
                   );
