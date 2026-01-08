@@ -29,7 +29,7 @@ import {
   Upload, AlertTriangle, TrendingUp, TrendingDown, DollarSign,
   MoreVertical, ArrowUpDown, Leaf, Snowflake, Sun, ChevronLeft, ChevronRight,
   Percent, Box, ImageIcon, Loader, XCircle, RotateCcw, Zap, MapPin,
-  Store, ListFilter, Tags, ChevronsLeft, ChevronsRight
+  Store, ListFilter, Tags, ChevronsLeft, ChevronsRight, Truck
 } from "lucide-react"
 import { getLowStockProducts, type Product, createReorder, getReorders, type Reorder } from "@/lib/data"
 import { getAllProductSummaryAPI } from "@/services2/operations/product"
@@ -626,6 +626,12 @@ const InventoryEnhanced = () => {
                   <TableHead className="text-right">Purchased</TableHead>
                   <TableHead className="text-right">Sold</TableHead>
                   <TableHead className="text-right">Remaining</TableHead>
+                  <TableHead className="text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Truck className="h-4 w-4 text-purple-600" />
+                      Incoming
+                    </div>
+                  </TableHead>
                   <TableHead className="text-right">Price</TableHead>
                   <TableHead className="text-right">Margin</TableHead>
                   <TableHead className="text-right">Value</TableHead>
@@ -637,6 +643,7 @@ const InventoryEnhanced = () => {
                   const purchased = product.summary?.totalPurchase || 0
                   const sold = product.summary?.totalSell || 0
                   const remaining = product.summary?.totalRemaining || 0
+                  const incomingStock = product.summary?.incomingStock || 0
                   const value = (product.price || 0) * remaining
                   // Generate shortCode: use existing or create from index
 const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
@@ -678,6 +685,16 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                       <TableCell className="text-right font-medium">{purchased}</TableCell>
                       <TableCell className="text-right font-medium">{sold}</TableCell>
                       <TableCell className="text-right font-medium">{remaining}</TableCell>
+                      <TableCell className="text-center">
+                        {incomingStock > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="font-medium text-purple-600">{incomingStock}</span>
+                            <Truck className="h-3 w-3 text-purple-500" />
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(product.price || 0)}</TableCell>
                       <TableCell className="text-right">
                         <MarginIndicator cost={product.cost || 0} price={product.price || 0} />

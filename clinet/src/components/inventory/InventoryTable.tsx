@@ -997,7 +997,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
           )}
 
           {/* Trash Quantity Update Form - Only for Remaining */}
-          {getSummaryContent()?.title === "Remaining Details SDG" && (
+          {getSummaryContent()?.title === "Remaining Details" && (
             <div className="pt-4 border-t">
               <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-red-600">
                 <Trash2 className="w-4 h-4" />
@@ -1030,7 +1030,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
                     <option value="box">Box</option>
-                    <option value="unit">Unit</option>
+                    {/* <option value="unit">Unit</option> */}
                   </select>
                 </div>
 
@@ -1059,7 +1059,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
             </div>
           )}
 
-          {getSummaryContent()?.title === "Remaining Details DFG" && (
+          {getSummaryContent()?.title === "Remaining Details TEST" && (
             <div className="pt-4 border-t">
               <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-green-600">
                 <Trash2 className="w-4 h-4" />
@@ -1092,7 +1092,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
                     <option value="box">Box</option>
-                    <option value="unit">Unit</option>
+                    {/* <option value="unit">Unit</option> */}
                   </select>
                 </div>
 
