@@ -999,7 +999,7 @@ const CreatePreOrder = () => {
                                     <Package className="h-3 w-3 mr-1" />
                                     Case
                                   </Button>
-                                  <Button
+                                  {/* <Button
                                     type="button"
                                     size="sm"
                                     variant={quickAddPricingType === "unit" ? "default" : "outline"}
@@ -1008,7 +1008,7 @@ const CreatePreOrder = () => {
                                   >
                                     <DollarSign className="h-3 w-3 mr-1" />
                                     Unit
-                                  </Button>
+                                  </Button> */}
                                 </div>
                               )}
                               
@@ -1572,7 +1572,7 @@ const CreatePreOrder = () => {
                         <Package className="h-4 w-4 mr-2" />
                         Case (${boxPrice?.toFixed(2)})
                       </Button>
-                      <Button
+                      {/* <Button
                         type="button"
                         variant={addPricingType === "unit" ? "default" : "outline"}
                         className={cn("flex-1", addPricingType === "unit" && "bg-green-600 hover:bg-green-700")}
@@ -1580,7 +1580,7 @@ const CreatePreOrder = () => {
                       >
                         <DollarSign className="h-4 w-4 mr-2" />
                         Unit (${unitPrice?.toFixed(2)})
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 )}
