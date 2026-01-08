@@ -459,16 +459,52 @@ const UpdatePreOrder = () => {
     }
   }, [id, token])
 
-  // Search products from backend with debounce
+  // Search products from backend with debounce (or filter price list products locally)
   const handleProductSearchChange = useCallback(async (value: string) => {
     setProductSearch(value)
     setCurrentPage(1)
-    setHasMoreProducts(true)
     
     // Clear previous timeout
     if (productSearchTimeoutRef.current) {
       clearTimeout(productSearchTimeoutRef.current)
     }
+    
+    // If preorder has a price list, filter locally
+    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
+      const priceListProducts = order.priceListId.products
+      const searchLower = value.toLowerCase()
+      
+      let filtered = priceListProducts
+      if (value.trim()) {
+        filtered = priceListProducts.filter((p: any) => 
+          p.name?.toLowerCase().includes(searchLower) ||
+          p.shortCode?.toLowerCase().includes(searchLower)
+        )
+      }
+      
+      // Also filter by category if selected
+      if (selectedCategory !== "all") {
+        filtered = filtered.filter((p: any) => p.category === selectedCategory)
+      }
+      
+      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
+        ...p,
+        id: p.id || p._id,
+        _id: p.id || p._id,
+        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+        salesMode: p.salesMode || "case",
+        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
+        price: p.price || 0,
+        shippinCost: p.shippinCost || 0
+      }))
+      setProducts(formattedProducts)
+      setDisplayedProducts(formattedProducts)
+      setHasMoreProducts(false)
+      return
+    }
+    
+    // Fallback to backend search if no price list
+    setHasMoreProducts(true)
     
     // Debounce search - wait 300ms after user stops typing
     productSearchTimeoutRef.current = setTimeout(async () => {
@@ -490,12 +526,50 @@ const UpdatePreOrder = () => {
         setProductSearchLoading(false)
       }
     }, 300)
-  }, [selectedCategory])
+  }, [selectedCategory, order, storePriceCategory])
 
-  // Handle category change - fetch products from backend
+  // Handle category change - filter price list products or fetch from backend
   const handleCategoryChange = useCallback(async (category: string) => {
     setSelectedCategory(category)
     setCurrentPage(1)
+    
+    // If preorder has a price list, filter locally
+    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
+      const priceListProducts = order.priceListId.products
+      const searchLower = productSearch.toLowerCase()
+      
+      let filtered = priceListProducts
+      
+      // Filter by search term
+      if (productSearch.trim()) {
+        filtered = filtered.filter((p: any) => 
+          p.name?.toLowerCase().includes(searchLower) ||
+          p.shortCode?.toLowerCase().includes(searchLower)
+        )
+      }
+      
+      // Filter by category
+      if (category !== "all") {
+        filtered = filtered.filter((p: any) => p.category === category)
+      }
+      
+      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
+        ...p,
+        id: p.id || p._id,
+        _id: p.id || p._id,
+        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+        salesMode: p.salesMode || "case",
+        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
+        price: p.price || 0,
+        shippinCost: p.shippinCost || 0
+      }))
+      setProducts(formattedProducts)
+      setDisplayedProducts(formattedProducts)
+      setHasMoreProducts(false)
+      return
+    }
+    
+    // Fallback to backend search if no price list
     setHasMoreProducts(true)
     setProductSearchLoading(true)
     try {
@@ -514,13 +588,18 @@ const UpdatePreOrder = () => {
     } finally {
       setProductSearchLoading(false)
     }
-  }, [productSearch])
+  }, [productSearch, order, storePriceCategory])
 
   // Filter products - now just returns products from backend search
   const filteredProducts = products
 
-  // Load more products from backend (infinite scroll)
+  // Load more products from backend (infinite scroll) - only for non-price-list case
   const loadMoreProducts = useCallback(async () => {
+    // If preorder has a price list, don't load more (all products already shown)
+    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
+      return
+    }
+    
     if (loadingMoreProducts || !hasMoreProducts) return
     
     setLoadingMoreProducts(true)
@@ -553,7 +632,7 @@ const UpdatePreOrder = () => {
     } finally {
       setLoadingMoreProducts(false)
     }
-  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory])
+  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory, order])
 
   // Handle scroll in product modal - load more on scroll
   const handleProductModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -572,25 +651,43 @@ const UpdatePreOrder = () => {
     setProductSearch("")
     setSelectedCategory("all")
     setCurrentPage(1)
-    setHasMoreProducts(true)
     
-    // Fetch fresh products
-    setProductSearchLoading(true)
-    try {
-      const results = await searchProductsForOrderAPI("", 10)
-      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+    // If preorder has a price list, show only price list products
+    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
+      const priceListProducts = order.priceListId.products
+      const formattedProducts: ProductType[] = priceListProducts.map((p: any, index: number) => ({
         ...p,
-        id: p._id || p.id,
+        id: p.id || p._id,
+        _id: p.id || p._id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "both"
+        salesMode: p.salesMode || "case",
+        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
+        price: p.price || 0,
+        shippinCost: p.shippinCost || 0
       }))
       setProducts(formattedProducts)
       setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(results.length === 10)
-    } catch (error) {
-      console.error("Error fetching products:", error)
-    } finally {
-      setProductSearchLoading(false)
+      setHasMoreProducts(false) // Price list has fixed products, no more to load
+    } else {
+      // Fallback to search products from backend if no price list
+      setHasMoreProducts(true)
+      setProductSearchLoading(true)
+      try {
+        const results = await searchProductsForOrderAPI("", 10)
+        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
+        }))
+        setProducts(formattedProducts)
+        setDisplayedProducts(formattedProducts)
+        setHasMoreProducts(results.length === 10)
+      } catch (error) {
+        console.error("Error fetching products:", error)
+      } finally {
+        setProductSearchLoading(false)
+      }
     }
   }
 
