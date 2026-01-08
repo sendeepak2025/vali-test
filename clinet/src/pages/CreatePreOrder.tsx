@@ -337,9 +337,19 @@ const CreatePreOrder = () => {
         shippinCost: p.shippinCost || 0
       }))
       setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
+      
+      // Only reset displayedProducts if there's no active search
+      if (!productSearch.trim()) {
+        setDisplayedProducts(formattedProducts)
+      } else {
+        // Re-apply the current search filter
+        const filtered = formattedProducts.filter(p => 
+          p.name.toLowerCase().includes(productSearch.toLowerCase())
+        )
+        setDisplayedProducts(filtered)
+      }
     }
-  }, [storePriceCategory, selectedPriceList])
+  }, [storePriceCategory, selectedPriceList, productSearch])
 
   // Handle quick add input change
   const handleQuickAddChange = useCallback((value: string) => {
@@ -513,16 +523,28 @@ const CreatePreOrder = () => {
       try {
         // If price list is selected, filter from price list products
         if (selectedPriceList && selectedPriceList.products) {
-          const filtered = selectedPriceList.products.filter(p => 
-            p.name.toLowerCase().includes(value.toLowerCase())
-          ).map((p: any, index: number) => ({
-            ...p,
-            id: p.id || p._id,
-            _id: p.id || p._id,
-            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-            salesMode: p.salesMode || "case"
-          }))
-          setDisplayedProducts(filtered as ProductType[])
+          // If search is empty, show all products from price list
+          if (!value.trim()) {
+            const allProducts = selectedPriceList.products.map((p: any, index: number) => ({
+              ...p,
+              id: p.id || p._id,
+              _id: p.id || p._id,
+              shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+              salesMode: p.salesMode || "case"
+            }))
+            setDisplayedProducts(allProducts as ProductType[])
+          } else {
+            const filtered = selectedPriceList.products.filter(p => 
+              p.name.toLowerCase().includes(value.toLowerCase())
+            ).map((p: any, index: number) => ({
+              ...p,
+              id: p.id || p._id,
+              _id: p.id || p._id,
+              shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+              salesMode: p.salesMode || "case"
+            }))
+            setDisplayedProducts(filtered as ProductType[])
+          }
           setHasMoreProducts(false)
         } else {
           const results = await searchProductsForOrderAPI(value, 10, selectedCategory === "all" ? "" : selectedCategory)
@@ -894,7 +916,7 @@ const CreatePreOrder = () => {
                 
 
                 {/* Price List Products - Show all products from current price list */}
-                {selectedPriceList && displayedProducts.length > 0 && (
+                {selectedPriceList && (
                   <Card>
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
@@ -927,7 +949,7 @@ const CreatePreOrder = () => {
                           const inOrder = orderItems.some(item => item.productId === product.id)
                           
                           return (
-                            <div key={product.id} className={cn(
+                            <div key={`${product.id}-${index}`} className={cn(
                               "flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group",
                               inOrder && "bg-green-50 border-green-200"
                             )}>
@@ -990,7 +1012,17 @@ const CreatePreOrder = () => {
                         {displayedProducts.length === 0 && (
                           <div className="text-center py-8 text-muted-foreground">
                             <Package className="h-12 w-12 mx-auto mb-2 opacity-20" />
-                            <p>No products found</p>
+                            <p>{productSearch ? `No products found for "${productSearch}"` : "No products found"}</p>
+                            {productSearch && (
+                              <Button 
+                                variant="link" 
+                                size="sm" 
+                                onClick={() => handleProductSearchChange("")}
+                                className="mt-2"
+                              >
+                                Clear search
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1289,7 +1321,7 @@ const CreatePreOrder = () => {
                 const unitPrice = getProductPrice(product, "unit")
                 
                 return (
-                  <div key={product.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group">
+                  <div key={`${product.id}-${index}`} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group">
                     <div className="flex items-center gap-3 flex-1">
                       <Badge variant="outline" className="font-mono text-xs bg-gray-100 min-w-[40px] justify-center">#{shortCode}</Badge>
                       <div className="flex-1">

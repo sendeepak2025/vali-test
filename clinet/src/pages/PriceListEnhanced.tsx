@@ -671,10 +671,15 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setImportModalOpen(false)
   }
 
-  // Filter products in modal
-  const filteredFormProducts = formData.products.filter(p => 
-    (p.name || p.productName || "").toLowerCase().includes(productSearch.toLowerCase())
-  )
+  // Filter products in modal - using useMemo for real-time filtering
+  const filteredFormProducts = useMemo(() => {
+    if (!productSearch.trim()) {
+      return formData.products
+    }
+    return formData.products.filter(p => 
+      (p.name || p.productName || "").toLowerCase().includes(productSearch.toLowerCase())
+    )
+  }, [formData.products, productSearch])
 
   // Excel Upload Functions
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1804,10 +1809,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {displayedProducts.map((product) => {
+                      {displayedProducts.map((product, index) => {
                         const isSelected = formData.products.some(p => p.id === product.id)
                         return (
-                          <TableRow key={product.id} className={isSelected ? "bg-blue-50" : ""}>
+                          <TableRow key={`${product.id}-${index}`} className={isSelected ? "bg-blue-50" : ""}>
                             <TableCell>
                               <Checkbox
                                 checked={isSelected}
@@ -1966,11 +1971,11 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                               return name.includes(quickPriceFilter.toLowerCase()) || code.includes(quickPriceFilter.toLowerCase())
                             })
                             .sort((a, b) => (a.shortCode || "99").localeCompare(b.shortCode || "99"))
-                            .map((product) => {
+                            .map((product, index) => {
                               // Check if this product was recently updated
                               const recentUpdate = quickPriceHistory.find(h => h.code === product.shortCode)
                               return (
-                                <TableRow key={product.id} className={recentUpdate ? "bg-green-50" : ""}>
+                                <TableRow key={`${product.id}-${index}`} className={recentUpdate ? "bg-green-50" : ""}>
                                   <TableCell className="font-mono font-bold text-blue-600 text-lg">
                                     {product.shortCode || "—"}
                                   </TableCell>
@@ -2107,10 +2112,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredFormProducts.map((product) => {
+                        {filteredFormProducts.map((product, index) => {
                           const isSelected = selectedProductIds.includes(product.id)
                           return (
-                            <TableRow key={product.id} className={isSelected ? "bg-blue-50" : ""}>
+                            <TableRow key={`${product.id}-${index}`} className={isSelected ? "bg-blue-50" : ""}>
                               <TableCell>
                                 <Checkbox
                                   checked={isSelected}
