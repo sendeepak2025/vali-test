@@ -728,12 +728,13 @@ export const getUserLatestOrdersAPI = async (storeId, limit = 5) => {
 
 
 // Get Order Matrix Data - Store wise product orders with previous purchase history
-export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, limit = 50, search = "") => {
+export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, limit = 50, search = "", statusFilter = "all") => {
   try {
     const params = new URLSearchParams({
       weekOffset: weekOffset.toString(),
       page: page.toString(),
       limit: limit.toString(),
+      statusFilter: statusFilter,
     });
     if (search) {
       params.append("search", search);

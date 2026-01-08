@@ -294,6 +294,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   
   // Smart filtering
   const [showOnlyWithOrders, setShowOnlyWithOrders] = useState(false);
+  const [stockFilter, setStockFilter] = useState<"all" | "short" | "ok">("all");
   const [selectedState, setSelectedState] = useState<string>("all");
   
   // Store visibility for pagination
@@ -347,10 +348,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   }, [matrixMode, isCurrentWeek, isFutureWeek]);
 
   // Fetch matrix data from API with pagination
-  const fetchMatrixData = useCallback(async (page = 1, search = "") => {
+  const fetchMatrixData = useCallback(async (page = 1, search = "", statusFilter = "all") => {
     setLoading(true);
     try {
-      const response = await getOrderMatrixDataAPI(token, weekOffset, page, pageSize, search);
+      const response = await getOrderMatrixDataAPI(token, weekOffset, page, pageSize, search, statusFilter);
       if (response?.success && response?.data) {
         setMatrixData(response.data.matrix || []);
         setStores(response.data.stores || []);
@@ -386,13 +387,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
 
   useEffect(() => {
     setCurrentPage(1);
-    fetchMatrixData(1, searchTerm);
-  }, [weekOffset]);
+    fetchMatrixData(1, searchTerm, stockFilter);
+  }, [weekOffset, stockFilter]);
 
   // Trigger fetch when pageSize changes
   useEffect(() => {
     setCurrentPage(1);
-    fetchMatrixData(1, searchTerm);
+    fetchMatrixData(1, searchTerm, stockFilter);
   }, [pageSize]);
 
   // Listen for order/preorder changes from other components
@@ -400,7 +401,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     const unsubscribe = orderEvents.onAnyOrderChange((data) => {
       // Small delay to ensure backend has processed the change
       setTimeout(() => {
-        fetchMatrixData(currentPage, searchTerm);
+        fetchMatrixData(currentPage, searchTerm, stockFilter);
       }, 500);
     });
 
@@ -455,7 +456,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
       setCurrentPage(newPage);
-      fetchMatrixData(newPage, searchTerm);
+      fetchMatrixData(newPage, searchTerm, stockFilter);
     }
   };
 
@@ -620,7 +621,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           toast.success("PreOrder updated", { autoClose: 1000 });
           
           // Auto-refresh after update
-          setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
+          setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
         }
       } else {
         // ORDER Mode - Create/Update Order
@@ -685,7 +686,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           toast.success(response.preOrderHandled ? "PreOrder converted!" : "Updated", { autoClose: 1000 });
           
           // Auto-refresh after update
-          setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
+          setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
         }
       }
     } catch (error) {
@@ -694,7 +695,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     } finally {
       setSavingCell(null);
     }
-  }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek, changedCells.size, currentPage, searchTerm, fetchMatrixData]);
+  }, [token, weekOffset, matrixMode, canEdit, isCurrentWeek, isPastWeek, changedCells.size, currentPage, searchTerm, fetchMatrixData, stockFilter]);
 
   // Handle incoming stock change from matrix
   const handleIncomingChange = useCallback(async (productId: string, quantity: number) => {
@@ -757,7 +758,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         toast.success("Incoming stock updated", { autoClose: 1000 });
         
         // Auto-refresh after update
-        setTimeout(() => fetchMatrixData(currentPage, searchTerm), 500);
+        setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
       }
     } catch (error) {
       console.error("Error updating incoming stock:", error);
@@ -765,7 +766,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     } finally {
       setSavingCell(null);
     }
-  }, [token, weekOffset, matrixMode, canEdit]);
+  }, [token, weekOffset, matrixMode, canEdit, stockFilter]);
 
   // Fetch vendors for link modal
   const fetchVendors = useCallback(async () => {
@@ -890,7 +891,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         setLinkingQuantities({});
         setSelectedItemsToLink(new Set());
         // Refresh matrix data
-        fetchMatrixData(currentPage, searchTerm);
+        fetchMatrixData(currentPage, searchTerm, stockFilter);
       }
     } catch (error) {
       console.error("Error linking to vendor:", error);
@@ -1152,7 +1153,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           setSelectedPreOrders(new Set());
           
           // Refresh matrix data
-          fetchMatrixData(currentPage, searchTerm);
+          fetchMatrixData(currentPage, searchTerm, stockFilter);
           return;
         }
         
@@ -1203,7 +1204,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           }
           
           // Refresh matrix data
-          fetchMatrixData(currentPage, searchTerm);
+          fetchMatrixData(currentPage, searchTerm, stockFilter);
         } else {
           await Swal.fire({
             icon: 'info',
@@ -1293,7 +1294,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    onClick={() => fetchMatrixData(currentPage, searchTerm)}
+                    onClick={() => fetchMatrixData(currentPage, searchTerm, stockFilter)}
                     disabled={loading}
                     className="border-green-500 text-green-600 hover:bg-green-50 h-8 w-8 sm:w-auto sm:px-3 p-0"
                   >
@@ -1458,7 +1459,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   if (e.key === 'Enter') {
                     setSearchTerm(productSearchInput);
                     setCurrentPage(1);
-                    fetchMatrixData(1, productSearchInput);
+                    fetchMatrixData(1, productSearchInput, stockFilter);
                   }
                 }}
                 className="pl-8 h-8 text-sm"
@@ -1470,7 +1471,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               onClick={() => {
                 setSearchTerm(productSearchInput);
                 setCurrentPage(1);
-                fetchMatrixData(1, productSearchInput);
+                fetchMatrixData(1, productSearchInput, stockFilter);
               }}
               className="h-8 px-3 bg-blue-600 hover:bg-blue-700"
             >
@@ -1484,7 +1485,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   setProductSearchInput("");
                   setSearchTerm("");
                   setCurrentPage(1);
-                  fetchMatrixData(1, "");
+                  fetchMatrixData(1, "", stockFilter);
                 }}
                 className="h-8 px-2"
               >
@@ -1574,6 +1575,27 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
             <Filter className="h-3 w-3 sm:mr-1" />
             <span className="hidden sm:inline">{showOnlyWithOrders ? "All" : "With Orders"}</span>
           </Button>
+
+          {/* Stock Filter Dropdown */}
+          <Select value={stockFilter} onValueChange={(value: "all" | "short" | "ok") => setStockFilter(value)}>
+            <SelectTrigger className={`h-8 w-[100px] sm:w-[130px] text-xs ${stockFilter === "short" ? "bg-red-100 border-red-500 text-red-700" : stockFilter === "ok" ? "bg-green-100 border-green-500 text-green-700" : ""}`}>
+              <AlertTriangle className={`h-3 w-3 mr-1 ${stockFilter === "short" ? "text-red-600" : stockFilter === "ok" ? "text-green-600" : "text-gray-500"}`} />
+              <SelectValue placeholder="Stock Filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Products</SelectItem>
+              <SelectItem value="short">
+                <span className="flex items-center gap-1 text-red-600">
+                  <AlertTriangle className="h-3 w-3" /> Short Only
+                </span>
+              </SelectItem>
+              {/* <SelectItem value="ok">
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle2 className="h-3 w-3" /> OK Only
+                </span>
+              </SelectItem> */}
+            </SelectContent>
+          </Select>
 
           {/* Size Control */}
           <div className="flex items-center gap-1 bg-white border rounded-md p-1">

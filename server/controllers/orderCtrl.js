@@ -3140,11 +3140,10 @@ const getEnhancedDashboardData = async (req, res) => {
 // Get Order Matrix Data - Store wise product orders with previous purchase history
 const getOrderMatrixDataCtrl = async (req, res) => {
   try {
-    const { weekOffset = 0, page = 1, limit = 25, search = "" } = req.query;
+    const { weekOffset = 0, page = 1, limit = 25, search = "", statusFilter = "all" } = req.query;
     const offset = parseInt(weekOffset) || 0;
     const currentPage = parseInt(page) || 1;
     const pageLimit = Math.min(parseInt(limit) || 25, 100); // Max 100 products per page
-    const skip = (currentPage - 1) * pageLimit;
 
     // Calculate week range for the TARGET week (based on offset)
     const now = new Date();
@@ -3166,14 +3165,17 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       productQuery.name = { $regex: search, $options: "i" };
     }
 
+    // For "short" or "ok" filter, we need ALL products first to calculate stock, then filter and paginate
+    // For "all" filter, we can use normal pagination
+    const needsFullProductList = statusFilter === "short" || statusFilter === "ok";
+
     // ✅ OPTIMIZED: Run all independent queries in parallel using Promise.all
     const [
       currentWeekOrders,
       previousWeekOrders,
       preOrders,
       incomingStockData,
-      totalProducts,
-      products,
+      allProducts,
       stores
     ] = await Promise.all([
       // Get all orders for TARGET week (only Regular orders)
@@ -3209,15 +3211,21 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         status: { $in: ["draft", "linked"] }
       }).populate("vendor", "name").lean(),
 
-      // Get total count for pagination
-      Product.countDocuments(productQuery),
-
-      // Get paginated products
-      Product.find(productQuery).sort({ name: 1 }).skip(skip).limit(pageLimit).lean(),
+      // For short/ok filter: Get ALL products first, then filter and paginate
+      // For all filter: Get paginated products directly
+      needsFullProductList 
+        ? Product.find(productQuery).sort({ name: 1 }).lean()
+        : Product.find(productQuery).sort({ name: 1 }).skip((currentPage - 1) * pageLimit).limit(pageLimit).lean(),
 
       // Get all stores
       authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean()
     ]);
+
+    // Get total count for pagination (only needed for "all" filter)
+    let totalProducts = needsFullProductList ? allProducts.length : await Product.countDocuments(productQuery);
+    
+    // For "all" filter, use the fetched products directly
+    let products = allProducts;
     
     // console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
     // console.log(`Matrix - Found ${incomingStockData.length} Incoming Stock entries for target week`);
@@ -3441,7 +3449,24 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     }
 
     // Convert to array format
-    const matrixArray = Object.values(matrixData);
+    let matrixArray = Object.values(matrixData);
+
+    // Apply status filter (SHORT or OK) BEFORE pagination
+    if (statusFilter === "short") {
+      matrixArray = matrixArray.filter(row => row.isShort === true);
+    } else if (statusFilter === "ok") {
+      matrixArray = matrixArray.filter(row => row.isShort === false);
+    }
+
+    // For short/ok filter: Update totalProducts and apply pagination AFTER filtering
+    let finalTotalProducts = matrixArray.length;
+    let finalTotalPages = Math.ceil(finalTotalProducts / pageLimit);
+    
+    // Apply pagination to filtered results (for short/ok filter)
+    if (needsFullProductList) {
+      const skip = (currentPage - 1) * pageLimit;
+      matrixArray = matrixArray.slice(skip, skip + pageLimit);
+    }
 
     // Calculate hasUnlinkedIncoming ONLY for products in current page
     let hasUnlinkedIncoming = false;
@@ -3489,10 +3514,10 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         weekOffset: offset,
         pagination: {
           currentPage,
-          totalPages,
-          totalProducts,
+          totalPages: needsFullProductList ? finalTotalPages : Math.ceil(totalProducts / pageLimit),
+          totalProducts: needsFullProductList ? finalTotalProducts : totalProducts,
           limit: pageLimit,
-          hasNextPage: currentPage < totalPages,
+          hasNextPage: currentPage < (needsFullProductList ? finalTotalPages : Math.ceil(totalProducts / pageLimit)),
           hasPrevPage: currentPage > 1
         },
         // NEW: Incoming stock & confirm validation
