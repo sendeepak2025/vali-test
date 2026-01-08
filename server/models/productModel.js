@@ -50,6 +50,7 @@ const ProductSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Category",
             required: true,
+            index: true, // ✅ INDEX ADDED
         },
 
 
@@ -274,12 +275,29 @@ const ProductSchema = new mongoose.Schema(
             layersPerPallet: { type: Number, default: 0 },
             totalCasesPerPallet: { type: Number, default: 0 },
             isManual: { type: Boolean, default: false }
+        },
+
+        // ✅ Carry forward fields for stock calculation
+        carryForwardBox: {
+            type: Number,
+            default: 0
+        },
+        carryForwardUnit: {
+            type: Number,
+            default: 0
         }
 
 
     },
     { timestamps: true }
 );
+
+// ✅ COMPOUND INDEXES FOR BETTER QUERY PERFORMANCE
+ProductSchema.index({ name: 'text' }); // Text search
+ProductSchema.index({ category: 1, createdAt: -1 }); // Category listing
+ProductSchema.index({ remaining: 1 }); // Stock queries
+ProductSchema.index({ totalSell: -1 }); // Best sellers
+ProductSchema.index({ createdAt: -1 }); // Recent products
 
 // Pre-save hook to auto-generate shortCode if not provided
 ProductSchema.pre('save', async function(next) {
