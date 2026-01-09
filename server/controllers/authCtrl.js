@@ -1363,6 +1363,7 @@ const getAllStoresAnalyticsCtrl = async (req, res) => {
     const search = req.query.search || "";
     const filterState = req.query.state || "";
     const filterPaymentStatus = req.query.paymentStatus || "";
+    const filterPriceCategory = req.query.priceCategory || "";
     const sortBy = req.query.sortBy || "storeName";
     const sortOrder = req.query.sortOrder === "desc" ? -1 : 1;
 
@@ -1584,6 +1585,11 @@ const getAllStoresAnalyticsCtrl = async (req, res) => {
     // Apply payment status filter
     if (filterPaymentStatus) {
       filteredStores = filteredStores.filter(s => s.paymentStatus === filterPaymentStatus);
+    }
+    
+    // Apply price category filter
+    if (filterPriceCategory) {
+      filteredStores = filteredStores.filter(s => s.priceCategory === filterPriceCategory);
     }
 
     // Sort

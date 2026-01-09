@@ -160,6 +160,7 @@ const AdminStoresEnhanced = () => {
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [filterState, setFilterState] = useState("all")
   const [filterPaymentStatus, setFilterPaymentStatus] = useState("all")
+  const [filterPriceCategory, setFilterPriceCategory] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
   
   // Modal states
@@ -295,7 +296,8 @@ const AdminStoresEnhanced = () => {
         limit: ITEMS_PER_PAGE,
         search: debouncedSearch,
         state: filterState === "all" ? "" : filterState,
-        paymentStatus: filterPaymentStatus === "all" ? "" : filterPaymentStatus
+        paymentStatus: filterPaymentStatus === "all" ? "" : filterPaymentStatus,
+        priceCategory: filterPriceCategory === "all" ? "" : filterPriceCategory
       }
       
       const response = await getAllStoresAnalyticsAPI(params)
@@ -323,7 +325,7 @@ const AdminStoresEnhanced = () => {
     } finally {
       setLoading(false)
     }
-  }, [debouncedSearch, filterState, filterPaymentStatus, toast])
+  }, [debouncedSearch, filterState, filterPaymentStatus, filterPriceCategory, toast])
 
   // Initial load
   useEffect(() => {
@@ -333,7 +335,7 @@ const AdminStoresEnhanced = () => {
   // Refetch when filters change
   useEffect(() => {
     fetchData(1)
-  }, [debouncedSearch, filterState, filterPaymentStatus])
+  }, [debouncedSearch, filterState, filterPaymentStatus, filterPriceCategory])
 
   // Page change handler
   const handlePageChange = (newPage: number) => {
@@ -865,6 +867,17 @@ const AdminStoresEnhanced = () => {
                       <option value="good_standing">Good Standing</option>
                       <option value="warning">Warning</option>
                       <option value="overdue">Overdue</option>
+                    </select>
+                    <select
+                      value={filterPriceCategory}
+                      onChange={(e) => setFilterPriceCategory(e.target.value)}
+                      className="border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="all">All Price Categories</option>
+                      <option value="restaurantPrice">Restaurant Price</option>
+                      <option value="aPrice">Price List A</option>
+                      <option value="bPrice">Price List B</option>
+                      <option value="cPrice">Price List C</option>
                     </select>
                   </div>
                 </CardContent>

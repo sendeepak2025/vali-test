@@ -814,13 +814,14 @@ export const getStoreAnalyticsAPI = async (storeId) => {
 // Get analytics for all stores (bulk) - optimized for admin dashboard with pagination
 export const getAllStoresAnalyticsAPI = async (params = {}) => {
   try {
-    const { page = 1, limit = 20, search = "", state = "", paymentStatus = "", sortBy = "storeName", sortOrder = "asc" } = params;
+    const { page = 1, limit = 20, search = "", state = "", paymentStatus = "", priceCategory = "", sortBy = "storeName", sortOrder = "asc" } = params;
     const queryParams = new URLSearchParams({
       page: page.toString(),
       limit: limit.toString(),
       search,
       state,
       paymentStatus,
+      priceCategory,
       sortBy,
       sortOrder
     }).toString();
