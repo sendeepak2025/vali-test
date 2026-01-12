@@ -17,9 +17,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Loader2, Eye, CheckCircle } from "lucide-react";
+import { Search, Loader2, Eye, CheckCircle, Download } from "lucide-react";
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
+import { exportPreOrderToPDF } from "@/utils/pdf/preorder-export";
 
 const PreOrder = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -469,7 +470,16 @@ const PreOrder = () => {
               )}
 
               <DialogFooter className="gap-2">
-                
+                {selectedOrder && (
+                  <Button
+                    variant="outline"
+                    className="border-orange-600 text-orange-600 hover:bg-orange-50"
+                    onClick={() => exportPreOrderToPDF(selectedOrder)}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => setShowViewModal(false)}
