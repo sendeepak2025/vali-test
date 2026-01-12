@@ -40,23 +40,30 @@ const PreOrder = () => {
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
-  const fetchOrders = async (page = 1, searchQuery = "") => {
-    setLoading(true);
-    try {
-      const queryParams = new URLSearchParams();
-      queryParams.append("page", page.toString());
-      if (searchQuery) queryParams.append("search", searchQuery);
+ const fetchOrders = async (page = 1, searchQuery = "") => {
+  setLoading(true);
+  try {
+    const queryParams = new URLSearchParams();
+    queryParams.append("page", page.toString());
+    if (searchQuery) queryParams.append("search", searchQuery);
 
-      const data = await getAllPreOrderAPI(token, queryParams.toString());
-      setOrders(data.preOrders);
-      setCurrentPage(data.currentPage);
-      setTotalPages(data.totalPages);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const data = await getAllPreOrderAPI(token, queryParams.toString());
+
+    // 👉 sirf confirmed false wale orders
+    const unConfirmedOrders = data.preOrders.filter(
+      (order) => order.confirmed === false
+    );
+
+    setOrders(unConfirmedOrders);
+    setCurrentPage(data.currentPage);
+    setTotalPages(data.totalPages);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   useEffect(() => {
     fetchOrders(currentPage);
