@@ -19,7 +19,7 @@ const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
 // ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
 // const BASE_STOCK_DATE = new Date("2026-01-01T00:00:00.000Z");
-const BASE_STOCK_DATE = new Date("2026-01-05T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
 
 // ✅ Helper: Sum array by field
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
@@ -3955,7 +3955,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
 };
 
 // Helper function for stock calculation (same as in getAllProductSummary)
-const BASE_STOCK_DATE_EXPORT = new Date("2026-01-05T00:00:00.000Z");
+const BASE_STOCK_DATE_EXPORT = new Date("2026-01-12T00:00:00.000Z");
 
 const calculateActualStockForExport = (product) => {
   const now = new Date();

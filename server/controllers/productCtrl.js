@@ -1196,7 +1196,7 @@ const resetAndRebuildHistoryForAllProducts = async (
 };
 
 // ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
-const BASE_STOCK_DATE = new Date("2026-01-05T00:00:00.000Z");
+const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
 
 // ✅ Helper: Sum array by field (reduce shortcut)
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
