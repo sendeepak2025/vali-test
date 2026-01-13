@@ -80,7 +80,21 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
     invoiceTemplate: "standard",
   });
   const [showOptions, setShowOptions] = useState(false);
-  const [order, setOrder] = useState(orderSingle);
+  const [order, setOrder] = useState(() => {
+    // Initialize order with clientName derived from store or billing address
+    const clientName = orderSingle.store && typeof orderSingle.store === 'object' 
+      ? (orderSingle.store as any).storeName 
+      : (orderSingle as any).clientName || orderSingle?.billingAddress?.name || "N/A";
+    const clientId = orderSingle.store && typeof orderSingle.store === 'object'
+      ? (orderSingle.store as any)._id
+      : (orderSingle as any).clientId || (typeof orderSingle.store === 'string' ? orderSingle.store : "");
+    
+    return {
+      ...orderSingle,
+      clientName,
+      clientId,
+    };
+  });
   const [showShipping, setShowShipping] = useState(true);
   const [shippingCost, setShippingCost] = useState(order.shippinCost || 0);
   const [plateCount, setPlateCount] = useState((order as any).plateCount || "");
@@ -391,24 +405,62 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
       const updatedOrder = response;
 
       if (updatedOrder?.orderNumber) {
+        // Preserve clientName from original order if not in response
+        const clientName = updatedOrder.store?.storeName || 
+                          (orderSingle as any).clientName || 
+                          orderSingle?.billingAddress?.name || "N/A";
+        const clientId = updatedOrder.store?._id || 
+                        (orderSingle as any).clientId || 
+                        (typeof orderSingle.store === 'string' ? orderSingle.store : "");
+        
         setOrder((prevOrder) => ({
           ...updatedOrder,
           id: updatedOrder.orderNumber,
           date: updatedOrder.createdAt,
+          clientName,
+          clientId,
         }));
         setShowShipping(false);
       }
     }
   };
 
+  // Helper function to get store name - handles both populated and non-populated store
+  const getStoreName = () => {
+    // First check clientName (set during order formatting or preserved during update)
+    if ((order as any).clientName) {
+      return (order as any).clientName;
+    }
+    // If store is populated object with storeName
+    if (order.store && typeof order.store === 'object' && (order.store as any).storeName) {
+      return (order.store as any).storeName;
+    }
+    // Fallback to billing address name
+    return order?.billingAddress?.name || "N/A";
+  };
+
+  // Helper function to get store ID
+  const getStoreId = () => {
+    if (order.store && typeof order.store === 'object' && (order.store as any)._id) {
+      return (order.store as any)._id;
+    }
+    // If store is just an ID string
+    if (typeof order.store === 'string') {
+      return order.store;
+    }
+    // Fallback to clientId from order
+    return (order as any).clientId || "";
+  };
+
   const handleDownload = () => {
     setDownloadLoading(true);
     try {
+      console.log(order, "test")
       exportInvoiceToPDF(
         {
           id: order.orderNumber as any,
-          clientId: (order.store as any)._id,
-          clientName: (order.store as any).storeName,
+          clientId: getStoreId(),
+          clientName: getStoreName(),
           shippinCost: order.shippinCost || 0,
           date: order.date,
           shippingAddress: order?.shippingAddress,
@@ -820,7 +872,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                       invoiceOptions.invoiceTemplate === "professional" ? "text-emerald-800" :
                       invoiceOptions.invoiceTemplate === "detailed" ? "text-slate-800" : "text-gray-800"
                     }`}>
-                      {order?.billingAddress?.name || "N/A"}
+                      {getStoreName()}
                     </p>
                     <p className="text-sm text-gray-600">{order?.billingAddress?.address || "N/A"}</p>
                     <p className="text-sm text-gray-600">
@@ -845,7 +897,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                       invoiceOptions.invoiceTemplate === "professional" ? "text-emerald-800" :
                       invoiceOptions.invoiceTemplate === "detailed" ? "text-slate-800" : "text-gray-800"
                     }`}>
-                      {order?.shippingAddress?.name || "N/A"}
+                      {getStoreName()}
                     </p>
                     <p className="text-sm text-gray-600">{order?.shippingAddress?.address || "N/A"}</p>
                     <p className="text-sm text-gray-600">

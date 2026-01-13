@@ -499,6 +499,7 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
   }
 
   const handleInvoice = (order: Order) => {
+    
     setSelectedOrder(order)
     setShowInvoice(true)
   }

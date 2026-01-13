@@ -2555,13 +2555,16 @@ const updateShippingController = async (req, res) => {
 
     await order.save();
 
+    // Populate store details before sending response
+    const populatedOrder = await orderModel.findById(orderId).populate("store", "storeName ownerName email phone address city state zipCode");
+
     return res.status(200).json({
       success: true,
       message: "Order total recalculated and shipping updated.",
       itemTotal,
       shippingCost: calculatedShippingCost,
       total: newTotal,
-      updatedOrder: order,
+      updatedOrder: populatedOrder,
     });
   } catch (error) {
     console.error("Error updating shipping cost:", error);

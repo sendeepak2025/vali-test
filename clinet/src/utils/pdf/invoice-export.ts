@@ -173,7 +173,7 @@ export const exportInvoiceToPDF = (
   doc.text("SOLD TO", billX, billY);
   doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
-  doc.text(order?.billingAddress?.name || "N/A", billX, billY + 6);
+  doc.text(order?.store?.storeName || order?.clientName || "N/A", billX, billY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -189,7 +189,7 @@ export const exportInvoiceToPDF = (
   doc.text("SHIP TO", shipX, shipY);
   doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
-  doc.text(order?.shippingAddress?.name || "N/A", shipX, shipY + 6);
+  doc.text(order?.store?.storeName || order?.clientName || "N/A", shipX, shipY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -380,7 +380,7 @@ export const exportInvoiceToPDF = (
 
 const fileType = isPreOrder ? "PreOrder" : "Invoice";
 
-const customerName = (order?.billingAddress?.name || "Customer")
+const customerName = (order?.store?.storeName || order?.clientName || "Customer")
   .trim()                 // start/end ke extra spaces hatao
   .replace(/\s+/g, " ");  // multiple spaces → single space
 
