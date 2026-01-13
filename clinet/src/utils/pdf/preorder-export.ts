@@ -91,7 +91,7 @@ export const exportPreOrderToPDF = (
   doc.text("SOLD TO", billX, billY);
   doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
-  doc.text(order?.billingAddress?.name || order?.store?.storeName || "N/A", billX, billY + 6);
+  doc.text( order?.store?.storeName || "N/A", billX, billY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -111,7 +111,7 @@ export const exportPreOrderToPDF = (
   
   // Use shipping address if available, otherwise use billing address
   const shippingAddr = order?.shippingAddress || order?.billingAddress;
-  doc.text(shippingAddr?.name || order?.store?.storeName || "N/A", shipX, shipY + 6);
+  doc.text(order?.store?.storeName || "N/A", shipX, shipY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -177,7 +177,7 @@ export const exportPreOrderToPDF = (
   doc.text(noteText, MARGIN + 20, yPos + 8, { maxWidth: CONTENT_WIDTH - 26 });
 
   // Save PDF
-  const customerName = (order?.billingAddress?.name || order?.store?.storeName || "Customer")
+  const customerName = ( order?.store?.storeName || "Customer")
     .trim()
     .replace(/\s+/g, " ");
 
