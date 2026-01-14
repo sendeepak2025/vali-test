@@ -380,7 +380,7 @@ const confirmOrderCtrl = async (req, res) => {
     console.log(`PreOrder ${pre.preOrderNumber}: Original items: ${pre.items.length}, Deduplicated: ${deduplicatedItems.length}`);
 
     // --- STOCK VALIDATION (Same as createOrderCtrl) ---
-    const BASE_STOCK_DATE = new Date("2026-01-05T00:00:00.000Z");
+    const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
     
     // Helper function to calculate actual stock
     const calculateActualStock = (product) => {
