@@ -1133,31 +1133,31 @@ const CreatePreOrder = () => {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-sm font-medium">Name</label>
-                          <Input value={billingAddress.name} onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})} placeholder="Full name" />
+                          <Input value={billingAddress.name} onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})} placeholder="Full name"readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Phone</label>
-                          <Input value={billingAddress.phone} onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})} placeholder="Phone number" />
+                          <Input value={billingAddress.phone} onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})} placeholder="Phone number"readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Email</label>
-                          <Input value={billingAddress.email} onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})} placeholder="Email address" />
+                          <Input value={billingAddress.email} onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})} placeholder="Email address"readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Address</label>
-                          <Input value={billingAddress.address} onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})} placeholder="Street address" />
+                          <Input value={billingAddress.address} onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})} placeholder="Street address"readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">City</label>
-                          <Input value={billingAddress.city} onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})} placeholder="City" />
+                          <Input value={billingAddress.city} onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})} placeholder="City" readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">State</label>
-                          <Input value={billingAddress.state} onChange={(e) => setBillingAddress({...billingAddress, zipCode: e.target.value})} placeholder="State" />
+                          <Input value={billingAddress.state} onChange={(e) => setBillingAddress({...billingAddress, state: e.target.value})} placeholder="State" readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                         <div>
                           <label className="text-sm font-medium">Postal Code</label>
-                          <Input value={billingAddress.zipCode} onChange={(e) => setBillingAddress({...billingAddress, zipCode: e.target.value})} placeholder="Postal code" />
+                          <Input value={billingAddress.zipCode} onChange={(e) => setBillingAddress({...billingAddress, zipCode: e.target.value})} placeholder="Postal code" readOnly={sameAsBilling} className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""} />
                         </div>
                       </div>
 

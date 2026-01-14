@@ -1211,6 +1211,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.name}
                             onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})}
                             placeholder="Full name"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1219,6 +1221,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.phone}
                             onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})}
                             placeholder="Phone number"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1227,6 +1231,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.email}
                             onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})}
                             placeholder="Email address"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1235,6 +1241,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.address}
                             onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})}
                             placeholder="Street address"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1243,6 +1251,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.city}
                             onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})}
                             placeholder="City"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1251,6 +1261,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.country}
                             onChange={(e) => setBillingAddress({...billingAddress, country: e.target.value})}
                             placeholder="State"
+                            readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1259,6 +1271,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.postalCode}
                             onChange={(e) => setBillingAddress({...billingAddress, postalCode: e.target.value})}
                             placeholder="Postal code"
+                            readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                       </div>
