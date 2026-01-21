@@ -182,7 +182,11 @@ const getAllPreOrdersCtrl = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("store");
+      .populate("store")
+      .populate({
+        path: "orderId",
+        select: "orderNumber status total createdAt _id"
+      });
 
     return res.status(200).json({
       success: true,

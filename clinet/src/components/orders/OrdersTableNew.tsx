@@ -93,6 +93,8 @@ interface OrdersTableProps {
   fetchOrders: () => void
   onDelete: (id: string) => void
   onPayment: (id: string, paymentMethod: any) => void
+  initialOrderId?: string
+  initialOrderNumber?: string
 }
 
 const OrdersTableNew: React.FC<OrdersTableProps> = ({
@@ -100,6 +102,8 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
   fetchOrders: initialFetchOrders,
   onDelete,
   onPayment,
+  initialOrderId,
+  initialOrderNumber,
 }) => {
   const { toast } = useToast()
   const navigate = useNavigate()
@@ -228,6 +232,35 @@ const OrdersTableNew: React.FC<OrdersTableProps> = ({
   useEffect(() => {
     fetchOrders()
   }, [token, currentPage, pageSize, activeTab, paymentFilter, debouncedSearch, startDate, endDate])
+
+  // Auto-open order if navigated from PreOrder page
+  useEffect(() => {
+    if (initialOrderId && orders.length > 0) {
+      // Find the order by ID
+      const orderToOpen = orders.find(order => order._id === initialOrderId)
+      
+      if (orderToOpen) {
+        // Show toast notification
+        toast({
+          title: "Order Found",
+          description: `Opening order ${initialOrderNumber || orderToOpen.id}`,
+          duration: 2000,
+        })
+        
+        // Open the order details modal
+        setSelectedOrder(orderToOpen)
+        setShowDetails(true)
+      } else {
+        // Order not found in current page, show message
+        toast({
+          title: "Order Not Found",
+          description: `Order ${initialOrderNumber || initialOrderId} not found on current page. Try searching.`,
+          variant: "destructive",
+          duration: 3000,
+        })
+      }
+    }
+  }, [initialOrderId, orders])
 
   // Filter & Sort orders locally
   const filteredOrders = useMemo(() => {

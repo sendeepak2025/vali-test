@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Loader2, Eye, CheckCircle, Download } from "lucide-react";
+import { Search, Loader2, Eye, CheckCircle, Download, ExternalLink } from "lucide-react";
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
 import { exportPreOrderToPDF } from "@/utils/pdf/preorder-export";
@@ -25,10 +26,16 @@ import { exportPreOrderToPDF } from "@/utils/pdf/preorder-export";
 const PreOrder = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
+  const [confirmedOrders, setConfirmedOrders] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  const [confirmedSearch, setConfirmedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [confirmedCurrentPage, setConfirmedCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [confirmedTotalPages, setConfirmedTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [confirmedLoading, setConfirmedLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("pending");
   
   // Modal states
   const [showViewModal, setShowViewModal] = useState(false);
@@ -50,7 +57,7 @@ const PreOrder = () => {
 
     const data = await getAllPreOrderAPI(token, queryParams.toString());
 
-    // 👉 sirf confirmed false wale orders
+    // Only unconfirmed orders
     const unConfirmedOrders = data.preOrders.filter(
       (order) => order.confirmed === false
     );
@@ -65,15 +72,50 @@ const PreOrder = () => {
   }
 };
 
+  // Fetch confirmed orders
+  const fetchConfirmedOrders = async (page = 1, searchQuery = "") => {
+    setConfirmedLoading(true);
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append("page", page.toString());
+      if (searchQuery) queryParams.append("search", searchQuery);
+
+      const data = await getAllPreOrderAPI(token, queryParams.toString());
+
+      // Only confirmed orders
+      const confirmedOrdersList = data.preOrders.filter(
+        (order) => order.confirmed === true
+      );
+
+      setConfirmedOrders(confirmedOrdersList);
+      setConfirmedCurrentPage(data.currentPage);
+      setConfirmedTotalPages(data.totalPages);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setConfirmedLoading(false);
+    }
+  };
+
 
   useEffect(() => {
-    fetchOrders(currentPage);
-  }, [currentPage, token]);
+    if (activeTab === "pending") {
+      fetchOrders(currentPage);
+    } else {
+      fetchConfirmedOrders(confirmedCurrentPage);
+    }
+  }, [currentPage, confirmedCurrentPage, activeTab, token]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setCurrentPage(1);
     fetchOrders(1, search);
+  };
+
+  const handleConfirmedSearch = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setConfirmedCurrentPage(1);
+    fetchConfirmedOrders(1, confirmedSearch);
   };
 
   const handleViewOrder = async (orderId: string) => {
@@ -149,30 +191,43 @@ const PreOrder = () => {
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">PreOrders</h1>
-                <div className="flex gap-3 items-center">
-                  <form onSubmit={handleSearch} className="flex gap-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        type="text"
-                        placeholder="Search by Order Number or Store Name"
-                        className="pl-10 w-80"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                    </div>
-                    <Button type="submit" variant="outline">
-                      Search
-                    </Button>
-                  </form>
-                  <Button
-                    onClick={() => navigate("/admin/pre-order/create")}
-                    className="bg-orange-600 hover:bg-orange-700"
-                  >
-                    + Create PreOrder
-                  </Button>
-                </div>
+                <Button
+                  onClick={() => navigate("/admin/pre-order/create")}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  + Create PreOrder
+                </Button>
               </div>
+
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-6">
+                  <TabsTrigger value="pending" className="data-[state=active]:bg-orange-600 data-[state=active]:text-white">
+                    Pending PreOrders
+                  </TabsTrigger>
+                  <TabsTrigger value="confirmed" className="data-[state=active]:bg-green-600 data-[state=active]:text-white">
+                    Confirmed PreOrders
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Pending PreOrders Tab */}
+                <TabsContent value="pending">
+                  <div className="flex justify-between items-center mb-4">
+                    <form onSubmit={handleSearch} className="flex gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder="Search by Order Number or Store Name"
+                          className="pl-10 w-80"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                        />
+                      </div>
+                      <Button type="submit" variant="outline">
+                        Search
+                      </Button>
+                    </form>
+                  </div>
 
               {loading ? (
                 <div className="flex justify-center items-center py-12">
@@ -203,6 +258,9 @@ const PreOrder = () => {
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Confirm to Order
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Linked Order
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
@@ -251,6 +309,20 @@ const PreOrder = () => {
     </Badge>
   )}
 </td>
+<td className="px-4 py-4 whitespace-nowrap text-sm">
+  {order.confirmed && order.orderId ? (
+    <Button
+      size="sm"
+      variant="link"
+      className="text-blue-600 hover:text-blue-800 p-0 h-auto font-semibold"
+      onClick={() => navigate(`/admin/orders/edit/${order.orderId._id || order.orderId}`)}
+    >
+      {order.orderId.orderNumber || "View Order"} →
+    </Button>
+  ) : (
+    <span className="text-gray-400 text-xs">Not Created</span>
+  )}
+</td>
 
                             <td className="px-4 py-4 whitespace-nowrap text-sm">
                               <div className="flex gap-2">
@@ -276,7 +348,7 @@ const PreOrder = () => {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                          <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
                             No preorders found.
                           </td>
                         </tr>
@@ -309,6 +381,164 @@ const PreOrder = () => {
                   </Button>
                 </div>
               )}
+                </TabsContent>
+
+                {/* Confirmed PreOrders Tab */}
+                <TabsContent value="confirmed">
+                  <div className="flex justify-between items-center mb-4">
+                    <form onSubmit={handleConfirmedSearch} className="flex gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder="Search by Order Number or Store Name"
+                          className="pl-10 w-80"
+                          value={confirmedSearch}
+                          onChange={(e) => setConfirmedSearch(e.target.value)}
+                        />
+                      </div>
+                      <Button type="submit" variant="outline">
+                        Search
+                      </Button>
+                    </form>
+                  </div>
+
+                  {confirmedLoading ? (
+                    <div className="flex justify-center items-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              #
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              PreOrder Number
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Store Name
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Date
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Total
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Linked Order
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {confirmedOrders.length > 0 ? (
+                            confirmedOrders.map((order, idx) => (
+                              <tr
+                                key={order._id}
+                                className="hover:bg-gray-50 transition-colors"
+                              >
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  {(confirmedCurrentPage - 1) * 10 + idx + 1}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {order.preOrderNumber}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  {order.store?.storeName || "N/A"}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {order.createdAt
+                                    ? new Date(order.createdAt).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "2-digit",
+                                        year: "numeric",
+                                      })
+                                    : "N/A"}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                                  ${Number(order.total).toFixed(2)}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                  {getStatusBadge(order.status)}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                  {order.orderId ? (
+                                    <Button
+                                      size="sm"
+                                      variant="link"
+                                      className="text-green-600 hover:text-green-800 p-0 h-auto font-semibold flex items-center gap-1"
+                                      onClick={() => navigate('/admin/orders', { 
+                                        state: { 
+                                          orderId: order.orderId._id || order.orderId,
+                                          orderNumber: order.orderId.orderNumber 
+                                        } 
+                                      })}
+                                    >
+                                      {order.orderId.orderNumber || "View Order"}
+                                      <ExternalLink className="h-3 w-3" />
+                                    </Button>
+                                  ) : (
+                                    <span className="text-gray-400 text-xs">Not Created</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                                    onClick={() => handleViewOrder(order._id)}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    View
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                                No confirmed preorders found.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {confirmedTotalPages > 1 && (
+                    <div className="flex justify-center items-center mt-6 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={confirmedCurrentPage === 1}
+                        onClick={() => setConfirmedCurrentPage((prev) => prev - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <span className="px-4 py-2 text-sm text-gray-700">
+                        Page {confirmedCurrentPage} of {confirmedTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={confirmedCurrentPage === confirmedTotalPages}
+                        onClick={() => setConfirmedCurrentPage((prev) => prev + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             </div>
           </Card>
 

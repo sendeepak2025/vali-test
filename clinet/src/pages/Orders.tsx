@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
 import OrdersTableNew from '@/components/orders/OrdersTableNew';
@@ -16,7 +15,11 @@ import ManageTripsEnhanced from './ManageTripsEnhanced';
 const Orders = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useSelector((state: RootState) => state.auth?.user ?? null);
+
+  // Get orderId from navigation state
+  const { orderId, orderNumber } = location.state || {};
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -74,7 +77,9 @@ const Orders = () => {
                   orders={[]} 
                   fetchOrders={() => {}} 
                   onDelete={handleDelete} 
-                  onPayment={handlePayment} 
+                  onPayment={handlePayment}
+                  initialOrderId={orderId}
+                  initialOrderNumber={orderNumber}
                 />
               </TabsContent>
 

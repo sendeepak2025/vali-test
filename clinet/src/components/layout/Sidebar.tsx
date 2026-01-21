@@ -82,11 +82,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       path: "/admin/pre-orders",
       icon: <ShoppingCart size={20} />,
     },
-    // {
-    //   name: "Work Orders",
-    //   path: "/admin/work-orders",
-    //   icon: <ClipboardList size={20} />,
-    // },
+    {
+      name: "Work Orders",
+      path: "/admin/work-orders",
+      icon: <ClipboardList size={20} />,
+    },
     {
       name: "Vendors",
       path: "/vendors",
