@@ -387,16 +387,10 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
 
 
   const updateShipping = async (cost: number, plates: number) => {
-    // Agar shipping cost aur pallet pehle se set hai to API call skip karo
-    if (orderSingle.shippinCost && (orderSingle as any).plateCount) {
-      setShowShipping(false);
-      return;
-    }
-
     const form = {
       orderId: order._id,
-      newShippingCost: orderSingle.shippinCost || cost, // Use existing value if present
-      plateCount: (orderSingle as any).plateCount || plates, // Use existing value if present
+      newShippingCost: cost, // Always use the new value entered by user
+      plateCount: plates, // Always use the new value entered by user
     };
 
     const response = await updateOrderShippingAPI(form, token);
@@ -697,8 +691,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   value={shippingCost}
                   onChange={(e) => setShippingCost(e.target.value)}
                   placeholder="Enter shipping cost"
-                  disabled={!!orderSingle.shippinCost}
-                  className={orderSingle.shippinCost ? "bg-muted cursor-not-allowed opacity-60" : ""}
                 />
               </div>
               <div>
@@ -711,8 +703,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                   value={plateCount}
                   onChange={(e) => setPlateCount(e.target.value)}
                   placeholder="Enter pallet count"
-                  disabled={!!(orderSingle as any).plateCount}
-                  className={(orderSingle as any).plateCount ? "bg-muted cursor-not-allowed opacity-60" : ""}
                 />
               </div>
             </div>
