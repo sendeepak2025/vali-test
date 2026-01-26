@@ -383,22 +383,27 @@ const confirmOrderCtrl = async (req, res) => {
     const deduplicatedItems = Array.from(itemsMap.values());
     console.log(`PreOrder ${pre.preOrderNumber}: Original items: ${pre.items.length}, Deduplicated: ${deduplicatedItems.length}`);
 
-    // --- STOCK VALIDATION (Same as createOrderCtrl) ---
-    const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
+    // --- STOCK VALIDATION (Current week only) ---
     
-    // Helper function to calculate actual stock
+    // Helper function to calculate current week stock
     const calculateActualStock = (product) => {
       const now = new Date();
-      const dayOfWeek = now.getUTCDay();
-      const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-      const sunday = new Date(
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate() + daysUntilSunday,
-          23, 59, 59, 999
-        )
-      );
+      
+      // Get current week's Monday and Sunday (UTC)
+      const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+      const monday = new Date(Date.UTC(
+        now.getUTCFullYear(), 
+        now.getUTCMonth(), 
+        now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+        0, 0, 0, 0
+      ));
+      
+      const sunday = new Date(Date.UTC(
+        monday.getUTCFullYear(), 
+        monday.getUTCMonth(), 
+        monday.getUTCDate() + 6, 
+        23, 59, 59, 999
+      ));
 
       const filterByDate = (arr, from, to) => {
         if (!arr || arr.length === 0) return [];
@@ -412,11 +417,12 @@ const confirmOrderCtrl = async (req, res) => {
 
       const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
 
-      const stockPurchase = filterByDate(product?.purchaseHistory || [], BASE_STOCK_DATE, sunday);
-      const stockSell = filterByDate(product?.salesHistory || [], BASE_STOCK_DATE, sunday);
-      const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], BASE_STOCK_DATE, sunday);
-      const stockUnitSell = filterByDate(product?.lbSellHistory || [], BASE_STOCK_DATE, sunday);
-      const stockTrash = filterByDate(product?.quantityTrash || [], BASE_STOCK_DATE, sunday);
+      // Filter current week data only
+      const stockPurchase = filterByDate(product?.purchaseHistory || [], monday, sunday);
+      const stockSell = filterByDate(product?.salesHistory || [], monday, sunday);
+      const stockUnitPurchase = filterByDate(product?.lbPurchaseHistory || [], monday, sunday);
+      const stockUnitSell = filterByDate(product?.lbSellHistory || [], monday, sunday);
+      const stockTrash = filterByDate(product?.quantityTrash || [], monday, sunday);
 
       const trashBox = stockTrash.filter(t => t.type?.toLowerCase() === "box").reduce((sum, t) => sum + Number(t.quantity || 0), 0);
       const trashUnit = stockTrash.filter(t => t.type?.toLowerCase() === "unit").reduce((sum, t) => sum + Number(t.quantity || 0), 0);
@@ -426,13 +432,13 @@ const confirmOrderCtrl = async (req, res) => {
       const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
       const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
 
-      const carryForwardBox = Number(product?.carryForwardBox || 0);
-      const carryForwardUnit = Number(product?.carryForwardUnit || 0);
+      // Manual add (current week only)
       const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
       const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
 
-      const totalRemaining = carryForwardBox + stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
-      const unitRemaining = carryForwardUnit + stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
+      // CURRENT WEEK CALCULATION (NEGATIVE ALLOWED)
+      const totalRemaining = stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+      const unitRemaining = stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
 
       return { totalRemaining, unitRemaining };
     };
@@ -458,7 +464,7 @@ const confirmOrderCtrl = async (req, res) => {
           available: pricingType === "box" ? totalRemaining : unitRemaining,
           requested: quantity,
           type: pricingType,
-          stockBase: BASE_STOCK_DATE.toISOString().split("T")[0]
+          stockBase: "Current Week Only"
         });
       }
     }
@@ -467,7 +473,7 @@ const confirmOrderCtrl = async (req, res) => {
     if (insufficientStock.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "Insufficient stock for some items (week-wise check)",
+        message: "Insufficient stock for some items (current week check)",
         insufficientStock,
       });
     }

@@ -1195,9 +1195,6 @@ const resetAndRebuildHistoryForAllProducts = async (
   };
 };
 
-// ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
-const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
-
 // ✅ Helper: Sum array by field (reduce shortcut)
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
 
@@ -1212,51 +1209,60 @@ const filterByDate = (arr, from, to) => {
   });
 };
 
-// ✅ Calculate ACTUAL STOCK (BASE_STOCK_DATE se current week ke Sunday tak)
+// ✅ Calculate CURRENT WEEK STOCK (Monday to Sunday current week only)
 const calculateActualStock = (product) => {
   const now = new Date();
 
-  // Get current week's Sunday (UTC)
+  // Get current week's Monday and Sunday (UTC)
   const dayOfWeek = now.getUTCDay(); // 0 = Sunday
-  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-  const sunday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + daysUntilSunday,
-      23, 59, 59, 999
-    )
-  );
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
 
-  // Filter stock data
+  return calculateStockForDateRange(product, monday, sunday);
+};
+
+// ✅ Calculate STOCK for any date range
+const calculateStockForDateRange = (product, fromDate, toDate) => {
+  // Filter data for the specified date range
   const stockPurchase = filterByDate(
     product?.purchaseHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockSell = filterByDate(
     product?.salesHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockUnitPurchase = filterByDate(
     product?.lbPurchaseHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockUnitSell = filterByDate(
     product?.lbSellHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockTrash = filterByDate(
     product?.quantityTrash || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   // Trash calculation
@@ -1268,41 +1274,34 @@ const calculateActualStock = (product) => {
     .filter(t => t.type?.toLowerCase() === "unit")
     .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
 
-  // Totals
+  // Totals for the date range
   const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
   const stockSellTotal = sumBy(stockSell, "quantity");
 
   const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
   const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
 
-  // Carry forward
-  const carryForwardBox = Number(product?.carryForwardBox || 0);
-  const carryForwardUnit = Number(product?.carryForwardUnit || 0);
-
-  // Manual add
+  // Manual add (only if within date range)
   const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
   const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
 
-  // FINAL CALCULATION (NEGATIVE ALLOWED)
-  const totalRemaining =
-    carryForwardBox +
-    stockPurchaseTotal -
-    stockSellTotal -
-    trashBox +
-    manualBox;
-
-  const unitRemaining =
-    carryForwardUnit +
-    stockUnitPurchaseTotal -
-    stockUnitSellTotal -
-    trashUnit +
-    manualUnit;
+  // CALCULATION FOR DATE RANGE (NEGATIVE ALLOWED)
+  const totalRemaining = stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+  const unitRemaining = stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
 
   return {
     totalRemaining, // can be negative
     unitRemaining,  // can be negative
     trashBox,
     trashUnit,
+    stockPurchaseTotal,
+    stockSellTotal,
+    stockUnitPurchaseTotal,
+    stockUnitSellTotal,
+    dateRange: {
+      from: fromDate.toISOString(),
+      to: toDate.toISOString()
+    },
     isOverSold: totalRemaining < 0
   };
 };
@@ -1427,8 +1426,15 @@ const getAllProductsWithHistorySummary = async (req, res) => {
 
     // ✅ Calculate summary for each product
     let productsWithSummary = products.map(product => {
-      // 🔴 ACTUAL STOCK - hamesha 01-01-2026 se ab tak (system truth)
-      const actualStock = calculateActualStock(product);
+      // 🔴 STOCK CALCULATION - use date range if provided, otherwise current week
+      let actualStock;
+      if (reportFrom && reportTo) {
+        // Use user's selected date range for stock calculation
+        actualStock = calculateStockForDateRange(product, reportFrom, reportTo);
+      } else {
+        // Use current week for stock calculation
+        actualStock = calculateActualStock(product);
+      }
       
       // 🔵 REPORT DATA - user ke date filter se (sirf dikhane ke liye)
       const reportData = calculateReportData(product, reportFrom, reportTo);
@@ -1446,7 +1452,7 @@ const getAllProductsWithHistorySummary = async (req, res) => {
           totalSell: reportData.totalSell,
           unitPurchase: reportData.unitPurchase,
           unitSell: reportData.unitSell,
-          // Actual stock (always from BASE_STOCK_DATE to now)
+          // Stock calculation (based on date range or current week)
           totalRemaining: actualStock.totalRemaining,
           unitRemaining: actualStock.unitRemaining,
           trashBox: actualStock.trashBox,
@@ -1480,7 +1486,9 @@ const getAllProductsWithHistorySummary = async (req, res) => {
         startDate: startDate || null, 
         endDate: endDate || null 
       },
-      stockCalculationBase: `${BASE_STOCK_DATE.toISOString().split('T')[0]} to current week Sunday`,
+      stockCalculationBase: reportFrom && reportTo 
+        ? `Date Range: ${reportFrom.toISOString().split('T')[0]} to ${reportTo.toISOString().split('T')[0]}`
+        : "Current Week Only (Monday to Sunday)",
       currentWeekRange: {
         start: monday.toISOString(),
         end: sunday.toISOString()

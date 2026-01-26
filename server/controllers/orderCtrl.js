@@ -17,10 +17,6 @@ const notificationService = require("../services/notificationService");
 // High-value order threshold for admin alerts (configurable)
 const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
-// ✅ BASE DATE - Stock calculation hamesha yahin se start hogi
-// const BASE_STOCK_DATE = new Date("2026-01-01T00:00:00.000Z");
-const BASE_STOCK_DATE = new Date("2026-01-12T00:00:00.000Z");
-
 // ✅ Helper: Sum array by field
 const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
 
@@ -35,51 +31,60 @@ const filterByDate = (arr, from, to) => {
   });
 };
 
-// ✅ Calculate ACTUAL STOCK (BASE_STOCK_DATE se current week ke Sunday tak)
+// ✅ Calculate CURRENT WEEK STOCK (Monday to Sunday current week only)
 const calculateActualStock = (product) => {
   const now = new Date();
 
-  // Get current week's Sunday (UTC)
+  // Get current week's Monday and Sunday (UTC)
   const dayOfWeek = now.getUTCDay(); // 0 = Sunday
-  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-  const sunday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + daysUntilSunday,
-      23, 59, 59, 999
-    )
-  );
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
 
-  // Filter stock data
+  return calculateStockForDateRange(product, monday, sunday);
+};
+
+// ✅ Calculate STOCK for any date range
+const calculateStockForDateRange = (product, fromDate, toDate) => {
+  // Filter data for the specified date range
   const stockPurchase = filterByDate(
     product?.purchaseHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockSell = filterByDate(
     product?.salesHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockUnitPurchase = filterByDate(
     product?.lbPurchaseHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockUnitSell = filterByDate(
     product?.lbSellHistory || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   const stockTrash = filterByDate(
     product?.quantityTrash || [],
-    BASE_STOCK_DATE,
-    sunday
+    fromDate,
+    toDate
   );
 
   // Trash calculation
@@ -91,41 +96,34 @@ const calculateActualStock = (product) => {
     .filter(t => t.type?.toLowerCase() === "unit")
     .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
 
-  // Totals
+  // Totals for the date range
   const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
   const stockSellTotal = sumBy(stockSell, "quantity");
 
   const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
   const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
 
-  // Carry forward
-  const carryForwardBox = Number(product?.carryForwardBox || 0);
-  const carryForwardUnit = Number(product?.carryForwardUnit || 0);
-
-  // Manual add
+  // Manual add (only if within date range)
   const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
   const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
 
-  // FINAL CALCULATION (NEGATIVE ALLOWED)
-  const totalRemaining =
-    carryForwardBox +
-    stockPurchaseTotal -
-    stockSellTotal -
-    trashBox +
-    manualBox;
-
-  const unitRemaining =
-    carryForwardUnit +
-    stockUnitPurchaseTotal -
-    stockUnitSellTotal -
-    trashUnit +
-    manualUnit;
+  // CALCULATION FOR DATE RANGE (NEGATIVE ALLOWED)
+  const totalRemaining = stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+  const unitRemaining = stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
 
   return {
     totalRemaining, // can be negative
     unitRemaining,  // can be negative
     trashBox,
     trashUnit,
+    stockPurchaseTotal,
+    stockSellTotal,
+    stockUnitPurchaseTotal,
+    stockUnitSellTotal,
+    dateRange: {
+      from: fromDate.toISOString(),
+      to: toDate.toISOString()
+    },
     isOverSold: totalRemaining < 0
   };
 };
@@ -291,7 +289,7 @@ for (const item of items) {
       available: pricingType === "box" ? totalRemaining : unitRemaining,
       requested: quantity,
       type: pricingType,
-      stockBase: BASE_STOCK_DATE.toISOString().split("T")[0]
+      stockBase: "Current Week Only"
     });
   }
 
@@ -946,7 +944,7 @@ const resetAndRebuildHistoryForSingleProduct = async (productId, from, to) => {
 
 //         // Only check stock if we're increasing quantity
 //         if (additionalQuantity > 0) {
-//           // Use same calculation as calculateActualStock (BASE_STOCK_DATE to Sunday)
+//           // Use same calculation as calculateActualStock (current week only)
 //           const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
 //           // Check if additional quantity exceeds available stock
@@ -3817,8 +3815,8 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       });
     });
 
-    // Calculate stock for each product using BASE_STOCK_DATE (01-01-2026 to now)
-    // Stock is ALWAYS calculated from BASE_STOCK_DATE - not weekly
+    // Calculate stock for each product using current week data only
+    // Stock is calculated from Monday to Sunday of current week
 
     // Track shortage summary
     let totalShortProducts = 0;
@@ -3848,7 +3846,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       matrixData[productId].finalStock = finalStock;
       matrixData[productId].isShort = isShort;
       matrixData[productId].shortageQty = isShort ? Math.abs(finalStock) : 0;
-      matrixData[productId].stockCalculationBase = BASE_STOCK_DATE.toISOString().split('T')[0];
+      matrixData[productId].stockCalculationBase = "Current Week Only";
 
       if (isShort) {
         totalShortProducts++;
@@ -3959,58 +3957,29 @@ const getOrderMatrixDataCtrl = async (req, res) => {
   }
 };
 
-// Helper function for stock calculation (same as in getAllProductSummary)
-const BASE_STOCK_DATE_EXPORT = new Date("2026-01-12T00:00:00.000Z");
+// Export function for current week stock calculation
 
 const calculateActualStockForExport = (product) => {
   const now = new Date();
-  const dayOfWeek = now.getUTCDay();
-  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-  const sunday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + daysUntilSunday,
-      23, 59, 59, 999
-    )
-  );
+  
+  // Get current week's Monday and Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
 
-  const stockPurchase = filterByDate(
-    product?.purchaseHistory || [],
-    BASE_STOCK_DATE_EXPORT,
-    sunday
-  );
-
-  const stockSell = filterByDate(
-    product?.salesHistory || [],
-    BASE_STOCK_DATE_EXPORT,
-    sunday
-  );
-
-  const stockTrash = filterByDate(
-    product?.quantityTrash || [],
-    BASE_STOCK_DATE_EXPORT,
-    sunday
-  );
-
-  const trashBox = stockTrash
-    .filter(t => t.type?.toLowerCase() === "box")
-    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
-
-  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
-  const stockSellTotal = sumBy(stockSell, "quantity");
-
-  const carryForwardBox = Number(product?.carryForwardBox || 0);
-  const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
-
-  const totalRemaining =
-    carryForwardBox +
-    stockPurchaseTotal -
-    stockSellTotal -
-    trashBox +
-    manualBox;
-
-  return totalRemaining; // Allow negative values for accurate export
+  const stockData = calculateStockForDateRange(product, monday, sunday);
+  return stockData.totalRemaining; // Allow negative values for accurate export
 };
 
 // Export Order Matrix Data - All products without pagination for CSV download
