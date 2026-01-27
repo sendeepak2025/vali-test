@@ -16,9 +16,10 @@ declare module "jspdf" {
 
 export const exportPriceListToPDF = (
   template: PriceListTemplate,
-  price: string
+  price: string = "all"
 ) => {
   const doc = new jsPDF();
+  console.log(template)
 
   const totalProducts = template.products.length;
   const isLargeDataset = totalProducts > 100;
@@ -36,9 +37,8 @@ export const exportPriceListToPDF = (
   const pageHeight = doc.internal.pageSize.getHeight();
 
   const columnGap = isLargeDataset ? 3 : 4;
-  const columnWidth = (pageWidth - MARGIN * 2 - columnGap) / 2;
+  const fullPageWidth = pageWidth - MARGIN * 2; // Use full page width instead of splitting into columns
   const leftColumnX = MARGIN;
-  const rightColumnX = leftColumnX + columnWidth + columnGap;
   const startY = 22;
   const HEADER_HEIGHT = 20;
   const FOOTER_HEIGHT = 8;
@@ -127,13 +127,13 @@ export const exportPriceListToPDF = (
 
   drawHeader();
 
-  // --- Fixed Height Measurements for 4 Columns ---
+  // --- Fixed Height Measurements for 8 Columns (Short Code, Name, Original Price, A Price, B Price, C Price, Restaurant Price, Empty) ---
   const SINGLE_ROW_HEIGHT = (() => {
     const tempDoc = new jsPDF();
     autoTable(tempDoc, {
       startY: 0,
-      body: [["#000", "SAMPLE", "$0.00", ""]], // 4 elements to match 4 columns
-      tableWidth: columnWidth,
+      body: [["#000", "SAMPLE", "0.00", "0.00", "0.00", "0.00", "0.00", ""]], // 8 elements for all columns including empty
+      tableWidth: fullPageWidth,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: ROW_PADDING },
     });
     return tempDoc.lastAutoTable?.finalY ?? 4;
@@ -143,11 +143,14 @@ export const exportPriceListToPDF = (
     const tempDoc = new jsPDF();
     autoTable(tempDoc, {
       startY: 0,
-      body: [[{ content: "CATEGORY", colSpan: 4 }]], // colSpan 4
-      tableWidth: columnWidth,
+      body: [
+        [{ content: "CATEGORY", colSpan: 8 }], // Category header spans 8 columns
+        ["CODE", "PRODUCT NAME", "PRICE", "A PRICE", "B PRICE", "C PRICE", "RESTAURANT", ""] // Column headers with empty column
+      ],
+      tableWidth: fullPageWidth,
       styles: { cellPadding: ROW_PADDING },
     });
-    return tempDoc.lastAutoTable?.finalY ?? 6;
+    return tempDoc.lastAutoTable?.finalY ?? 8;
   })();
 
   const measureProductHeight = () => SINGLE_ROW_HEIGHT;
@@ -166,7 +169,7 @@ export const exportPriceListToPDF = (
       bodyData.push([
         {
           content: categoryName.toUpperCase(),
-          colSpan: 4,
+          colSpan: 8,
           styles: {
             halign: "left",
             fillColor: [220, 220, 220],
@@ -174,6 +177,42 @@ export const exportPriceListToPDF = (
             fontStyle: "bold",
             fontSize: TABLE_FONT_SIZE + 1,
           },
+        },
+      ]);
+      
+      // Add column headers
+      bodyData.push([
+        {
+          content: "CODE",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "PRODUCT NAME",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "PRICE",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "A PRICE",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "B PRICE",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "C PRICE",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "RESTAURANT",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
+        },
+        {
+          content: "",
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
         },
       ]);
     }
@@ -189,12 +228,29 @@ export const exportPriceListToPDF = (
           styles: { fontStyle: "bold" },
         },
         {
-          content: `${formatCurrencyValue(
-            product[price as keyof PriceListProduct] as number
-          )}`,
+          content: `${formatCurrencyValue(Number(product.pricePerBox || product.price) || 0)}`,
           styles: { fontStyle: "bold", halign: "center" },
         },
-        { content: "", styles: { fontStyle: "bold", halign: "center" } },
+        {
+          content: `${formatCurrencyValue(Number(product.aPrice) || 0)}`,
+          styles: { fontStyle: "bold", halign: "center" },
+        },
+        {
+          content: `${formatCurrencyValue(Number(product.bPrice) || 0)}`,
+          styles: { fontStyle: "bold", halign: "center" },
+        },
+        {
+          content: `${formatCurrencyValue(Number(product.cPrice) || 0)}`,
+          styles: { fontStyle: "bold", halign: "center" },
+        },
+        {
+          content: `${formatCurrencyValue(Number(product.restaurantPrice) || 0)}`,
+          styles: { fontStyle: "bold", halign: "center" },
+        },
+        {
+          content: "",
+          styles: { fontStyle: "bold", halign: "center" },
+        },
       ])
     );
 
@@ -206,20 +262,24 @@ export const exportPriceListToPDF = (
       margin: {
         top: HEADER_HEIGHT + 2,
         left: x,
-        right: pageWidth - x - columnWidth,
+        right: MARGIN,
       },
-      tableWidth: columnWidth,
+      tableWidth: fullPageWidth,
       styles: {
         fontSize: TABLE_FONT_SIZE,
         cellPadding: ROW_PADDING,
         lineWidth: 0.1,
       },
       columnStyles: {
-  0: { cellWidth: columnWidth * 0.12 },
-  1: { cellWidth: columnWidth * 0.50 },
-  2: { cellWidth: columnWidth * 0.19, halign: "center" },
-  3: { cellWidth: columnWidth * 0.19, halign: "center" },
-},
+        0: { cellWidth: fullPageWidth * 0.07 }, // Short Code - smaller
+        1: { cellWidth: fullPageWidth * 0.30 }, // Product Name - smaller to fit more columns
+        2: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Original Price
+        3: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // A Price
+        4: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // B Price
+        5: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // C Price
+        6: { cellWidth: fullPageWidth * 0.13, halign: "center" }, // Restaurant Price
+        7: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Empty column
+      },
 
       alternateRowStyles: { fillColor: [250, 250, 250] },
       pageBreak: "avoid",
@@ -232,8 +292,7 @@ export const exportPriceListToPDF = (
   };
 
   const layoutCategories = () => {
-    let leftY = startY;
-    let rightY = startY;
+    let currentY = startY;
     const categoryCursors: Record<string, number> = {};
     sortedCategories.forEach((cat) => (categoryCursors[cat] = 0));
 
@@ -244,23 +303,15 @@ export const exportPriceListToPDF = (
       const allProducts = productsByCategory[categoryName];
       let cursor = categoryCursors[categoryName];
 
-      const isLeftColumn = leftY <= rightY;
-      let currentX = isLeftColumn ? leftColumnX : rightColumnX;
-      let currentY = isLeftColumn ? leftY : rightY;
-
       let availableSpace = MAX_Y - currentY;
       const showHeader = cursor === 0;
       const headerHeight = showHeader ? measureCategoryHeaderHeight() : 0;
       const minSpaceNeeded = headerHeight + (allProducts.length > 0 ? measureProductHeight() : 0);
 
       if (availableSpace < minSpaceNeeded && availableSpace < headerHeight + 5) {
-        if (isLeftColumn) leftY = MAX_Y; else rightY = MAX_Y;
-        if (leftY >= MAX_Y && rightY >= MAX_Y) {
-          doc.addPage();
-          drawHeader();
-          leftY = startY;
-          rightY = startY;
-        }
+        doc.addPage();
+        drawHeader();
+        currentY = startY;
         continue;
       }
 
@@ -270,22 +321,18 @@ export const exportPriceListToPDF = (
 
       const remainingProductsCount = allProducts.length - cursor;
       if (showHeader && numProductsToFit === 0 && remainingProductsCount > 0) {
-        if (isLeftColumn) leftY = MAX_Y; else rightY = MAX_Y;
-        if (leftY >= MAX_Y && rightY >= MAX_Y) {
-          doc.addPage();
-          drawHeader();
-          leftY = startY;
-          rightY = startY;
-        }
+        doc.addPage();
+        drawHeader();
+        currentY = startY;
         continue;
       }
 
       const productsToRenderCount = Math.min(remainingProductsCount, numProductsToFit);
       const productsChunk = allProducts.slice(cursor, cursor + productsToRenderCount);
 
-      const newY = renderCategoryChunk(categoryName, productsChunk, currentX, currentY, showHeader);
+      const newY = renderCategoryChunk(categoryName, productsChunk, leftColumnX, currentY, showHeader);
 
-      if (isLeftColumn) leftY = newY + 0.3; else rightY = newY + 0.3;
+      currentY = newY + 0.3;
       categoryCursors[categoryName] += productsChunk.length;
 
       if (categoryCursors[categoryName] >= allProducts.length) {
@@ -307,6 +354,6 @@ export const exportPriceListToPDF = (
     doc.text("Pricing and availability subject to change without prior notice. © Vali Produce", pageWidth / 2, pageHeight - MARGIN - PRINT_MARGIN_COMPENSATION, { align: "center" });
   }
 
-  doc.save(`vali-produce-price-list-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
+  doc.save(`vali-produce-price-list-all-5-prices-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
   return doc;
 };

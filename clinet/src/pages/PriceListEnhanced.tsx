@@ -42,7 +42,8 @@ import {
   createPriceListAPI,
   getAllPriceListAPI,
   updatePriceList,
-  deltePriceAPI
+  deltePriceAPI,
+  getSinglePriceAPI
 } from "@/services2/operations/priceList"
 import { getAllProductAPI, searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
 import { priceListEmailMulti } from "@/services2/operations/email"
@@ -364,12 +365,28 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
 
   // Download PDF
-  const handleDownloadPDF = (template: any, priceType: string = "pricePerBox") => {
+  const handleDownloadPDF = async (template: any, priceType: string = "all") => {
     try {
-      exportPriceListToPDF(template, priceType)
-      toast({ title: "Downloaded", description: "PDF has been generated" })
+      setDownloadingFullList(true)
+      
+      // Fetch the complete template data with all products
+      const fullTemplate = await getSinglePriceAPI(template.id || template._id)
+      
+      if (!fullTemplate || !fullTemplate.products || fullTemplate.products.length === 0) {
+        toast({ variant: "destructive", title: "Error", description: "No products found in this price list" })
+        return
+      }
+      
+      console.log("Full template data for PDF:", fullTemplate)
+      console.log("Total products to include in PDF:", fullTemplate.products.length)
+      
+      exportPriceListToPDF(fullTemplate, priceType)
+      toast({ title: "Downloaded", description: `PDF generated with ${fullTemplate.products.length} products` })
     } catch (error) {
+      console.error("PDF generation error:", error)
       toast({ variant: "destructive", title: "Error", description: "Failed to generate PDF" })
+    } finally {
+      setDownloadingFullList(false)
     }
   }
 
