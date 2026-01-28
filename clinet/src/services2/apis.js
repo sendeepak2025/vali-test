@@ -1,7 +1,7 @@
 
 // const BASE_URL = "http://localhost:8080/api/v1"
 // const BASE_URL = "https://api.valiproduce.shop/api/v1"
-const BASE_URL = import.meta.env.VITE_APP_BASE_URL;
+const  BASE_URL = import.meta.env.VITE_APP_BASE_URL;
 
 export const endpoints = {
   LOGIN_API: BASE_URL + "/auth/login",
@@ -62,6 +62,7 @@ export const product = {
   SEARCH_PRODUCTS_ORDER: BASE_URL + "/product/search",
   EXPORT_PRODUCTS_EXCEL: BASE_URL + "/product/export-excel",
   GET_PRODUCT: BASE_URL + "/product/get",
+  GET_PRODUCT_PURCHASE_HISTORY: BASE_URL + "/product/purchase-history", // append /:productId
   UPDATE_PRODUCT: BASE_URL + "/product/update",
   GET_PRODUCT_ORDER: BASE_URL + "/product/get-order",
   DELETE_PRODUCT: BASE_URL + "/product/delete",

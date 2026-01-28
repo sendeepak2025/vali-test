@@ -764,8 +764,17 @@ exports.updateItemQualityStatus = async (req, res) => {
           product.updatedFromOrders = product.updatedFromOrders.filter(e => e.purchaseOrder.toString() !== purchaseOrderId);
         }
 
-        product.purchaseHistory = product.purchaseHistory.filter(p => new Date(p.date).toISOString() !== new Date(order.purchaseDate).toISOString());
-        product.lbPurchaseHistory = product.lbPurchaseHistory.filter(p => new Date(p.date).toISOString() !== new Date(order.purchaseDate).toISOString());
+        // Remove purchase history entries for this specific purchase order
+        product.purchaseHistory = product.purchaseHistory.filter(p => {
+          const historyDate = new Date(p.date).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return historyDate !== orderDate;
+        });
+        product.lbPurchaseHistory = product.lbPurchaseHistory.filter(p => {
+          const historyDate = new Date(p.date).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return historyDate !== orderDate;
+        });
 
         console.log("❌ Rejected after approval. Removed:", oldItemQuantity);
       }
@@ -788,17 +797,40 @@ exports.updateItemQualityStatus = async (req, res) => {
         };
         product.updatedFromOrders.push(entry);
 
-        product.purchaseHistory.push({
-          date: order.purchaseDate,
-          quantity: newItemQuantity,
+        // Check if purchase history entry already exists for this date
+        const existingHistoryEntry = product.purchaseHistory.find(p => {
+          const historyDate = new Date(p.date).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return historyDate === orderDate;
         });
 
-        if (existingLb && existingTotalWeight) {
-          product.lbPurchaseHistory.push({
+        if (!existingHistoryEntry) {
+          product.purchaseHistory.push({
             date: order.purchaseDate,
-            weight: existingTotalWeight,
-            lb: existingLb,
+            quantity: newItemQuantity,
           });
+        } else {
+          // Update existing entry
+          existingHistoryEntry.quantity += newItemQuantity;
+        }
+
+        if (existingLb && existingTotalWeight) {
+          const existingLbHistoryEntry = product.lbPurchaseHistory.find(p => {
+            const historyDate = new Date(p.date).toISOString().split('T')[0];
+            const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+            return historyDate === orderDate && p.lb === existingLb;
+          });
+
+          if (!existingLbHistoryEntry) {
+            product.lbPurchaseHistory.push({
+              date: order.purchaseDate,
+              weight: existingTotalWeight,
+              lb: existingLb,
+            });
+          } else {
+            // Update existing entry
+            existingLbHistoryEntry.weight += existingTotalWeight;
+          }
         }
 
         console.log("➕ First time approval. Added:", newItemQuantity);
@@ -815,15 +847,27 @@ exports.updateItemQualityStatus = async (req, res) => {
         product.unitPurchase += weightDiff;
         product.unitRemaining += weightDiff;
 
-        // update lb purchase history
-        const lbHist = product.lbPurchaseHistory.find(p => new Date(p.date).toISOString() === new Date(order.purchaseDate).toISOString());
-        if (lbHist) {
-          lbHist.weight = existingTotalWeight;
+        // update purchase history - find and update existing entry for this date
+        const existingHistoryEntry = product.purchaseHistory.find(p => {
+          const historyDate = new Date(p.date).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return historyDate === orderDate;
+        });
+        
+        if (existingHistoryEntry) {
+          existingHistoryEntry.quantity = newItemQuantity;
         }
 
-        // update purchase history
-        const history = product.purchaseHistory.find(p => new Date(p.date).toISOString() === new Date(order.purchaseDate).toISOString());
-        if (history) history.quantity = newItemQuantity;
+        // update lb purchase history
+        const existingLbHistoryEntry = product.lbPurchaseHistory.find(p => {
+          const historyDate = new Date(p.date).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return historyDate === orderDate && p.lb === existingLb;
+        });
+        
+        if (existingLbHistoryEntry) {
+          existingLbHistoryEntry.weight = existingTotalWeight;
+        }
 
         logEntry.oldQuantity = logEntry.newQuantity;
         logEntry.newQuantity = newItemQuantity;

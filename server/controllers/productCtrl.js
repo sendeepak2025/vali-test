@@ -621,7 +621,7 @@ exports.deleteTask = async (req, res) => {
 };
 
 // Get products for a specific store
-exports.getProductsByStore = async (req, res) => {
+const getProductsByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
     
@@ -636,6 +636,132 @@ exports.getProductsByStore = async (req, res) => {
     res.status(200).json({ success: true, products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get detailed purchase history for a product
+const getProductPurchaseHistory = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: "Invalid Product ID" });
+    }
+
+    // Get product details
+    const product = await Product.findById(productId).select('name image totalPurchase unitPurchase purchaseHistory lbPurchaseHistory updatedFromOrders');
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Date filtering
+    let dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.purchaseDate = {};
+      if (startDate) {
+        dateFilter.purchaseDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        dateFilter.purchaseDate.$lte = new Date(endDate + "T23:59:59.999Z");
+      }
+    }
+
+    // Get all approved purchase orders for this product
+    const PurchaseOrder = require('../models/purchaseModel');
+    const purchaseOrders = await PurchaseOrder.find({
+      'items.productId': productId,
+      'items.qualityStatus': 'approved',
+      ...dateFilter
+    }).populate('vendorId', 'name').sort({ purchaseDate: -1 });
+
+    // Build detailed purchase history
+    const detailedHistory = [];
+    let totalQuantityFromOrders = 0;
+    let totalWeightFromOrders = 0;
+
+    purchaseOrders.forEach(po => {
+      po.items.forEach(item => {
+        if (item.productId.toString() === productId && item.qualityStatus === 'approved') {
+          totalQuantityFromOrders += item.quantity;
+          totalWeightFromOrders += (item.totalWeight || 0);
+          
+          detailedHistory.push({
+            purchaseOrderId: po._id,
+            purchaseOrderNumber: po.purchaseOrderNumber,
+            purchaseDate: po.purchaseDate,
+            vendorName: po.vendorId?.name || 'Unknown Vendor',
+            quantity: item.quantity,
+            totalWeight: item.totalWeight || 0,
+            lb: item.lb || null,
+            qualityStatus: item.qualityStatus,
+            qualityNotes: item.qualityNotes || '',
+            batchNumber: item.batchNumber || '',
+            actualWeight: item.actualWeight || 0,
+            expectedWeight: item.expectedWeight || 0,
+            weightVariance: item.weightVariance || 0,
+            weightVariancePercent: item.weightVariancePercent || 0
+          });
+        }
+      });
+    });
+
+    // Group by date for summary
+    const dateWiseSummary = {};
+    detailedHistory.forEach(entry => {
+      const dateKey = new Date(entry.purchaseDate).toISOString().split('T')[0];
+      if (!dateWiseSummary[dateKey]) {
+        dateWiseSummary[dateKey] = {
+          date: dateKey,
+          totalQuantity: 0,
+          totalWeight: 0,
+          purchaseOrders: []
+        };
+      }
+      dateWiseSummary[dateKey].totalQuantity += entry.quantity;
+      dateWiseSummary[dateKey].totalWeight += entry.totalWeight;
+      dateWiseSummary[dateKey].purchaseOrders.push({
+        purchaseOrderNumber: entry.purchaseOrderNumber,
+        vendorName: entry.vendorName,
+        quantity: entry.quantity,
+        totalWeight: entry.totalWeight
+      });
+    });
+
+    // Convert to array and sort by date
+    const dateWiseArray = Object.values(dateWiseSummary).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Summary statistics
+    const summary = {
+      totalPurchaseFromDB: product.totalPurchase,
+      totalUnitPurchaseFromDB: product.unitPurchase,
+      totalQuantityFromOrders: totalQuantityFromOrders,
+      totalWeightFromOrders: totalWeightFromOrders,
+      purchaseHistoryEntries: product.purchaseHistory?.length || 0,
+      lbPurchaseHistoryEntries: product.lbPurchaseHistory?.length || 0,
+      updatedFromOrdersEntries: product.updatedFromOrders?.length || 0,
+      isConsistent: product.totalPurchase === totalQuantityFromOrders,
+      lastUpdated: product.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      product: {
+        _id: product._id,
+        name: product.name,
+        image: product.image
+      },
+      summary,
+      detailedHistory,
+      dateWiseSummary: dateWiseArray,
+      purchaseHistory: product.purchaseHistory,
+      lbPurchaseHistory: product.lbPurchaseHistory,
+      updatedFromOrders: product.updatedFromOrders
+    });
+
+  } catch (error) {
+    console.error("Error fetching product purchase history:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
 };
 
@@ -2357,6 +2483,8 @@ module.exports = {
     updateProductCtrl, 
     updateProductPrice, 
     bulkDiscountApply,
+    getProductsByStore,
+    getProductPurchaseHistory,
     getWeeklyOrdersByProductCtrl,
     updateTotalSellForAllProducts,
     getAllProductsWithHistorySummary,

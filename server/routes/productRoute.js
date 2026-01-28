@@ -9,6 +9,7 @@ const {
   updateProductPrice, 
   bulkDiscountApply,
   getProductsByStore,
+  getProductPurchaseHistory,
   getWeeklyOrdersByProductCtrl,
   updateTotalSellForAllProducts,
   getAllProductsWithHistorySummary,
@@ -29,6 +30,7 @@ router.get("/updateQuantity", updateTotalSellForAllProducts)
 router.get("/getAll", getAllProductCtrl)
 router.get("/getAllSummary", getAllProductsWithHistorySummary)
 router.get("/get/:id", getSingleProductCtrl)
+router.get("/purchase-history/:productId", getProductPurchaseHistory)
 router.get("/get-order/:productId", getWeeklyOrdersByProductCtrl)
 // router.get("/get-by-store/:storeId", getProductsByStore)
 router.delete("/delete/:id", deleteProductCtrl)
