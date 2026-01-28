@@ -191,6 +191,13 @@ export const confirmPreOrderAPI = async ( token,id) => {
     } catch (error) {
         console.error("confirm preorder API ERROR:", error);
         
+        // Handle already confirmed error
+        if (error?.response?.data?.message?.includes("already confirmed")) {
+            toast.error("This PreOrder has already been confirmed!");
+            toast.dismiss(toastId);
+            return null;
+        }
+        
         // Handle insufficient stock error
         const insufficientStock = error?.response?.data?.insufficientStock;
         if (insufficientStock && insufficientStock.length > 0) {

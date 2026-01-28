@@ -1158,10 +1158,20 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         }
         
         // If all confirmed successfully
-        if (response.confirmedCount > 0) {
+        if (response.confirmedCount > 0 || response.skippedAlreadyConfirmed) {
           setShowConfirmModal(false);
           setPendingPreOrders([]);
           setSelectedPreOrders(new Set());
+          
+          // Build success message with skipped info
+          let successMessage = '';
+          if (response.confirmedCount > 0) {
+            successMessage += `<p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>`;
+          }
+          
+          if (response.skippedAlreadyConfirmed && response.skippedAlreadyConfirmed.length > 0) {
+            successMessage += `<p style="color: #f59e0b; margin-top: 10px;">⚠️ ${response.skippedAlreadyConfirmed.length} PreOrder(s) were already confirmed and skipped</p>`;
+          }
           
           // Show success with work order info
           if (response.workOrder) {
@@ -1171,7 +1181,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 icon: 'warning',
                 title: 'PreOrders Confirmed with Shortages',
                 html: `
-                  <p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>
+                  ${successMessage}
                   <p style="color: #f59e0b; margin-top: 10px;">
                     ⚠️ ${wo.shortProductCount} product(s) short<br/>
                     Total shortage: ${wo.totalShortageQuantity} units
@@ -1186,7 +1196,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                 icon: 'success',
                 title: 'PreOrders Confirmed!',
                 html: `
-                  <p><strong>${response.confirmedCount}</strong> PreOrder(s) confirmed</p>
+                  ${successMessage}
                   <p style="color: #10b981; margin-top: 10px;">✓ All products fully stocked!</p>
                 `,
                 confirmButtonText: 'OK',
@@ -1194,10 +1204,13 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               });
             }
           } else {
+            const icon = response.confirmedCount > 0 ? 'success' : 'info';
+            const title = response.confirmedCount > 0 ? 'PreOrders Confirmed!' : 'PreOrders Status';
+            
             await Swal.fire({
-              icon: 'success',
-              title: 'PreOrders Confirmed!',
-              text: `${response.confirmedCount} PreOrder(s) confirmed successfully!`,
+              icon,
+              title,
+              html: successMessage || 'No new PreOrders to confirm',
               confirmButtonText: 'OK',
               confirmButtonColor: '#6366f1'
             });
@@ -1209,7 +1222,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           await Swal.fire({
             icon: 'info',
             title: 'No PreOrders',
-            text: 'No PreOrders to confirm',
+            text: response.message || 'No PreOrders to confirm',
             confirmButtonText: 'OK',
             confirmButtonColor: '#6366f1'
           });

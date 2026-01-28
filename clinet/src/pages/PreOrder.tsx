@@ -154,6 +154,10 @@ const PreOrder = () => {
           toast.success("PreOrder confirmed successfully!");
           fetchOrders(currentPage, search);
           setShowViewModal(false);
+        } else {
+          // Handle case where confirmation failed (already confirmed, etc.)
+          fetchOrders(currentPage, search); // Refresh to show updated status
+          setShowViewModal(false);
         }
       } catch (error) {
         console.error("Error confirming order:", error);

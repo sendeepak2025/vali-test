@@ -776,6 +776,11 @@ const UpdatePreOrder = () => {
         }
         toast({ title: "Pre-Order Confirmed!", description })
         navigate("/admin/orders")
+      } else {
+        // Handle case where confirmation failed (already confirmed, etc.)
+        // The error message is already shown by the API function
+        // Just navigate back to refresh the page
+        navigate("/admin/pre-orders")
       }
     } catch (error) {
       console.error("Error confirming pre-order:", error)

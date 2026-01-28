@@ -4709,13 +4709,26 @@ const confirmPreOrdersCtrl = async (req, res) => {
     // Find all pending PreOrders for the target week
     const preOrders = await PreOrderModel.find(query).populate("store", "storeName ownerName");
 
-    if (preOrders.length === 0) {
+    // Additional validation: Filter out already confirmed preorders
+    const unconfirmedPreOrders = preOrders.filter(preOrder => !preOrder.confirmed);
+    
+    if (unconfirmedPreOrders.length !== preOrders.length) {
+      const alreadyConfirmedCount = preOrders.length - unconfirmedPreOrders.length;
+      console.log(`Warning: ${alreadyConfirmedCount} preorder(s) were already confirmed and skipped`);
+    }
+
+    if (unconfirmedPreOrders.length === 0) {
+      const message = preOrders.length > 0 
+        ? `All ${preOrders.length} preorder(s) for this week are already confirmed`
+        : "No pending PreOrders found for this week";
+      
       return res.status(200).json({
         success: true,
-        message: "No pending PreOrders found for this week",
+        message,
         confirmedCount: 0,
         preOrders: [],
-        createdOrders: []
+        createdOrders: [],
+        alreadyConfirmedCount: preOrders.length
       });
     }
 
@@ -4726,9 +4739,22 @@ const confirmPreOrdersCtrl = async (req, res) => {
     const confirmedPreOrders = [];
     const createdOrders = [];
     const errors = [];
+    const skippedAlreadyConfirmed = [];
 
-    for (const preOrder of preOrders) {
+    for (const preOrder of unconfirmedPreOrders) {
       try {
+        // Double-check confirmation status before processing
+        const currentPreOrder = await PreOrderModel.findById(preOrder._id);
+        if (currentPreOrder.confirmed) {
+          skippedAlreadyConfirmed.push({
+            _id: preOrder._id,
+            preOrderNumber: preOrder.preOrderNumber,
+            store: preOrder.store?.storeName || "Unknown",
+            reason: "Already confirmed"
+          });
+          continue;
+        }
+
         // Create fake req/res to call confirmOrderCtrl
         let responseData = null;
         let responseStatus = 200;
@@ -4788,7 +4814,7 @@ const confirmPreOrdersCtrl = async (req, res) => {
       }
     }
 
-    console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}`);
+    console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}, Skipped: ${skippedAlreadyConfirmed.length}`);
 
     // Create Work Order for shortage tracking
     let workOrder = null;
@@ -4829,13 +4855,25 @@ const confirmPreOrdersCtrl = async (req, res) => {
       }
     }
 
+    const totalProcessed = confirmedPreOrders.length + errors.length + skippedAlreadyConfirmed.length;
+    let message = `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`;
+    
+    if (skippedAlreadyConfirmed.length > 0) {
+      message += `, ${skippedAlreadyConfirmed.length} already confirmed`;
+    }
+    
+    if (errors.length > 0) {
+      message += `, ${errors.length} failed`;
+    }
+
     return res.status(200).json({
       success: true,
-      message: `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`,
+      message,
       confirmedCount: confirmedPreOrders.length,
       preOrders: confirmedPreOrders,
       createdOrders: createdOrders,
       workOrder: workOrder,
+      skippedAlreadyConfirmed: skippedAlreadyConfirmed.length > 0 ? skippedAlreadyConfirmed : undefined,
       errors: errors.length > 0 ? errors : undefined,
       weekRange: {
         start: monday.toISOString(),
