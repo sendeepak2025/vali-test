@@ -364,7 +364,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 };
 
 
-  // Download PDF
+  // Download PDF with price selection
+  const [pdfPriceModalOpen, setPdfPriceModalOpen] = useState(false)
+  const [selectedPdfTemplate, setSelectedPdfTemplate] = useState<any>(null)
+  const [selectedPriceType, setSelectedPriceType] = useState("all")
+
+  const openPdfPriceModal = (template: any) => {
+    setSelectedPdfTemplate(template)
+    setSelectedPriceType("all")
+    setPdfPriceModalOpen(true)
+  }
+
   const handleDownloadPDF = async (template: any, priceType: string = "all") => {
     try {
       setDownloadingFullList(true)
@@ -379,9 +389,19 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       
       console.log("Full template data for PDF:", fullTemplate)
       console.log("Total products to include in PDF:", fullTemplate.products.length)
+      console.log("Selected price type:", priceType)
       
       exportPriceListToPDF(fullTemplate, priceType)
-      toast({ title: "Downloaded", description: `PDF generated with ${fullTemplate.products.length} products` })
+      
+      const priceTypeLabel = priceType === "all" ? "all prices" : 
+                           priceType === "base" ? "base price only" :
+                           priceType === "aPrice" ? "A price only" :
+                           priceType === "bPrice" ? "B price only" :
+                           priceType === "cPrice" ? "C price only" :
+                           priceType === "restaurant" ? "restaurant price only" : "selected prices"
+      
+      toast({ title: "Downloaded", description: `PDF generated with ${fullTemplate.products.length} products (${priceTypeLabel})` })
+      setPdfPriceModalOpen(false)
     } catch (error) {
       console.error("PDF generation error:", error)
       toast({ variant: "destructive", title: "Error", description: "Failed to generate PDF" })
@@ -1601,7 +1621,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                               <DropdownMenuItem onClick={() => handleDuplicate(template)}>
                                 <Copy className="h-4 w-4 mr-2" /> Duplicate
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDownloadPDF(template)}>
+                              <DropdownMenuItem onClick={() => openPdfPriceModal(template)}>
                                 <Download className="h-4 w-4 mr-2" /> Download PDF
                               </DropdownMenuItem>
                           
@@ -2935,6 +2955,132 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               ) : (
                 <>
                   <Send className="h-4 w-4 mr-2" /> Send Price List
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF Price Selection Modal */}
+      <Dialog open={pdfPriceModalOpen} onOpenChange={setPdfPriceModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Price Type for PDF</DialogTitle>
+            <DialogDescription>
+              Choose which prices to include in the PDF download
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="all-prices"
+                  name="priceType"
+                  value="all"
+                  checked={selectedPriceType === "all"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="all-prices" className="text-sm font-medium">
+                  All Prices (Base, A, B, C, Restaurant)
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="base-price"
+                  name="priceType"
+                  value="base"
+                  checked={selectedPriceType === "base"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="base-price" className="text-sm font-medium">
+                  Base Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="a-price"
+                  name="priceType"
+                  value="aPrice"
+                  checked={selectedPriceType === "aPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="a-price" className="text-sm font-medium">
+                  A Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="b-price"
+                  name="priceType"
+                  value="bPrice"
+                  checked={selectedPriceType === "bPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="b-price" className="text-sm font-medium">
+                  B Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="c-price"
+                  name="priceType"
+                  value="cPrice"
+                  checked={selectedPriceType === "cPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="c-price" className="text-sm font-medium">
+                  C Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="restaurant-price"
+                  name="priceType"
+                  value="restaurant"
+                  checked={selectedPriceType === "restaurant"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="restaurant-price" className="text-sm font-medium">
+                  Restaurant Price Only
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPdfPriceModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => selectedPdfTemplate && handleDownloadPDF(selectedPdfTemplate, selectedPriceType)}
+              disabled={downloadingFullList}
+            >
+              {downloadingFullList ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" /> Download PDF
                 </>
               )}
             </Button>

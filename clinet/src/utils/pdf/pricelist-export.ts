@@ -16,10 +16,11 @@ declare module "jspdf" {
 
 export const exportPriceListToPDF = (
   template: PriceListTemplate,
-  price: string = "all"
+  priceType: string = "all"
 ) => {
   const doc = new jsPDF();
-  console.log(template)
+  console.log("Template:", template);
+  console.log("Price type selected:", priceType);
 
   const totalProducts = template.products.length;
   const isLargeDataset = totalProducts > 100;
@@ -75,7 +76,7 @@ export const exportPriceListToPDF = (
   };
 
   const formatCurrencyValue = (val: number | undefined) =>
-    `$${(val ?? 0)?.toFixed(2)}`;
+    `${(val ?? 0)?.toFixed(2)}`;
 
   const productsByCategory: Record<string, PriceListProduct[]> = {};
   template.products.forEach((product) => {
@@ -127,12 +128,53 @@ export const exportPriceListToPDF = (
 
   drawHeader();
 
-  // --- Fixed Height Measurements for 8 Columns (Short Code, Name, Original Price, A Price, B Price, C Price, Restaurant Price, Empty) ---
+  // Define columns based on price type selection
+  const getColumnsConfig = () => {
+    if (priceType === "all") {
+      return {
+        columns: ["CODE", "PRODUCT NAME", "PRICE", "A PRICE", "B PRICE", "C PRICE", "RESTAURANT", ""],
+        columnCount: 8,
+        columnStyles: {
+          0: { cellWidth: fullPageWidth * 0.07 }, // Short Code
+          1: { cellWidth: fullPageWidth * 0.30 }, // Product Name
+          2: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Base Price
+          3: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // A Price
+          4: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // B Price
+          5: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // C Price
+          6: { cellWidth: fullPageWidth * 0.13, halign: "center" }, // Restaurant Price
+          7: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Empty column
+        }
+      };
+    } else {
+      // Single price column layout
+      const priceLabel = priceType === "base" ? "PRICE" :
+                        priceType === "aPrice" ? "A PRICE" :
+                        priceType === "bPrice" ? "B PRICE" :
+                        priceType === "cPrice" ? "C PRICE" :
+                        priceType === "restaurant" ? "RESTAURANT" : "PRICE";
+      
+      return {
+        columns: ["CODE", "PRODUCT NAME", priceLabel, ""],
+        columnCount: 4,
+        columnStyles: {
+          0: { cellWidth: fullPageWidth * 0.15 }, // Short Code - wider
+          1: { cellWidth: fullPageWidth * 0.55 }, // Product Name - much wider
+          2: { cellWidth: fullPageWidth * 0.20, halign: "center" }, // Selected Price - wider
+          3: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Empty column
+        }
+      };
+    }
+  };
+
+  const columnsConfig = getColumnsConfig();
+
+  // --- Fixed Height Measurements ---
   const SINGLE_ROW_HEIGHT = (() => {
     const tempDoc = new jsPDF();
+    const sampleRow = Array(columnsConfig.columnCount).fill("SAMPLE");
     autoTable(tempDoc, {
       startY: 0,
-      body: [["#000", "SAMPLE", "0.00", "0.00", "0.00", "0.00", "0.00", ""]], // 8 elements for all columns including empty
+      body: [sampleRow],
       tableWidth: fullPageWidth,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: ROW_PADDING },
     });
@@ -144,8 +186,8 @@ export const exportPriceListToPDF = (
     autoTable(tempDoc, {
       startY: 0,
       body: [
-        [{ content: "CATEGORY", colSpan: 8 }], // Category header spans 8 columns
-        ["CODE", "PRODUCT NAME", "PRICE", "A PRICE", "B PRICE", "C PRICE", "RESTAURANT", ""] // Column headers with empty column
+        [{ content: "CATEGORY", colSpan: columnsConfig.columnCount }],
+        columnsConfig.columns
       ],
       tableWidth: fullPageWidth,
       styles: { cellPadding: ROW_PADDING },
@@ -169,7 +211,7 @@ export const exportPriceListToPDF = (
       bodyData.push([
         {
           content: categoryName.toUpperCase(),
-          colSpan: 8,
+          colSpan: columnsConfig.columnCount,
           styles: {
             halign: "left",
             fillColor: [220, 220, 220],
@@ -181,77 +223,77 @@ export const exportPriceListToPDF = (
       ]);
       
       // Add column headers
-      bodyData.push([
-        {
-          content: "CODE",
+      bodyData.push(
+        columnsConfig.columns.map(col => ({
+          content: col,
           styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "PRODUCT NAME",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "PRICE",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "A PRICE",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "B PRICE",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "C PRICE",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "RESTAURANT",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-        {
-          content: "",
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        },
-      ]);
+        }))
+      );
     }
 
+    // Generate product rows based on price type
     bodyData.push(
-      ...products.map((product) => [
-        {
-          content: product.shortCode ? `#${product.shortCode}` : "-",
-          styles: { fontStyle: "normal", textColor: [80, 80, 80] },
-        },
-        {
-          content: product.name.toUpperCase(),
-          styles: { fontStyle: "bold" },
-        },
-        {
-          content: `${formatCurrencyValue(Number(product.pricePerBox || product.price) || 0)}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        {
-          content: `${formatCurrencyValue(Number(product.aPrice) || 0)}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        {
-          content: `${formatCurrencyValue(Number(product.bPrice) || 0)}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        {
-          content: `${formatCurrencyValue(Number(product.cPrice) || 0)}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        {
-          content: `${formatCurrencyValue(Number(product.restaurantPrice) || 0)}`,
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-        {
-          content: "",
-          styles: { fontStyle: "bold", halign: "center" },
-        },
-      ])
+      ...products.map((product) => {
+        const baseRow = [
+          {
+            content: product.shortCode ? `#${product.shortCode}` : "-",
+            styles: { fontStyle: "normal", textColor: [80, 80, 80] },
+          },
+          {
+            content: product.name.toUpperCase(),
+            styles: { fontStyle: "bold" },
+          }
+        ];
+
+        if (priceType === "all") {
+          return [
+            ...baseRow,
+            {
+              content: `${formatCurrencyValue(Number(product.pricePerBox || product.price) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: `${formatCurrencyValue(Number(product.aPrice) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: `${formatCurrencyValue(Number(product.bPrice) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: `${formatCurrencyValue(Number(product.cPrice) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: `${formatCurrencyValue(Number(product.restaurantPrice) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: "",
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+          ];
+        } else {
+          // Single price column
+          const priceValue = priceType === "base" ? (product.pricePerBox || product.price) :
+                            priceType === "aPrice" ? product.aPrice :
+                            priceType === "bPrice" ? product.bPrice :
+                            priceType === "cPrice" ? product.cPrice :
+                            priceType === "restaurant" ? product.restaurantPrice : 0;
+
+          return [
+            ...baseRow,
+            {
+              content: `${formatCurrencyValue(Number(priceValue) || 0)}`,
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+            {
+              content: "",
+              styles: { fontStyle: "bold", halign: "center" },
+            },
+          ];
+        }
+      })
     );
 
     if (bodyData.length === 0) return y;
@@ -270,17 +312,7 @@ export const exportPriceListToPDF = (
         cellPadding: ROW_PADDING,
         lineWidth: 0.1,
       },
-      columnStyles: {
-        0: { cellWidth: fullPageWidth * 0.07 }, // Short Code - smaller
-        1: { cellWidth: fullPageWidth * 0.30 }, // Product Name - smaller to fit more columns
-        2: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Original Price
-        3: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // A Price
-        4: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // B Price
-        5: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // C Price
-        6: { cellWidth: fullPageWidth * 0.13, halign: "center" }, // Restaurant Price
-        7: { cellWidth: fullPageWidth * 0.10, halign: "center" }, // Empty column
-      },
-
+      columnStyles: columnsConfig.columnStyles,
       alternateRowStyles: { fillColor: [250, 250, 250] },
       pageBreak: "avoid",
       didDrawPage: () => {
@@ -354,6 +386,14 @@ export const exportPriceListToPDF = (
     doc.text("Pricing and availability subject to change without prior notice. © Vali Produce", pageWidth / 2, pageHeight - MARGIN - PRINT_MARGIN_COMPENSATION, { align: "center" });
   }
 
-  doc.save(`vali-produce-price-list-all-5-prices-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
+  // Generate filename based on price type
+  const priceTypeSuffix = priceType === "all" ? "all-prices" :
+                         priceType === "base" ? "base-price" :
+                         priceType === "aPrice" ? "a-price" :
+                         priceType === "bPrice" ? "b-price" :
+                         priceType === "cPrice" ? "c-price" :
+                         priceType === "restaurant" ? "restaurant-price" : "selected-price";
+
+  doc.save(`vali-produce-price-list-${priceTypeSuffix}-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
   return doc;
 };
