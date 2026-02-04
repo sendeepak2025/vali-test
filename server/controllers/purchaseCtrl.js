@@ -768,8 +768,35 @@ exports.updateItemQualityStatus = async (req, res) => {
         product.purchaseHistory = product.purchaseHistory.filter(p => {
           const historyDate = new Date(p.date).toISOString().split('T')[0];
           const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          // Only remove if this was the only purchase on this date, otherwise subtract quantity
           return historyDate !== orderDate;
         });
+        
+        // Check if there are other approved items on same date
+        const otherApprovedOnSameDate = approvedPurchases.filter(po => {
+          const poDate = new Date(po.purchaseDate).toISOString().split('T')[0];
+          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+          return poDate === orderDate && po._id.toString() !== purchaseOrderId;
+        });
+        
+        // If other purchases exist on same date, recalculate the quantity for that date
+        if (otherApprovedOnSameDate.length > 0) {
+          let totalForDate = 0;
+          otherApprovedOnSameDate.forEach(po => {
+            po.items.forEach(item => {
+              if (item.productId && item.productId._id.toString() === productId.toString() && item.qualityStatus === 'approved') {
+                totalForDate += item.quantity;
+              }
+            });
+          });
+          
+          if (totalForDate > 0) {
+            product.purchaseHistory.push({
+              date: order.purchaseDate,
+              quantity: totalForDate
+            });
+          }
+        }
         product.lbPurchaseHistory = product.lbPurchaseHistory.filter(p => {
           const historyDate = new Date(p.date).toISOString().split('T')[0];
           const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
@@ -797,7 +824,7 @@ exports.updateItemQualityStatus = async (req, res) => {
         };
         product.updatedFromOrders.push(entry);
 
-        // Check if purchase history entry already exists for this date
+        // Check if purchase history entry already exists for this date and purchase order
         const existingHistoryEntry = product.purchaseHistory.find(p => {
           const historyDate = new Date(p.date).toISOString().split('T')[0];
           const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
@@ -810,7 +837,7 @@ exports.updateItemQualityStatus = async (req, res) => {
             quantity: newItemQuantity,
           });
         } else {
-          // Update existing entry
+          // For first time approval, add to existing entry for same date
           existingHistoryEntry.quantity += newItemQuantity;
         }
 
@@ -855,7 +882,20 @@ exports.updateItemQualityStatus = async (req, res) => {
         });
         
         if (existingHistoryEntry) {
-          existingHistoryEntry.quantity = newItemQuantity;
+          // Calculate the difference and update
+          const quantityDiff = newItemQuantity - oldItemQuantity;
+          existingHistoryEntry.quantity += quantityDiff;
+          
+          // Remove entry if quantity becomes 0 or negative
+          if (existingHistoryEntry.quantity <= 0) {
+            product.purchaseHistory = product.purchaseHistory.filter(p => p !== existingHistoryEntry);
+          }
+        } else if (newItemQuantity > 0) {
+          // Add new entry if it doesn't exist and quantity is positive
+          product.purchaseHistory.push({
+            date: order.purchaseDate,
+            quantity: newItemQuantity
+          });
         }
 
         // update lb purchase history

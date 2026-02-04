@@ -6,7 +6,7 @@ require('dotenv').config();
 // Connect to MongoDB
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URL);
+    await mongoose.connect("mongodb+srv://varn:Varn2025@cluster0.dstcy.mongodb.net/Test-Vali");
     console.log('✅ MongoDB connected successfully');
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error);
@@ -14,13 +14,14 @@ const connectDB = async () => {
   }
 };
 
-// Fix purchase history for all products
+// Fix purchase history for products
 const fixPurchaseHistory = async () => {
   try {
-    console.log('🔧 Starting to fix purchase history for all products...\n');
+    console.log('🔧 Starting purchase history fix...\n');
 
     // Get all products
-    const products = await Product.find();
+    const products = await Product.find().select('name totalPurchase purchaseHistory updatedFromOrders');
+    
     console.log(`📦 Total products found: ${products.length}\n`);
 
     // Get all approved purchase orders
@@ -31,109 +32,96 @@ const fixPurchaseHistory = async () => {
     console.log(`✅ Total purchase orders with approved items: ${approvedPurchases.length}\n`);
 
     let fixedCount = 0;
-    let errorCount = 0;
 
-    // Process each product
+    // Check and fix each product
     for (const product of products) {
-      try {
-        console.log(`\n🔍 Processing: ${product.name}`);
-
-        // Find all approved purchases for this product
-        const productApprovedPurchases = [];
-        approvedPurchases.forEach(po => {
-          po.items.forEach(item => {
-            if (item.productId && item.productId._id.toString() === product._id.toString() && item.qualityStatus === 'approved') {
-              productApprovedPurchases.push({
-                purchaseOrderId: po._id,
-                purchaseOrderNumber: po.purchaseOrderNumber,
-                purchaseDate: po.purchaseDate,
-                quantity: item.quantity,
-                totalWeight: item.totalWeight || 0,
-                lb: item.lb || null
-              });
-            }
-          });
-        });
-
-        if (productApprovedPurchases.length === 0) {
-          console.log(`   ⏭️  No approved purchases found, skipping...`);
-          continue;
-        }
-
-        // Calculate correct totals from approved purchases
-        const correctTotalPurchase = productApprovedPurchases.reduce((sum, p) => sum + p.quantity, 0);
-        const correctUnitPurchase = productApprovedPurchases.reduce((sum, p) => sum + (p.totalWeight || 0), 0);
-
-        // Check if fix is needed
-        const currentHistoryTotal = product.purchaseHistory?.reduce((sum, h) => sum + h.quantity, 0) || 0;
-        
-        if (currentHistoryTotal === correctTotalPurchase) {
-          console.log(`   ✅ Already correct, skipping...`);
-          continue;
-        }
-
-        console.log(`   🔧 Fixing: Current history=${currentHistoryTotal}, Should be=${correctTotalPurchase}`);
-
-        // Reset purchase history arrays
-        product.purchaseHistory = [];
-        product.lbPurchaseHistory = [];
-        product.updatedFromOrders = [];
-
-        // Reset totals
-        product.totalPurchase = correctTotalPurchase;
-        product.unitPurchase = correctUnitPurchase;
-        product.remaining = correctTotalPurchase - (product.totalSell || 0);
-        product.unitRemaining = correctUnitPurchase - (product.unitSell || 0);
-
-        // Rebuild purchase history from approved purchases
-        productApprovedPurchases.forEach(purchase => {
-          // Add to purchase history
-          product.purchaseHistory.push({
-            date: purchase.purchaseDate,
-            quantity: purchase.quantity
-          });
-
-          // Add to lb purchase history if weight data exists
-          if (purchase.totalWeight && purchase.lb) {
-            product.lbPurchaseHistory.push({
-              date: purchase.purchaseDate,
-              weight: purchase.totalWeight,
-              lb: purchase.lb
+      console.log(`\n📋 Processing: ${product.name}`);
+      
+      // Find approved purchases for this product
+      const productApprovedPurchases = [];
+      approvedPurchases.forEach(po => {
+        po.items.forEach(item => {
+          if (item.productId && item.productId._id.toString() === product._id.toString() && item.qualityStatus === 'approved') {
+            productApprovedPurchases.push({
+              purchaseOrderId: po._id,
+              purchaseOrderNumber: po.purchaseOrderNumber,
+              purchaseDate: po.purchaseDate,
+              quantity: item.quantity,
+              qualityStatus: item.qualityStatus
             });
           }
+        });
+      });
 
-          // Add to updatedFromOrders
+      if (productApprovedPurchases.length === 0) {
+        console.log(`   ✅ No approved purchases found - skipping`);
+        continue;
+      }
+
+      // Calculate expected totals
+      const expectedTotal = productApprovedPurchases.reduce((sum, p) => sum + p.quantity, 0);
+      const currentHistoryTotal = product.purchaseHistory?.reduce((sum, h) => sum + h.quantity, 0) || 0;
+      
+      if (currentHistoryTotal === expectedTotal) {
+        console.log(`   ✅ History already correct (${currentHistoryTotal})`);
+        continue;
+      }
+
+      console.log(`   🔧 Fixing: Current=${currentHistoryTotal}, Expected=${expectedTotal}`);
+
+      // Group purchases by date to avoid duplicates
+      const purchasesByDate = {};
+      productApprovedPurchases.forEach(purchase => {
+        const dateKey = new Date(purchase.purchaseDate).toISOString().split('T')[0];
+        if (!purchasesByDate[dateKey]) {
+          purchasesByDate[dateKey] = {
+            date: purchase.purchaseDate,
+            quantity: 0,
+            purchaseOrders: []
+          };
+        }
+        purchasesByDate[dateKey].quantity += purchase.quantity;
+        purchasesByDate[dateKey].purchaseOrders.push(purchase.purchaseOrderNumber);
+      });
+
+      // Clear existing purchase history and rebuild
+      product.purchaseHistory = [];
+      
+      // Add correct purchase history entries
+      Object.values(purchasesByDate).forEach(dateGroup => {
+        product.purchaseHistory.push({
+          date: dateGroup.date,
+          quantity: dateGroup.quantity
+        });
+      });
+
+      // Update total purchase
+      product.totalPurchase = expectedTotal;
+
+      // Update updatedFromOrders if needed
+      if (!product.updatedFromOrders || product.updatedFromOrders.length === 0) {
+        product.updatedFromOrders = [];
+        productApprovedPurchases.forEach(purchase => {
           product.updatedFromOrders.push({
             purchaseOrder: purchase.purchaseOrderId,
             oldQuantity: 0,
             newQuantity: purchase.quantity,
-            perLb: purchase.lb,
-            totalLb: purchase.totalWeight,
             difference: purchase.quantity
           });
         });
-
-        // Save the product
-        await product.save();
-        fixedCount++;
-        console.log(`   ✅ Fixed successfully!`);
-
-      } catch (error) {
-        console.error(`   ❌ Error fixing ${product.name}:`, error.message);
-        errorCount++;
       }
+
+      // Save the product
+      await product.save();
+      fixedCount++;
+
+      console.log(`   ✅ Fixed! New history entries: ${product.purchaseHistory.length}`);
+      console.log(`   📊 Updated total purchase: ${product.totalPurchase}`);
     }
 
-    console.log('\n📊 Summary:');
-    console.log(`✅ Products fixed: ${fixedCount}`);
-    console.log(`❌ Errors encountered: ${errorCount}`);
-    console.log(`📦 Total products processed: ${products.length}`);
-
-    if (fixedCount > 0) {
-      console.log('\n🎉 Purchase history has been successfully fixed for all products!');
-    } else {
-      console.log('\n✅ All products already had correct purchase history.');
-    }
+    console.log(`\n🎉 Fix completed!`);
+    console.log(`📊 Products fixed: ${fixedCount}`);
+    console.log(`📊 Products checked: ${products.length}`);
 
   } catch (error) {
     console.error('❌ Error fixing purchase history:', error);
