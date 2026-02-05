@@ -128,12 +128,10 @@ export const exportBillOfLadingToPDF = (
   yPos += 18;
 
   // ===== TABLE SECTION (Fixed Right Edge) =====
-  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "WEIGHT", "CLASS", "REC"]];
+  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "REC"]];
   const tableRows = order.items.map(item => [
     item.quantity.toString(),
     item.productName || item.name || "Produce Item",
-    `${item.quantity * 2} lbs`, 
-    "50",
     data.hazardousMaterials ? "X" : ""
   ]);
 
@@ -153,11 +151,10 @@ export const exportBillOfLadingToPDF = (
 
   // Add TOTALS row only on the last page
   const totalQty = data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString();
-  const totalWeight = `${order.items.reduce((a, b) => a + (b.quantity * 2), 0)} lbs`;
   
   autoTable(doc, {
     startY: (doc as any).lastAutoTable.finalY,
-    body: [[totalQty, "TOTALS", totalWeight, "", ""]],
+    body: [[totalQty, "TOTALS", ""]],
     theme: 'plain',
     margin: { left: MARGIN, right: MARGIN },
     tableWidth: CONTENT_WIDTH,
