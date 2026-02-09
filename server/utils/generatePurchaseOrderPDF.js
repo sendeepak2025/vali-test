@@ -56,7 +56,7 @@ exports.generatePurchaseOrderPDF = async (orderData) => {
     doc.text("VALI PRODUCE INC.", PAGE_WIDTH - MARGIN, 15, { align: "right" });
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    doc.text("4300 Pleasantdale Rd, Atlanta, GA 30340", PAGE_WIDTH - MARGIN, 20, { align: "right" });
+    doc.text("4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E", PAGE_WIDTH - MARGIN, 20, { align: "right" });
     doc.text("Phone: +1 501 559 0123", PAGE_WIDTH - MARGIN, 25, { align: "right" });
     doc.text("Email: order@valiproduce.shop", PAGE_WIDTH - MARGIN, 30, { align: "right" });
 

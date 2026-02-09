@@ -193,7 +193,7 @@ export const exportBillOfLadingToPDF = (
   // Footer
   doc.setFontSize(7);
   doc.setTextColor(150, 150, 150);
-  doc.text("Vali Produce | 4300 Pleasantdale Rd, Atlanta, GA 30340 | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
+  doc.text("Vali Produce | 4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
 
   // ===== PAGE NUMBERS (Correct Loop) =====
   const totalPages = doc.getNumberOfPages();

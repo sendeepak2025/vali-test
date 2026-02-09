@@ -150,8 +150,8 @@ export const exportInvoiceToPDF = (
       } else {
         doc.setTextColor(120, 120, 120);
       }
-      doc.text("4300 Pleasantdale Rd", PAGE_WIDTH - MARGIN, yStart + 10, { align: "right" });
-      doc.text("Atlanta, GA 30340, USA", PAGE_WIDTH - MARGIN, yStart + 15, { align: "right" });
+      doc.text("4950 S Royal Atlanta Dr", PAGE_WIDTH - MARGIN, yStart + 10, { align: "right" });
+      doc.text("Tucker, GA 30084, Suite E, USA", PAGE_WIDTH - MARGIN, yStart + 15, { align: "right" });
       doc.text("order@valiproduce.shop", PAGE_WIDTH - MARGIN, yStart + 20, { align: "right" });
     }
   };

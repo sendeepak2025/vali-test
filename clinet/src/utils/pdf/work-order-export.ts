@@ -50,8 +50,8 @@ export const exportWorkOrderToPDF = (order, options, isPreview = false) => {
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0, 0, 0);
-    doc.text("4300 Pleasantdale Rd,", rightX, yPos + 7, { align: "right" });
-    doc.text("Atlanta, GA 30340, USA", rightX, yPos + 11, { align: "right" });
+    doc.text("4950 S Royal Atlanta Dr,", rightX, yPos + 7, { align: "right" });
+    doc.text("Tucker, GA 30084, Suite E, USA", rightX, yPos + 11, { align: "right" });
     doc.text("order@valiproduce.shop", rightX, yPos + 15, { align: "right" });
   };
   // ----------------------------------------------------

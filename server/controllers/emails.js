@@ -265,7 +265,7 @@ exports.sendCreditMemoEmail = async (req, res) => {
 
         <p style="color: #888; font-size: 12px; text-align: center;">
           Vali Produce LLC<br>
-          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E<br>
           order@valiproduce.shop
         </p>
       </div>
@@ -370,7 +370,7 @@ exports.sendWorkOrderEmail = async (req, res) => {
 
         <p style="color: #888; font-size: 12px; text-align: center;">
           Vali Produce LLC<br>
-          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E<br>
           order@valiproduce.shop
         </p>
       </div>
@@ -506,14 +506,14 @@ exports.sendContactFormEmail = async (req, res) => {
         <ul style="color: #555; font-size: 14px;">
           <li>Browse our <a href="https://valiproduce.shop/shop" style="color: #16a34a;">product catalog</a></li>
           <li>Call us at <a href="tel:+14044514450" style="color: #16a34a;">(404) 451-4450</a></li>
-          <li>Visit us at 4300 Pleasantdale Rd, Atlanta, GA 30340</li>
+          <li>Visit us at 4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E</li>
         </ul>
 
         <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
 
         <p style="color: #888; font-size: 12px; text-align: center;">
           Vali Produce LLC<br>
-          4300 Pleasantdale Rd, Atlanta, GA 30340<br>
+          4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E<br>
           order@valiproduce.shop | (404) 451-4450
         </p>
       </div>

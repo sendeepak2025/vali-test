@@ -258,8 +258,8 @@ const TransportationReceipt: React.FC<TransportationReceiptProps> = ({
       
       // Company info constants
       const COMPANY_NAME = "Vali Produce";
-      const COMPANY_ADDRESS_1 = "4300 Pleasantdale Rd";
-      const COMPANY_ADDRESS_2 = "Atlanta, GA 30340, USA";
+      const COMPANY_ADDRESS_1 = "4950 S Royal Atlanta Dr";
+      const COMPANY_ADDRESS_2 = "Tucker, GA 30084, Suite E, USA";
       
       // Header background
       doc.setFillColor(5, 150, 105); // emerald-600
@@ -885,8 +885,8 @@ Confirmed by: ${formValues.signature}
                 </div>
                 <div className="text-right">
                   <h3 className="text-lg font-bold text-primary">{form.getValues().transportCompany || "Vali Produce"}</h3>
-                  <p className="text-sm text-gray-600">4300 Pleasantdale Rd</p>
-                  <p className="text-sm text-gray-600">Atlanta, GA 30340, USA</p>
+                  <p className="text-sm text-gray-600">4950 S Royal Atlanta Dr</p>
+                  <p className="text-sm text-gray-600">Tucker, GA 30084, Suite E, USA</p>
                 </div>
               </div>
               

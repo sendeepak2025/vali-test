@@ -115,10 +115,11 @@ export const COMPANY_INFO = {
   tagline: 'Farm Fresh, Business Ready',
   foundedYear: 2010,
   address: {
-    street: '4300 Pleasantdale Rd',
-    city: 'Atlanta',
+    street: '4950 S Royal Atlanta Dr',
+    city: 'Tucker',
     state: 'GA',
-    zipCode: '30340',
+    zipCode: '30084',
+    suite: 'Suite E',
     country: 'USA',
   },
   contact: {

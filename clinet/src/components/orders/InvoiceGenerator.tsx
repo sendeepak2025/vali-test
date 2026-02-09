@@ -820,8 +820,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({
                       <div className={`text-sm space-y-0.5 ${
                         invoiceOptions.invoiceTemplate === "minimal" ? "text-gray-500" : ""
                       }`}>
-                        <p>4300 Pleasantdale Rd</p>
-                        <p>Atlanta, GA 30340, USA</p>
+                        <p>4950 S Royal Atlanta Dr</p>
+                        <p>Tucker, GA 30084, Suite E, USA</p>
                         <p>order@valiproduce.shop</p>
                       </div>
                     </div>

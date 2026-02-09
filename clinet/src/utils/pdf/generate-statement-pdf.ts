@@ -111,7 +111,7 @@ export const generateStatementPDF = async (
 
     doc.setFontSize(9);
     doc.text(
-      "4300 Pleasantdale Rd, Atlanta, GA 30340, USA    |    Phone: +1 501 559 0123    |    Email: order@valiproduce.shop",
+      "4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E, USA    |    Phone: +1 501 559 0123    |    Email: order@valiproduce.shop",
       MARGIN,
       MARGIN + 30
     );
