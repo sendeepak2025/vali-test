@@ -58,7 +58,7 @@ import {
   Edit3,
   Send,
 } from "lucide-react"
-import { searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI, getProductByShortCodeAPI, getAllProductAPI } from "@/services2/operations/product"
 import { getSinglePreOrderAPI, updatePreOrderAPI, confirmPreOrderAPI } from "@/services2/operations/preOrder"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
@@ -375,8 +375,8 @@ const UpdatePreOrder = () => {
         let formattedProducts: ProductType[] = []
         
         if (res?.priceListId && res.priceListId.products && res.priceListId.products.length > 0) {
-          // Use products from the linked price list - only first 10
-          const priceListProducts = res.priceListId.products.slice(0, 10)
+          // Use products from the linked price list
+          const priceListProducts = res.priceListId.products
           formattedProducts = priceListProducts.map((p: any, index: number) => ({
             ...p,
             id: p.id || p._id,
@@ -388,19 +388,21 @@ const UpdatePreOrder = () => {
             price: p.price || 0,
             shippinCost: p.shippinCost || 0
           }))
-          setHasMoreProducts(res.priceListId.products.length > 10)
+          setHasMoreProducts(false) // All price list products loaded
         } else {
-          // Fallback to search products from backend - only 10
-          const productsData = await searchProductsForOrderAPI("", 10)
+          // Fallback to all inventory products (like create pre-order)
+          const productsData = await getAllProductAPI()
           formattedProducts = productsData.map((p: any, index: number) => ({
             ...p,
             id: p._id || p.id,
             shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
             salesMode: p.salesMode || "both",
-            // Use price based on store's category
-            pricePerBox: p[storeCategory] || p.aPrice || p.pricePerBox || 0
+            // Use standard product pricing for admin
+            pricePerBox: p.pricePerBox || 0,
+            price: p.price || 0,
+            shippinCost: p.shippinCost || 0
           }))
-          setHasMoreProducts(productsData.length === 10)
+          setHasMoreProducts(false) // All products loaded at once
         }
         
         setProducts(formattedProducts)
@@ -469,7 +471,7 @@ const UpdatePreOrder = () => {
       clearTimeout(productSearchTimeoutRef.current)
     }
     
-    // If preorder has a price list, filter locally
+    // If preorder has a price list, filter locally from price list products
     if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
       const priceListProducts = order.priceListId.products
       const searchLower = value.toLowerCase()
@@ -503,23 +505,39 @@ const UpdatePreOrder = () => {
       return
     }
     
-    // Fallback to backend search if no price list
-    setHasMoreProducts(true)
-    
-    // Debounce search - wait 300ms after user stops typing
+    // If no price list, filter from all inventory products locally
     productSearchTimeoutRef.current = setTimeout(async () => {
       setProductSearchLoading(true)
       try {
-        const results = await searchProductsForOrderAPI(value, 10, selectedCategory === "all" ? "" : selectedCategory)
-        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+        // Get all products and filter locally
+        const allProducts = await getAllProductAPI()
+        const searchLower = value.toLowerCase()
+        
+        let filtered = allProducts
+        if (value.trim()) {
+          filtered = allProducts.filter((p: any) => 
+            p.name?.toLowerCase().includes(searchLower) ||
+            p.shortCode?.toLowerCase().includes(searchLower)
+          )
+        }
+        
+        // Also filter by category if selected
+        if (selectedCategory !== "all") {
+          filtered = filtered.filter((p: any) => p.category === selectedCategory)
+        }
+        
+        const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
           ...p,
           id: p._id || p.id,
           shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
+          salesMode: p.salesMode || "both",
+          pricePerBox: p.pricePerBox || 0,
+          price: p.price || 0,
+          shippinCost: p.shippinCost || 0
         }))
         setProducts(formattedProducts)
         setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(results.length === 10)
+        setHasMoreProducts(false)
       } catch (error) {
         console.error("Error searching products:", error)
       } finally {
@@ -528,12 +546,12 @@ const UpdatePreOrder = () => {
     }, 300)
   }, [selectedCategory, order, storePriceCategory])
 
-  // Handle category change - filter price list products or fetch from backend
+  // Handle category change - filter price list products or all inventory products
   const handleCategoryChange = useCallback(async (category: string) => {
     setSelectedCategory(category)
     setCurrentPage(1)
     
-    // If preorder has a price list, filter locally
+    // If preorder has a price list, filter locally from price list
     if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
       const priceListProducts = order.priceListId.products
       const searchLower = productSearch.toLowerCase()
@@ -569,20 +587,39 @@ const UpdatePreOrder = () => {
       return
     }
     
-    // Fallback to backend search if no price list
-    setHasMoreProducts(true)
+    // If no price list, filter from all inventory products
     setProductSearchLoading(true)
     try {
-      const results = await searchProductsForOrderAPI(productSearch, 10, category === "all" ? "" : category)
-      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+      const allProducts = await getAllProductAPI()
+      const searchLower = productSearch.toLowerCase()
+      
+      let filtered = allProducts
+      
+      // Filter by search term
+      if (productSearch.trim()) {
+        filtered = filtered.filter((p: any) => 
+          p.name?.toLowerCase().includes(searchLower) ||
+          p.shortCode?.toLowerCase().includes(searchLower)
+        )
+      }
+      
+      // Filter by category
+      if (category !== "all") {
+        filtered = filtered.filter((p: any) => p.category === category)
+      }
+      
+      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
         ...p,
         id: p._id || p.id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "both"
+        salesMode: p.salesMode || "both",
+        pricePerBox: p.pricePerBox || 0,
+        price: p.price || 0,
+        shippinCost: p.shippinCost || 0
       }))
       setProducts(formattedProducts)
       setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(results.length === 10)
+      setHasMoreProducts(false)
     } catch (error) {
       console.error("Error fetching products by category:", error)
     } finally {
@@ -669,20 +706,22 @@ const UpdatePreOrder = () => {
       setDisplayedProducts(formattedProducts)
       setHasMoreProducts(false) // Price list has fixed products, no more to load
     } else {
-      // Fallback to search products from backend if no price list
-      setHasMoreProducts(true)
+      // If no price list, show all inventory products
       setProductSearchLoading(true)
       try {
-        const results = await searchProductsForOrderAPI("", 10)
-        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+        const allProducts = await getAllProductAPI()
+        const formattedProducts: ProductType[] = allProducts.map((p: any, index: number) => ({
           ...p,
           id: p._id || p.id,
           shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
+          salesMode: p.salesMode || "both",
+          pricePerBox: p.pricePerBox || 0,
+          price: p.price || 0,
+          shippinCost: p.shippinCost || 0
         }))
         setProducts(formattedProducts)
         setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(results.length === 10)
+        setHasMoreProducts(false) // All products loaded at once
       } catch (error) {
         console.error("Error fetching products:", error)
       } finally {
@@ -862,6 +901,21 @@ const UpdatePreOrder = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Column */}
               <div className="lg:col-span-2 space-y-4">
+                {/* Product Source Info */}
+                {order && (
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="flex items-center gap-2 text-blue-700">
+                      <FileText className="h-4 w-4" />
+                      <span className="font-medium">Product Source:</span>
+                      {order.priceListId ? (
+                        <span>Price List - {order.priceListId.name} ({order.priceListId.products?.length || 0} products)</span>
+                      ) : (
+                        <span>All Inventory Products</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Store Information */}
                 <Card>
                   <CardHeader className="pb-3">
@@ -898,6 +952,16 @@ const UpdatePreOrder = () => {
                       <CardTitle className="text-base flex items-center gap-2">
                         <Package className="h-4 w-4" />
                         Pre-Order Items ({orderItems.length})
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Edit3 className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Prices are editable after adding products</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </CardTitle>
                       <Button size="sm" onClick={openProductModal} className="bg-orange-600 hover:bg-orange-700">
                         <Plus className="h-4 w-4 mr-1" /> Add Product
@@ -929,7 +993,30 @@ const UpdatePreOrder = () => {
                                   <Badge variant="outline" className="text-xs">
                                     {item.pricingType === "box" ? "Per Box" : "Per Unit"}
                                   </Badge>
-                                  <span>@ ${item.unitPrice.toFixed(2)}</span>
+                                  <span className="flex items-center gap-1">
+                                    @ $
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={item.unitPrice}
+                                            onChange={(e) => {
+                                              const updated = [...orderItems]
+                                              updated[index].unitPrice = Math.max(0, parseFloat(e.target.value) || 0)
+                                              setOrderItems(updated)
+                                            }}
+                                            className="w-20 h-6 text-center text-sm px-1 border-dashed hover:border-solid focus:border-solid"
+                                          />
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Click to edit price</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  </span>
                                 </div>
                               </div>
                             </div>

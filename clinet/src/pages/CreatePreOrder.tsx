@@ -54,8 +54,9 @@ import {
   Hash,
   History,
   Keyboard,
+  Edit3,
 } from "lucide-react"
-import { searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI, getProductByShortCodeAPI, getAllProductAPI } from "@/services2/operations/product"
 import { createPreOrderAPI } from "@/services2/operations/preOrder"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { searchStoresAPI } from "@/services2/operations/auth"
@@ -128,7 +129,9 @@ interface StoreType {
   address?: string
   city?: string
   postalCode?: string
+  zipCode?: string
   country?: string
+  state?: string
   priceCategory?: PriceCategory
 }
 
@@ -229,13 +232,8 @@ const CreatePreOrder = () => {
       return product.price || 0
     }
     
-    const categoryPrice = product[storePriceCategory as keyof typeof product] as number | undefined
-    
-    if (categoryPrice && categoryPrice > 0) {
-      return categoryPrice
-    }
-    
-    return product.aPrice || product.pricePerBox || 0
+    // For admin pre-orders, use the product's standard pricing
+    return product.pricePerBox || 0
   }, [storePriceCategory])
 
   // Fetch stores with debounce
@@ -289,35 +287,38 @@ const CreatePreOrder = () => {
     toast({ title: "Store Selected", description: `${store.storeName} - Price Category: ${store.priceCategory || "aPrice"}` })
   }, [toast])
 
-  // Fetch current active price list automatically
+  // Fetch current active price list automatically OR all products for admin
   const fetchPriceLists = useCallback(async () => {
     setPriceListLoading(true)
     try {
-      // Get the most recent active price list (current week)
-      const response = await getAllPriceListAPI("status=active&limit=1")
-      if (response?.data && response.data.length > 0) {
-        const activePriceList = response.data[0]
-        setSelectedPriceList(activePriceList)
+      // For admin pre-orders, fetch all inventory products instead of price list
+      const response = await getAllProductAPI()
+      if (response && response.length > 0) {
+        const formattedProducts: ProductType[] = response.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          _id: p._id || p.id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both",
+          pricePerBox: p.pricePerBox || 0,
+          price: p.price || 0,
+          shippinCost: p.shippinCost || 0
+        }))
+        setProducts(formattedProducts)
+        setDisplayedProducts(formattedProducts)
+        setHasMoreProducts(false)
         
-        // Load all products from the active price list
-        if (activePriceList.products && activePriceList.products.length > 0) {
-          const formattedProducts: ProductType[] = activePriceList.products.map((p: any, index: number) => ({
-            ...p,
-            id: p.id || p._id,
-            _id: p.id || p._id,
-            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-            salesMode: p.salesMode || "case",
-            pricePerBox: p.aPrice || p.pricePerBox || 0,
-            price: p.price || 0,
-            shippinCost: p.shippinCost || 0
-          }))
-          setProducts(formattedProducts)
-          setDisplayedProducts(formattedProducts)
-          setHasMoreProducts(false)
-        }
+        // Set a mock price list for UI consistency
+        setSelectedPriceList({
+          id: 'all-inventory',
+          _id: 'all-inventory',
+          name: 'All Inventory Products',
+          status: 'active',
+          products: formattedProducts
+        })
       }
     } catch (error) {
-      console.error("Error fetching price list:", error)
+      console.error("Error fetching products:", error)
     } finally {
       setPriceListLoading(false)
     }
@@ -331,8 +332,8 @@ const CreatePreOrder = () => {
         id: p.id || p._id,
         _id: p.id || p._id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "case",
-        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
+        salesMode: p.salesMode || "both",
+        pricePerBox: p.pricePerBox || 0,
         price: p.price || 0,
         shippinCost: p.shippinCost || 0
       }))
@@ -388,9 +389,15 @@ const CreatePreOrder = () => {
         }
         
         if (!product && value.trim()) {
-          const results = await searchProductsForOrderAPI(value, 1)
-          if (results.length > 0) {
-            product = { ...results[0], id: results[0]._id || results[0].id }
+          const results = await getAllProductAPI()
+          if (results && results.length > 0) {
+            const found = results.find(p => 
+              p.name.toLowerCase().includes(value.toLowerCase()) ||
+              p.shortCode === parsed?.code
+            )
+            if (found) {
+              product = { ...found, id: found._id || found.id }
+            }
           }
         }
         
@@ -521,16 +528,16 @@ const CreatePreOrder = () => {
     productSearchTimeoutRef.current = setTimeout(async () => {
       setProductSearchLoading(true)
       try {
-        // If price list is selected, filter from price list products
+        // For admin pre-orders, filter from all inventory products
         if (selectedPriceList && selectedPriceList.products) {
-          // If search is empty, show all products from price list
+          // If search is empty, show all products from inventory
           if (!value.trim()) {
             const allProducts = selectedPriceList.products.map((p: any, index: number) => ({
               ...p,
               id: p.id || p._id,
               _id: p.id || p._id,
               shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-              salesMode: p.salesMode || "case"
+              salesMode: p.salesMode || "both"
             }))
             setDisplayedProducts(allProducts as ProductType[])
           } else {
@@ -541,22 +548,29 @@ const CreatePreOrder = () => {
               id: p.id || p._id,
               _id: p.id || p._id,
               shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-              salesMode: p.salesMode || "case"
+              salesMode: p.salesMode || "both"
             }))
             setDisplayedProducts(filtered as ProductType[])
           }
           setHasMoreProducts(false)
         } else {
-          const results = await searchProductsForOrderAPI(value, 10, selectedCategory === "all" ? "" : selectedCategory)
-          const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
-            ...p,
-            id: p._id || p.id,
-            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-            salesMode: p.salesMode || "both"
-          }))
-          setProducts(formattedProducts)
-          setDisplayedProducts(formattedProducts)
-          setHasMoreProducts(results.length === 10)
+          // Fallback to API search if no products loaded
+          const results = await getAllProductAPI()
+          if (results) {
+            const filtered = value.trim() 
+              ? results.filter(p => p.name.toLowerCase().includes(value.toLowerCase()))
+              : results
+            
+            const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
+              ...p,
+              id: p._id || p.id,
+              shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+              salesMode: p.salesMode || "both"
+            }))
+            setProducts(formattedProducts)
+            setDisplayedProducts(formattedProducts)
+            setHasMoreProducts(false)
+          }
         }
       } catch (error) {
         console.error("Error searching products:", error)
@@ -572,8 +586,13 @@ const CreatePreOrder = () => {
     setHasMoreProducts(true)
     setProductSearchLoading(true)
     try {
-      const results = await searchProductsForOrderAPI(productSearch, 10, category === "all" ? "" : category)
-      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+      // For admin pre-orders, filter from all inventory products
+      const results = await getAllProductAPI()
+      const filtered = category === "all" 
+        ? results 
+        : results.filter(p => p.category === category)
+      
+      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
         ...p,
         id: p._id || p.id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
@@ -581,7 +600,7 @@ const CreatePreOrder = () => {
       }))
       setProducts(formattedProducts)
       setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(results.length === 10)
+      setHasMoreProducts(false)
     } catch (error) {
       console.error("Error fetching products by category:", error)
     } finally {
@@ -591,31 +610,14 @@ const CreatePreOrder = () => {
 
   // Load more products
   const loadMoreProducts = useCallback(async () => {
+    // For admin pre-orders, all products are loaded at once, no pagination needed
     if (loadingMoreProducts || !hasMoreProducts || selectedPriceList) return
     
     setLoadingMoreProducts(true)
     try {
-      const skip = displayedProducts.length
-      const results = await searchProductsForOrderAPI(
-        productSearch, 
-        10, 
-        selectedCategory === "all" ? "" : selectedCategory,
-        skip
-      )
-      
-      if (results.length > 0) {
-        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          shortCode: p.shortCode || String(skip + index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
-        }))
-        setDisplayedProducts(prev => [...prev, ...formattedProducts])
-      }
-      
-      if (results.length < 10) {
-        setHasMoreProducts(false)
-      }
+      // Since we load all products at once for admin, this shouldn't be needed
+      // But keeping for consistency
+      setHasMoreProducts(false)
     } catch (error) {
       console.error("Error loading more products:", error)
     } finally {
@@ -638,7 +640,7 @@ const CreatePreOrder = () => {
     setShowProductModal(true)
     setProductSearch("")
     setSelectedCategory("all")
-    setHasMoreProducts(true)
+    setHasMoreProducts(false) // All products loaded at once for admin
     
     if (selectedPriceList && selectedPriceList.products) {
       const formattedProducts: ProductType[] = selectedPriceList.products.map((p: any, index: number) => ({
@@ -646,14 +648,14 @@ const CreatePreOrder = () => {
         id: p.id || p._id,
         _id: p.id || p._id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "case"
+        salesMode: p.salesMode || "both"
       }))
       setDisplayedProducts(formattedProducts)
       setHasMoreProducts(false)
     } else {
       setProductSearchLoading(true)
       try {
-        const results = await searchProductsForOrderAPI("", 10)
+        const results = await getAllProductAPI()
         const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
           ...p,
           id: p._id || p.id,
@@ -662,7 +664,7 @@ const CreatePreOrder = () => {
         }))
         setProducts(formattedProducts)
         setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(results.length === 10)
+        setHasMoreProducts(false)
       } catch (error) {
         console.error("Error fetching products:", error)
       } finally {
@@ -782,7 +784,7 @@ const CreatePreOrder = () => {
         clientId: selectedStore._id,
         status: orderStatus,
         createdAt: orderDate ? new Date(orderDate).toISOString() : new Date().toISOString(),
-        priceListId: selectedPriceList?._id || selectedPriceList?.id || null,
+        priceListId: null, // Admin pre-orders use all inventory, not specific price list
       }
 
       const result = await createPreOrderAPI(finalData, token)
@@ -900,12 +902,12 @@ const CreatePreOrder = () => {
                   </CardContent>
                 </Card>
 
-                {/* Current Price List Info */}
+                {/* Current Inventory Info */}
                 {selectedPriceList && (
                   <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="flex items-center gap-2 text-blue-700">
                       <FileText className="h-4 w-4" />
-                      <span className="font-medium">Current Price List:</span>
+                      <span className="font-medium">Inventory Products:</span>
                       <span>{selectedPriceList.name}</span>
                       <Badge variant="secondary" className="text-xs">{selectedPriceList.products?.length || 0} products</Badge>
                     </div>
@@ -915,14 +917,14 @@ const CreatePreOrder = () => {
                 {/* Quick Add Section */}
                 
 
-                {/* Price List Products - Show all products from current price list */}
+                {/* All Inventory Products - Show all products from inventory */}
                 {selectedPriceList && (
                   <Card>
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base flex items-center gap-2">
                           <FileText className="h-4 w-4" />
-                          {selectedPriceList.name} Products ({displayedProducts.length})
+                          {selectedPriceList.name} ({displayedProducts.length})
                         </CardTitle>
                         <div className="relative w-64">
                           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1037,6 +1039,16 @@ const CreatePreOrder = () => {
                       <CardTitle className="text-base flex items-center gap-2">
                         <Package className="h-4 w-4" />
                         Pre-Order Items ({orderItems.length})
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Edit3 className="h-3 w-3 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Prices are editable after adding products</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </CardTitle>
                       <Button size="sm" onClick={openProductModal} className="bg-orange-600 hover:bg-orange-700" disabled={!selectedStore}>
                         <Plus className="h-4 w-4 mr-1" /> Add Product
@@ -1073,7 +1085,30 @@ const CreatePreOrder = () => {
                                   <Badge variant="outline" className="text-xs">
                                     {item.pricingType === "box" ? "Per Box" : "Per Unit"}
                                   </Badge>
-                                  <span>@ ${item.unitPrice.toFixed(2)}</span>
+                                  <span className="flex items-center gap-1">
+                                    @ $
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={item.unitPrice}
+                                            onChange={(e) => {
+                                              const updated = [...orderItems]
+                                              updated[index].unitPrice = Math.max(0, parseFloat(e.target.value) || 0)
+                                              setOrderItems(updated)
+                                            }}
+                                            className="w-20 h-6 text-center text-sm px-1 border-dashed hover:border-solid focus:border-solid"
+                                          />
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Click to edit price</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -1206,7 +1241,7 @@ const CreatePreOrder = () => {
                       
                       {selectedPriceList && (
                         <div>
-                          <label className="text-sm font-medium">Price List</label>
+                          <label className="text-sm font-medium">Inventory</label>
                           <Input value={selectedPriceList.name} disabled className="bg-gray-50" />
                         </div>
                       )}
@@ -1249,6 +1284,7 @@ const CreatePreOrder = () => {
                     {selectedStore && orderItems.length === 0 && (
                       <div className="text-xs text-center text-muted-foreground">
                         <p>• Add at least one product to create pre-order</p>
+                        <p>• Product prices can be edited after adding</p>
                       </div>
                     )}
                   </CardContent>

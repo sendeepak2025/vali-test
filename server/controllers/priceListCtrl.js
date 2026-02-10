@@ -27,52 +27,52 @@ exports.createPriceListTemplate = async (req, res) => {
     await newTemplate.save();
 
     // Send email notification to all approved stores if requested or if status is active
-    if (sendEmailNotification || status === "active") {
-      try {
-        // 🧪 TEST MODE: Only send to test email
-        const TEST_MODE = false;
-        const TEST_EMAIL = "rishimaheshwari040@gmail.com";
+    // if (sendEmailNotification || status === "active") {
+    //   try {
+    //     // 🧪 TEST MODE: Only send to test email
+    //     const TEST_MODE = false;
+    //     const TEST_EMAIL = "rishimaheshwari040@gmail.com";
 
-        let stores;
-        if (TEST_MODE) {
-          stores = [{ email: TEST_EMAIL, storeName: "Test Store" }];
-          console.log(`🧪 TEST MODE: Sending price list email only to ${TEST_EMAIL}`);
-        } else {
-          stores = await authModel.find({ 
-            role: "store", 
-            approvalStatus: "approved",
-            email: { $exists: true, $ne: "" }
-          }).select('email storeName');
-        }
+    //     let stores;
+    //     if (TEST_MODE) {
+    //       stores = [{ email: TEST_EMAIL, storeName: "Test Store" }];
+    //       console.log(`🧪 TEST MODE: Sending price list email only to ${TEST_EMAIL}`);
+    //     } else {
+    //       stores = await authModel.find({ 
+    //         role: "store", 
+    //         approvalStatus: "approved",
+    //         email: { $exists: true, $ne: "" }
+    //       }).select('email storeName');
+    //     }
 
-        const priceListUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/store/mobile`;
+    //     const priceListUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/store/mobile`;
 
-        for (const store of stores) {
-          try {
-            const htmlContent = emailTemplates.NEW_PRICE_LIST({
-              storeName: store.storeName,
-              priceListName: name,
-              description: description,
-              publishedDate: new Date().toLocaleDateString(),
-              productCount: products.length,
-              priceListUrl: priceListUrl,
-            });
+    //     for (const store of stores) {
+    //       try {
+    //         const htmlContent = emailTemplates.NEW_PRICE_LIST({
+    //           storeName: store.storeName,
+    //           priceListName: name,
+    //           description: description,
+    //           publishedDate: new Date().toLocaleDateString(),
+    //           productCount: products.length,
+    //           priceListUrl: priceListUrl,
+    //         });
 
-            await mailSender(
-              store.email,
-              `📋 New Price List: ${name}`,
-              htmlContent
-            );
-          } catch (emailError) {
-            console.error(`Failed to send price list email to ${store.email}:`, emailError);
-          }
-        }
+    //         await mailSender(
+    //           store.email,
+    //           `📋 New Price List: ${name}`,
+    //           htmlContent
+    //         );
+    //       } catch (emailError) {
+    //         console.error(`Failed to send price list email to ${store.email}:`, emailError);
+    //       }
+    //     }
 
-        console.log(`Price list notification sent to ${stores.length} stores`);
-      } catch (notificationError) {
-        console.error("Error sending price list notifications:", notificationError);
-      }
-    }
+    //     console.log(`Price list notification sent to ${stores.length} stores`);
+    //   } catch (notificationError) {
+    //     console.error("Error sending price list notifications:", notificationError);
+    //   }
+    // }
 
     res.status(201).json({ success: true, message: "Template created successfully.", data: newTemplate });
 
