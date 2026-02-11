@@ -1,6 +1,7 @@
 const PurchaseOrder = require("../models/purchaseModel");
 const Product = require("../models/productModel");
 const Vendor = require('../models/vendorModel'); // adjust path
+const authModel = require('../models/authModel');
 const IncomingStock = require("../models/incomingStockModel");
 const { default: mongoose } = require("mongoose");
 const nodemailer = require("nodemailer");
@@ -697,6 +698,11 @@ exports.updateItemQualityStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Purchase order not found" });
     }
 
+    // Get all approved purchase orders for checking same date purchases
+    const approvedPurchases = await PurchaseOrder.find({
+      'items.qualityStatus': 'approved'
+    }).populate('items.productId', 'name');
+
     for (const incomingItem of updatedItems) {
       const existingItem = order.items.id(incomingItem._id);
       if (!existingItem) continue;
@@ -764,46 +770,40 @@ exports.updateItemQualityStatus = async (req, res) => {
           product.updatedFromOrders = product.updatedFromOrders.filter(e => e.purchaseOrder.toString() !== purchaseOrderId);
         }
 
-        // Remove purchase history entries for this specific purchase order
-        product.purchaseHistory = product.purchaseHistory.filter(p => {
+        // Handle purchase history - subtract the rejected quantity from the date
+        const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
+        const existingHistoryEntry = product.purchaseHistory.find(p => {
           const historyDate = new Date(p.date).toISOString().split('T')[0];
-          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
-          // Only remove if this was the only purchase on this date, otherwise subtract quantity
-          return historyDate !== orderDate;
-        });
-        
-        // Check if there are other approved items on same date
-        const otherApprovedOnSameDate = approvedPurchases.filter(po => {
-          const poDate = new Date(po.purchaseDate).toISOString().split('T')[0];
-          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
-          return poDate === orderDate && po._id.toString() !== purchaseOrderId;
-        });
-        
-        // If other purchases exist on same date, recalculate the quantity for that date
-        if (otherApprovedOnSameDate.length > 0) {
-          let totalForDate = 0;
-          otherApprovedOnSameDate.forEach(po => {
-            po.items.forEach(item => {
-              if (item.productId && item.productId._id.toString() === productId.toString() && item.qualityStatus === 'approved') {
-                totalForDate += item.quantity;
-              }
-            });
-          });
-          
-          if (totalForDate > 0) {
-            product.purchaseHistory.push({
-              date: order.purchaseDate,
-              quantity: totalForDate
-            });
-          }
-        }
-        product.lbPurchaseHistory = product.lbPurchaseHistory.filter(p => {
-          const historyDate = new Date(p.date).toISOString().split('T')[0];
-          const orderDate = new Date(order.purchaseDate).toISOString().split('T')[0];
-          return historyDate !== orderDate;
+          return historyDate === orderDate;
         });
 
-        console.log("❌ Rejected after approval. Removed:", oldItemQuantity);
+        if (existingHistoryEntry) {
+          existingHistoryEntry.quantity -= oldItemQuantity;
+          
+          // Remove entry if quantity becomes 0 or negative
+          if (existingHistoryEntry.quantity <= 0) {
+            product.purchaseHistory = product.purchaseHistory.filter(p => p !== existingHistoryEntry);
+          }
+        }
+
+        // Handle lb purchase history - subtract the rejected weight
+        if (existingLb && existingTotalWeight) {
+          const existingLbHistoryEntry = product.lbPurchaseHistory.find(p => {
+            const historyDate = new Date(p.date).toISOString().split('T')[0];
+            return historyDate === orderDate && p.lb === existingLb;
+          });
+
+          if (existingLbHistoryEntry) {
+            existingLbHistoryEntry.weight -= existingTotalWeight;
+            
+            // Remove entry if weight becomes 0 or negative
+            if (existingLbHistoryEntry.weight <= 0) {
+              product.lbPurchaseHistory = product.lbPurchaseHistory.filter(p => p !== existingLbHistoryEntry);
+            }
+          }
+        }
+
+        console.log("❌ Rejected after approval. Removed quantity:", oldItemQuantity, "from product:", product.name);
       }
 
       // ✅ Case 2: First time approval
