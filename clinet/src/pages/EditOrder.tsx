@@ -62,6 +62,7 @@ import { getAllProductAPI, searchProductsForOrderAPI, getProductByShortCodeAPI }
 import { getOrderAPI, updateOrderAPI } from "@/services2/operations/order"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
+import { EmailControlModal } from "@/components/EmailControlModal"
 
 type SalesMode = "case" | "unit" | "both"
 
@@ -169,6 +170,9 @@ const EditOrder = () => {
   const [selectedProductForAdd, setSelectedProductForAdd] = useState<ProductType | null>(null)
   const [addQuantity, setAddQuantity] = useState(1)
   const [addPricingType, setAddPricingType] = useState<"box" | "unit">("box")
+
+  // Email control modal state
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
   // Parse quick add input
   const parseQuickAddInput = useCallback((input: string) => {
@@ -551,6 +555,12 @@ setOrderStatus(formattedOrder.status.toLowerCase())
       return
     }
 
+    // Show email control modal instead of directly submitting
+    setShowEmailModal(true)
+  }
+
+  // Handle email modal confirmation
+  const handleEmailModalConfirm = async (sendEmail: boolean) => {
     setSubmitting(true)
     try {
       const finalData = {
@@ -565,14 +575,20 @@ setOrderStatus(formattedOrder.status.toLowerCase())
         shippinCost: shippingCost,
       }
 
-      await updateOrderAPI(finalData, token, orderId)
-      toast({ title: "Order Updated", description: `Order ${order?.orderId || orderId} has been updated successfully` })
+      await updateOrderAPI(finalData, token, orderId, sendEmail)
+      toast({ 
+        title: "Order Updated", 
+        description: sendEmail 
+          ? `Order ${order?.orderId || orderId} has been updated successfully and email sent!`
+          : `Order ${order?.orderId || orderId} has been updated successfully!`
+      })
       navigate("/admin/orders")
     } catch (error) {
       console.error("Error updating order:", error)
       toast({ title: "Error", description: "Failed to update order", variant: "destructive" })
     } finally {
       setSubmitting(false)
+      setShowEmailModal(false)
     }
   }
 
@@ -1030,7 +1046,7 @@ setOrderStatus(formattedOrder.status.toLowerCase())
 
                       <div>
                         <label className="text-sm font-medium">Order Number</label>
-                        <Input value={order?.orderNumber || order?.orderId || ""} disabled className="bg-gray-50" />
+                        <Input value={order?.orderId || ""} disabled className="bg-gray-50" />
                       </div>
                     </div>
 
@@ -1317,6 +1333,15 @@ setOrderStatus(formattedOrder.status.toLowerCase())
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Email Control Modal */}
+      <EmailControlModal
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        onConfirm={handleEmailModalConfirm}
+        type="update"
+        loading={submitting}
+      />
     </div>
   )
 }

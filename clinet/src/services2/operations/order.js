@@ -33,11 +33,14 @@ const { CREATE_PRODUCT,
 
 import Swal from "sweetalert2";
 
-export const createOrderAPI = async (formData, token) => {
+export const createOrderAPI = async (formData, token, sendEmail = false) => {
   const toastId = toast.loading("Loading...");
 
   try {
-    const response = await apiConnector("POST", CREATE_ORDER, formData, {
+    // Add sendEmail flag to formData
+    const orderData = { ...formData, sendEmail };
+    
+    const response = await apiConnector("POST", CREATE_ORDER, orderData, {
       Authorization: `Bearer ${token}`,
     });
 
@@ -360,13 +363,15 @@ export const getAllOrderAPI = async (token, queryParams = "") => {
   }
 }
 
-export const updateOrderAPI = async (formData, token,id) => {
+export const updateOrderAPI = async (formData, token, id, sendEmail = false) => {
 
     const toastId = toast.loading("Loading...");
 
-
     try {
-        const response = await apiConnector("PUT", `${UPDATE_ORDER}/${id}`, formData, {
+        // Add sendEmail flag to formData
+        const orderData = { ...formData, sendEmail };
+        
+        const response = await apiConnector("PUT", `${UPDATE_ORDER}/${id}`, orderData, {
             Authorization: `Bearer ${token}`,
         });
 

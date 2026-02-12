@@ -285,7 +285,8 @@ const createOrderCtrl = async (req, res) => {
       orderType = "Regural",
       orderNumber,
       createdAt,
-      preOrder
+      preOrder,
+      sendEmail = false
       
     } = req.body;
 
@@ -517,89 +518,89 @@ if (insufficientStock.length > 0  ) {
 
     await newOrder.save();
 
-    // Send order notifications - COMMENTED OUT (Email disabled for create order)
-    /*
-    try {
-      // Get store details for notification
-      const storeDetails = await authModel.findById(clientId.value);
-      
-      if (storeDetails) {
-        // Send order confirmation to store owner
-        await notificationService.createNotificationWithEmail(
-          storeDetails._id,
-          storeDetails.email,
-          "order_created",
-          "Order Confirmed",
-          `Your order #${newOrder.orderNumber} has been placed successfully. Total: $${newOrder.total.toFixed(2)}`,
-          "ORDER_CONFIRMATION",
-          {
-            ownerName: storeDetails.ownerName || storeDetails.storeName,
-            storeName: storeDetails.storeName,
-            orderNumber: newOrder.orderNumber,
-            total: newOrder.total.toFixed(2),
-            itemCount: items.length,
-            items: items,
-            orderDate: new Date().toLocaleDateString(),
-            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-          },
-          { 
-            orderId: newOrder._id, 
-            orderNumber: newOrder.orderNumber,
-            total: newOrder.total 
-          },
-          `/orders/edit/${newOrder._id}`
-        );
+    // Send order notifications - Only if sendEmail is true
+    if (sendEmail) {
+      try {
+        // Get store details for notification
+        const storeDetails = await authModel.findById(clientId.value);
         
-        console.log("📧 Order confirmation email sent to:", storeDetails.email);
+        if (storeDetails) {
+          // Send order confirmation to store owner
+          await notificationService.createNotificationWithEmail(
+            storeDetails._id,
+            storeDetails.email,
+            "order_created",
+            "Order Confirmed",
+            `Your order #${newOrder.orderNumber} has been placed successfully. Total: $${newOrder.total.toFixed(2)}`,
+            "ORDER_CONFIRMATION",
+            {
+              ownerName: storeDetails.ownerName || storeDetails.storeName,
+              storeName: storeDetails.storeName,
+              orderNumber: newOrder.orderNumber,
+              total: newOrder.total.toFixed(2),
+              itemCount: items.length,
+              items: items,
+              orderDate: new Date().toLocaleDateString(),
+              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+            },
+            { 
+              orderId: newOrder._id, 
+              orderNumber: newOrder.orderNumber,
+              total: newOrder.total 
+            },
+            `/orders/edit/${newOrder._id}`
+          );
+          
+          console.log("📧 Order confirmation email sent to:", storeDetails.email);
 
-        // Notify admins about new order (in-app only, no email)
-        await notificationService.notifyAdmins(
-          "order_created",
-          "New Order Received",
-          `${storeDetails.storeName} placed order #${newOrder.orderNumber} for $${newOrder.total.toFixed(2)}`,
-          {
-            orderId: newOrder._id,
-            orderNumber: newOrder.orderNumber,
-            storeName: storeDetails.storeName,
-            total: newOrder.total,
-          },
-          `/orders/edit/${newOrder._id}`,
-          false // No email for regular orders
-        );
-
-        // Check for high-value order alert
-        if (newOrder.total >= HIGH_VALUE_ORDER_THRESHOLD) {
+          // Notify admins about new order (in-app only, no email)
           await notificationService.notifyAdmins(
             "order_created",
-            "⚠️ High-Value Order Alert",
-            `High-value order #${newOrder.orderNumber} from ${storeDetails.storeName}: $${newOrder.total.toFixed(2)}`,
+            "New Order Received",
+            `${storeDetails.storeName} placed order #${newOrder.orderNumber} for $${newOrder.total.toFixed(2)}`,
             {
               orderId: newOrder._id,
               orderNumber: newOrder.orderNumber,
               storeName: storeDetails.storeName,
               total: newOrder.total,
-              isHighValue: true,
             },
             `/orders/edit/${newOrder._id}`,
-            true, // Send email for high-value orders
-            "ORDER_CONFIRMATION",
-            {
-              ownerName: "Admin",
-              storeName: storeDetails.storeName,
-              orderNumber: newOrder.orderNumber,
-              total: newOrder.total.toFixed(2),
-              itemCount: items.length,
-              orderDate: new Date().toLocaleDateString(),
-              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-            }
+            false // No email for regular orders
           );
+
+          // Check for high-value order alert
+          if (newOrder.total >= HIGH_VALUE_ORDER_THRESHOLD) {
+            await notificationService.notifyAdmins(
+              "order_created",
+              "⚠️ High-Value Order Alert",
+              `High-value order #${newOrder.orderNumber} from ${storeDetails.storeName}: $${newOrder.total.toFixed(2)}`,
+              {
+                orderId: newOrder._id,
+                orderNumber: newOrder.orderNumber,
+                storeName: storeDetails.storeName,
+                total: newOrder.total,
+                isHighValue: true,
+              },
+              `/orders/edit/${newOrder._id}`,
+              true, // Send email for high-value orders
+              "ORDER_CONFIRMATION",
+              {
+                ownerName: "Admin",
+                storeName: storeDetails.storeName,
+                orderNumber: newOrder.orderNumber,
+                total: newOrder.total.toFixed(2),
+                itemCount: items.length,
+                orderDate: new Date().toLocaleDateString(),
+                orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+              }
+            );
+          }
         }
+      } catch (notificationError) {
+        // Log notification error but don't fail order creation
+        console.error("Error sending order notifications:", notificationError);
       }
-    } catch (notificationError) {
-      // Log notification error but don't fail order creation
-      console.error("Error sending order notifications:", notificationError);
     }
-    */
 
     // Calculate pallet estimate for the order
     let orderPalletEstimate = {
@@ -1271,6 +1272,7 @@ const updateOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
     const updateFields = req.body;
+    const { sendEmail = false } = req.body;
 
     const existingOrder = await orderModel.findById(id);
     if (!existingOrder) {
@@ -1468,45 +1470,8 @@ const updateOrderCtrl = async (req, res) => {
 
     await existingOrder.save();
 
-    // Send order updated email notification - COMMENTED OUT (Email disabled for edit order)
-    /*
-    try {
-      const storeDetails = await authModel.findById(existingOrder.store);
-      
-      if (storeDetails) {
-        await notificationService.createNotificationWithEmail(
-          storeDetails._id,
-          storeDetails.email,
-          "order_updated",
-          "Order Updated",
-          `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
-          "ORDER_UPDATED",
-          {
-            ownerName: storeDetails.ownerName || storeDetails.storeName,
-            storeName: storeDetails.storeName,
-            orderNumber: existingOrder.orderNumber,
-            total: existingOrder.total.toFixed(2),
-            itemCount: existingOrder.items.length,
-            items: existingOrder.items,
-            orderDate: new Date().toLocaleDateString(),
-            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-          },
-          { 
-            orderId: existingOrder._id, 
-            orderNumber: existingOrder.orderNumber,
-            total: existingOrder.total 
-          },
-          `/orders/edit/${existingOrder._id}`
-        );
-        
-        console.log("📧 Order update email sent to:", storeDetails.email);
-      }
-    } catch (notificationError) {
-      console.error("Error sending order update notification:", notificationError);
-    }
-
-    // Send status change notification if status was updated
-    if (statusChanged) {
+    // Send order updated email notification - Only if sendEmail is true
+    if (sendEmail) {
       try {
         const storeDetails = await authModel.findById(existingOrder.store);
         
@@ -1514,33 +1479,70 @@ const updateOrderCtrl = async (req, res) => {
           await notificationService.createNotificationWithEmail(
             storeDetails._id,
             storeDetails.email,
-            "order_status_changed",
-            "Order Status Updated",
-            `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
-            "ORDER_STATUS_UPDATE",
+            "order_updated",
+            "Order Updated",
+            `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
+            "ORDER_UPDATED",
             {
               ownerName: storeDetails.ownerName || storeDetails.storeName,
               storeName: storeDetails.storeName,
               orderNumber: existingOrder.orderNumber,
-              oldStatus: oldStatus,
-              newStatus: newStatus,
               total: existingOrder.total.toFixed(2),
+              itemCount: existingOrder.items.length,
+              items: existingOrder.items,
+              orderDate: new Date().toLocaleDateString(),
+              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
             },
             { 
               orderId: existingOrder._id, 
               orderNumber: existingOrder.orderNumber,
-              oldStatus,
-              newStatus 
+              total: existingOrder.total 
             },
             `/orders/edit/${existingOrder._id}`
           );
+          
+          console.log("📧 Order update email sent to:", storeDetails.email);
         }
       } catch (notificationError) {
-        // Log notification error but don't fail order update
-        console.error("Error sending order status notification:", notificationError);
+        console.error("Error sending order update notification:", notificationError);
+      }
+
+      // Send status change notification if status was updated
+      if (statusChanged) {
+        try {
+          const storeDetails = await authModel.findById(existingOrder.store);
+          
+          if (storeDetails) {
+            await notificationService.createNotificationWithEmail(
+              storeDetails._id,
+              storeDetails.email,
+              "order_status_changed",
+              "Order Status Updated",
+              `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
+              "ORDER_STATUS_UPDATE",
+              {
+                ownerName: storeDetails.ownerName || storeDetails.storeName,
+                storeName: storeDetails.storeName,
+                orderNumber: existingOrder.orderNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus,
+                total: existingOrder.total.toFixed(2),
+              },
+              { 
+                orderId: existingOrder._id, 
+                orderNumber: existingOrder.orderNumber,
+                oldStatus,
+                newStatus 
+              },
+              `/orders/edit/${existingOrder._id}`
+            );
+          }
+        } catch (notificationError) {
+          // Log notification error but don't fail order update
+          console.error("Error sending order status notification:", notificationError);
+        }
       }
     }
-    */
 
     // ✅ REMOVED: Full history rebuild was causing massive slowdown
     // Each product was scanning 100-800+ orders - extremely slow!

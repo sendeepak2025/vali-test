@@ -64,6 +64,7 @@ import { getAllProductAPI, generateShortCodesAPI, searchProductsForOrderAPI, get
 import { createOrderAPI, getUserLatestOrdersAPI } from "@/services2/operations/order"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
+import { EmailControlModal } from "@/components/EmailControlModal"
 
 interface StoreType {
   id: string
@@ -170,6 +171,9 @@ const NewOrderEnhanced = () => {
   // Quick Add quantity and type selection
   const [quickAddQuantity, setQuickAddQuantity] = useState(1)
   const [quickAddPricingType, setQuickAddPricingType] = useState<"box" | "unit">("box")
+
+  // Email control modal state
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
   // Product add with quantity selection state
   const [selectedProductForAdd, setSelectedProductForAdd] = useState<ProductType | null>(null)
@@ -670,6 +674,12 @@ const NewOrderEnhanced = () => {
       return
     }
 
+    // Show email control modal instead of directly submitting
+    setShowEmailModal(true)
+  }
+
+  // Handle email modal confirmation
+  const handleEmailModalConfirm = async (sendEmail: boolean) => {
     setSubmitting(true)
     try {
       const orderData = {
@@ -686,9 +696,14 @@ const NewOrderEnhanced = () => {
         shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
       }
 
-      const res = await createOrderAPI(orderData, token)
+      const res = await createOrderAPI(orderData, token, sendEmail)
       if (res) {
-        toast({ title: "Success", description: "Order created successfully!" })
+        toast({ 
+          title: "Success", 
+          description: sendEmail 
+            ? "Order created successfully and email sent!" 
+            : "Order created successfully!" 
+        })
         navigate("/admin/orders")
       }
     } catch (error) {
@@ -696,6 +711,7 @@ const NewOrderEnhanced = () => {
       toast({ title: "Error", description: "Failed to create order", variant: "destructive" })
     } finally {
       setSubmitting(false)
+      setShowEmailModal(false)
     }
   }
 
@@ -1412,6 +1428,15 @@ const NewOrderEnhanced = () => {
           </div>
         </main>
       </div>
+
+      {/* Email Control Modal */}
+      <EmailControlModal
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        onConfirm={handleEmailModalConfirm}
+        type="create"
+        loading={submitting}
+      />
 
       {/* Product Selection Modal */}
       <Dialog open={showProductModal} onOpenChange={setShowProductModal}>
