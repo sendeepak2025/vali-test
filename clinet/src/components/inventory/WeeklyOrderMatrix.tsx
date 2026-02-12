@@ -160,6 +160,9 @@ const EditableCell = React.memo(({
     setLocalValue(mode === "PREORDER" ? preOrderValue : value);
   }, [value, preOrderValue, mode]);
 
+  // Check if preorder has been converted to order (cart icon showing)
+  const isPreOrderConverted = mode === "PREORDER" && value > 0 && preOrderValue > 0;
+  
   const handleBlur = () => {
     setIsEditing(false);
     const compareValue = mode === "PREORDER" ? preOrderValue : value;
@@ -180,9 +183,11 @@ const EditableCell = React.memo(({
 
   // Mode-based styling
   let bgClass = '';
-  if (disabled || mode === "VIEW") bgClass = 'bg-gray-100 cursor-not-allowed';
-  else if (isHighlighted) bgClass = mode === "PREORDER" ? 'bg-orange-200' : 'bg-yellow-100';
-  else if (mode === "PREORDER") {
+  if (disabled || mode === "VIEW" || isPreOrderConverted) {
+    bgClass = isPreOrderConverted ? 'bg-green-100 cursor-not-allowed' : 'bg-gray-100 cursor-not-allowed';
+  } else if (isHighlighted) {
+    bgClass = mode === "PREORDER" ? 'bg-orange-200' : 'bg-yellow-100';
+  } else if (mode === "PREORDER") {
     if (preOrderValue > 0) bgClass = 'bg-orange-50';
   } else {
     if (isPreOrderFulfilled && preOrderValue > 0) bgClass = 'bg-green-100';
@@ -191,7 +196,7 @@ const EditableCell = React.memo(({
   }
 
   const displayValue = mode === "PREORDER" ? preOrderValue : value;
-  const isDisabled = disabled || mode === "VIEW";
+  const isDisabled = disabled || mode === "VIEW" || isPreOrderConverted;
 
   return (
     <td 
@@ -200,8 +205,11 @@ const EditableCell = React.memo(({
         if (!saving && !isDisabled) {
           setIsEditing(true);
           setTimeout(() => inputRef.current?.select(), 0);
+        } else if (isPreOrderConverted) {
+          toast.info("This preorder has been converted to an order and cannot be edited");
         }
       }}
+      title={isPreOrderConverted ? "Preorder converted to order - Read only" : ""}
     >
       {isEditing && !isDisabled ? (
         <input
@@ -218,27 +226,40 @@ const EditableCell = React.memo(({
         />
       ) : (
         <div className="flex flex-col items-center p-0.5">
-          <span className={`text-xs ${displayValue > 0 ? `font-bold ${mode === "PREORDER" ? 'text-orange-700' : 'text-blue-700'}` : 'text-gray-400'}`}>
-            {displayValue}
-          </span>
-          <div className="flex gap-1 text-[8px]">
-            {mode === "ORDER" && previousValue > 0 && (
-              <span className="text-gray-400 flex items-center">
-                <History className="h-2 w-2" />{previousValue}
+          {isPreOrderConverted ? (
+            // Show converted order status with lock icon
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1">
+                <Lock className="h-2 w-2 text-green-600" />
+                <span className="text-xs font-bold text-green-700">{displayValue}</span>
+              </div>
+              <span className="text-[8px] text-green-600 font-medium">Converted</span>
+            </div>
+          ) : (
+            <>
+              <span className={`text-xs ${displayValue > 0 ? `font-bold ${mode === "PREORDER" ? 'text-orange-700' : 'text-blue-700'}` : 'text-gray-400'}`}>
+                {displayValue}
               </span>
-            )}
-            {mode === "ORDER" && preOrderValue > 0 && (
-              <span className={`flex items-center font-medium ${isPreOrderFulfilled ? 'text-green-600' : 'text-orange-500'}`}>
-                <ClipboardList className="h-2 w-2" />{preOrderValue}
-                {isPreOrderFulfilled && <CheckCircle2 className="h-2 w-2 ml-0.5" />}
-              </span>
-            )}
-            {mode === "PREORDER" && value > 0 && (
-              <span className="text-blue-500 flex items-center font-medium">
-                <ShoppingCart className="h-2 w-2" />{value}
-              </span>
-            )}
-          </div>
+              <div className="flex gap-1 text-[8px]">
+                {mode === "ORDER" && previousValue > 0 && (
+                  <span className="text-gray-400 flex items-center">
+                    <History className="h-2 w-2" />{previousValue}
+                  </span>
+                )}
+                {mode === "ORDER" && preOrderValue > 0 && (
+                  <span className={`flex items-center font-medium ${isPreOrderFulfilled ? 'text-green-600' : 'text-orange-500'}`}>
+                    <ClipboardList className="h-2 w-2" />{preOrderValue}
+                    {isPreOrderFulfilled && <CheckCircle2 className="h-2 w-2 ml-0.5" />}
+                  </span>
+                )}
+                {mode === "PREORDER" && value > 0 && (
+                  <span className="text-blue-500 flex items-center font-medium">
+                    <ShoppingCart className="h-2 w-2" />{value}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
       {mode === "ORDER" && orderId && value > 0 && (
@@ -1922,6 +1943,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-50 border rounded" /> Order Qty</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-orange-50 border rounded" /> PreOrder Qty</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border rounded" /> PreOrder Fulfilled</span>
+          <span className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border rounded" /> <Lock className="h-2 w-2" /> Converted (Read-only)</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-100 border rounded" /> Changed (Order)</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-orange-200 border rounded" /> Changed (PreOrder)</span>
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-purple-100 border rounded" /> Incoming Stock</span>
@@ -1930,7 +1952,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           <span className="flex items-center gap-1"><div className="w-3 h-3 bg-gray-100 border rounded" /> Read Only</span>
           <span className="flex items-center gap-1"><History className="h-3 w-3" /> Prev Week Order</span>
           <span className="flex items-center gap-1"><ClipboardList className="h-3 w-3 text-orange-500" /> PreOrder</span>
-          <span className="flex items-center gap-1"><ShoppingCart className="h-3 w-3 text-blue-500" /> Order</span>
+          <span className="flex items-center gap-1"><ShoppingCart className="h-3 w-3 text-blue-500" /> Order (Converted)</span>
           <span className="flex items-center gap-1"><Truck className="h-3 w-3 text-purple-500" /> Incoming</span>
         </div>
         

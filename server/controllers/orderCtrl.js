@@ -10,6 +10,7 @@ const { exportInvoiceToPDFBackend } = require("../templates/exportInvoice");
 const Counter = require("../models/counterModel");
 const Product = require("../models/productModel");
 const PreOrderModel = require("../models/preOrderModel");
+const PriceListTemplate = require("../models/PriceListTemplate");
 const { validateOrderItems } = require("../utils/orderValidation");
 const { calculatePalletsNeeded } = require("../utils/palletCalculator");
 const notificationService = require("../services/notificationService");
@@ -130,13 +131,68 @@ const calculateStockForDateRange = (product, fromDate, toDate) => {
 
 
 /**
- * Get the correct price for a product based on store's price category
+ * Get the correct price for a product based on active price list and store's price category
  * @param {Object} product - Product document
  * @param {string} priceCategory - Store's price category (aPrice, bPrice, cPrice, restaurantPrice)
  * @param {string} pricingType - "box" or "unit"
+ * @param {Object} activePriceList - Active price list object (optional)
  * @returns {number} - The correct price
  */
-const getProductPriceForStore = (product, priceCategory, pricingType = "box") => {
+const getProductPriceForStore = (product, priceCategory, pricingType = "box", activePriceList = null) => {
+  // First check if we have an active price list
+  if (activePriceList && activePriceList.products && activePriceList.products.length > 0) {
+    // Find product in price list by matching ID or name
+    const priceListProduct = activePriceList.products.find(p => 
+      (p.id === product._id?.toString()) || 
+      (p._id === product._id?.toString()) || 
+      (p.id === product.id) || 
+      (p._id === product.id) ||
+      (p.name === product.name) // Also match by name as fallback
+    );
+    
+    if (priceListProduct) {
+      // Product found in price list, use price list pricing based on store's price category
+      if (pricingType === "unit") {
+        // For unit pricing, use the store's price category
+        switch (priceCategory) {
+          case "aPrice":
+            return priceListProduct.aPrice || priceListProduct.price || 0;
+          case "bPrice":
+            return priceListProduct.bPrice || priceListProduct.price || 0;
+          case "cPrice":
+            return priceListProduct.cPrice || priceListProduct.price || 0;
+          case "restaurantPrice":
+            return priceListProduct.restaurantPrice || priceListProduct.price || 0;
+          default:
+            return priceListProduct.price || 0;
+        }
+      } else {
+        // For box pricing, use pricePerBox or fallback to store's price category
+        if (priceListProduct.pricePerBox) {
+          return priceListProduct.pricePerBox;
+        } else {
+          // Fallback to store's price category for box pricing
+          switch (priceCategory) {
+            case "aPrice":
+              return priceListProduct.aPrice || 0;
+            case "bPrice":
+              return priceListProduct.bPrice || 0;
+            case "cPrice":
+              return priceListProduct.cPrice || 0;
+            case "restaurantPrice":
+              return priceListProduct.restaurantPrice || 0;
+            default:
+              return 0;
+          }
+        }
+      }
+    } else {
+      // Product not found in price list, return 0
+      return 0;
+    }
+  }
+  
+  // Fallback: if no price list, use original logic (product's direct price fields)
   if (pricingType === "unit") {
     return product.price || 0;
   }
@@ -4252,9 +4308,18 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
       });
     }
 
+    // Fetch active price list for pricing
+    let activePriceList = null;
+    try {
+      activePriceList = await PriceListTemplate.findOne({ status: "active" }).sort({ createdAt: -1 });
+      console.log(`Active price list found: ${activePriceList ? activePriceList.name : 'None'}`);
+    } catch (error) {
+      console.error("Error fetching active price list:", error);
+    }
+
     // Create new item object with proper price calculation
-    const calculatedPrice = getProductPriceForStore(product, store.priceCategory, "box");
-    console.log(`Calculated price for ${product.name}: ${calculatedPrice} (priceCategory: ${store.priceCategory}, pricePerBox: ${product.pricePerBox}, aPrice: ${product.aPrice})`);
+    const calculatedPrice = getProductPriceForStore(product, store.priceCategory, "box", activePriceList);
+    console.log(`Calculated price for ${product.name}: ${calculatedPrice} (priceCategory: ${store.priceCategory}, activePriceList: ${activePriceList ? activePriceList.name : 'None'})`);
     
     const newItem = {
       productId: product._id.toString(),
@@ -4313,6 +4378,7 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
         store: storeId,
         status: "Processing",
         preOrder: preOrderId, // Link to PreOrder
+        priceListId: activePriceList ? activePriceList._id : null, // Save the active price list ID
         shippingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
@@ -4517,10 +4583,19 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
 
     console.log(`Found existing PreOrder: ${preOrder ? preOrder._id : 'None'}`);
 
+    // Fetch active price list for pricing
+    let activePriceList = null;
+    try {
+      activePriceList = await PriceListTemplate.findOne({ status: "active" }).sort({ createdAt: -1 });
+      console.log(`Active price list found: ${activePriceList ? activePriceList.name : 'None'}`);
+    } catch (error) {
+      console.error("Error fetching active price list:", error);
+    }
+
     // Create new item object with proper price calculation
-    const calculatedPreOrderPrice = getProductPriceForStore(product, storePriceCategory, "box");
+    const calculatedPreOrderPrice = getProductPriceForStore(product, storePriceCategory, "box", activePriceList);
     console.log(`PreOrder - Product: ${product.name}, Store: ${store.storeName}, PriceCategory: ${storePriceCategory}`);
-    console.log(`PreOrder - Calculated price: ${calculatedPreOrderPrice}, aPrice: ${product.aPrice}, bPrice: ${product.bPrice}, cPrice: ${product.cPrice}, pricePerBox: ${product.pricePerBox}`);
+    console.log(`PreOrder - Calculated price: ${calculatedPreOrderPrice}, activePriceList: ${activePriceList ? activePriceList.name : 'None'}`);
     
     const newItem = {
       productId: product._id.toString(),
@@ -4568,6 +4643,7 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
         store: storeId,
         status: "pending",
         orderType: "PreOrder",
+        priceListId: activePriceList ? activePriceList._id : null, // Save the active price list ID
         shippingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
