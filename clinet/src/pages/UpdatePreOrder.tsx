@@ -217,23 +217,63 @@ const UpdatePreOrder = () => {
     }
   }, [])
 
-  // Helper function to get correct price based on store's price category
+  // Helper function to get correct price from price list based on store's price category
   const getProductPrice = useCallback((product: ProductType | PriceListProduct, pricingType: "box" | "unit" = "box"): number => {
-    if (pricingType === "unit") {
-      return product.price || 0
+    // If order has a price list, use it for pricing
+    if (order?.priceListId && order.priceListId.products) {
+      const priceListProduct = order.priceListId.products.find(p => 
+        (p.id === product.id) || 
+        (p._id === product.id) || 
+        (p._id === product._id) || 
+        (p.id === product._id) ||
+        (p.name === product.name) // Also match by name as fallback
+      )
+      
+      if (priceListProduct) {
+        // Product found in price list, use price list pricing based on store's price category
+        if (pricingType === "unit") {
+          // For unit pricing, use the store's price category
+          switch (storePriceCategory) {
+            case "aPrice":
+              return priceListProduct.aPrice || priceListProduct.price || 0
+            case "bPrice":
+              return priceListProduct.bPrice || priceListProduct.price || 0
+            case "cPrice":
+              return priceListProduct.cPrice || priceListProduct.price || 0
+            case "restaurantPrice":
+              return priceListProduct.restaurantPrice || priceListProduct.price || 0
+            default:
+              return priceListProduct.price || 0
+          }
+        } else {
+          // For box pricing, use pricePerBox or fallback to store's price category
+          if (priceListProduct.pricePerBox) {
+            return priceListProduct.pricePerBox
+          } else {
+            // Fallback to store's price category for box pricing
+            switch (storePriceCategory) {
+              case "aPrice":
+                return priceListProduct.aPrice || 0
+              case "bPrice":
+                return priceListProduct.bPrice || 0
+              case "cPrice":
+                return priceListProduct.cPrice || 0
+              case "restaurantPrice":
+                return priceListProduct.restaurantPrice || 0
+              default:
+                return 0
+            }
+          }
+        }
+      } else {
+        // Product not found in price list, return 0
+        return 0
+      }
     }
     
-    // Get price based on store's price category
-    const categoryPrice = product[storePriceCategory as keyof typeof product] as number | undefined
-    
-    // If category price is set and > 0, use it
-    if (categoryPrice && categoryPrice > 0) {
-      return categoryPrice
-    }
-    
-    // Fallback to aPrice or pricePerBox
-    return product.aPrice || product.pricePerBox || 0
-  }, [storePriceCategory])
+    // Fallback: if no price list, return 0
+    return 0
+  }, [storePriceCategory, order])
 
   // Handle quick add input change - search from backend
   const handleQuickAddChange = useCallback((value: string) => {
@@ -275,9 +315,8 @@ const UpdatePreOrder = () => {
         
         setQuickAddPreview(product)
         if (product) {
-          const salesMode = product.salesMode || "both"
-          const defaultType = salesMode === "unit" ? "unit" : "box"
-          setQuickAddPricingType(defaultType)
+          // Always use box pricing for pre-orders
+          setQuickAddPricingType("box")
           setQuickAddQuantity(1)
         }
       } catch (error) {
@@ -295,23 +334,17 @@ const UpdatePreOrder = () => {
       toast({ title: "No product selected", description: "Enter a valid product code first", variant: "destructive" })
       return
     }
+    
     const product = quickAddPreview
-    const salesMode = product.salesMode || "both"
-    if (salesMode === "case" && quickAddPricingType === "unit") {
-      toast({ title: "Not allowed", description: `${product.name} can only be sold by case/box`, variant: "destructive" })
-      return
-    }
-    if (salesMode === "unit" && quickAddPricingType === "box") {
-      toast({ title: "Not allowed", description: `${product.name} can only be sold by unit`, variant: "destructive" })
-      return
-    }
+    // Only allow box pricing for pre-orders
+    const finalPricingType = "box"
     
     const existingIndex = orderItems.findIndex(
-      item => item.productId === product.id && item.pricingType === quickAddPricingType
+      item => item.productId === product.id && item.pricingType === finalPricingType
     )
     
-    // Get correct price based on store's price category
-    const unitPrice = getProductPrice(product, quickAddPricingType)
+    // Get correct price based on price list
+    const unitPrice = getProductPrice(product, finalPricingType)
     
     if (existingIndex >= 0) {
       const updated = [...orderItems]
@@ -323,7 +356,7 @@ const UpdatePreOrder = () => {
         productName: product.name,
         quantity: quickAddQuantity,
         unitPrice: unitPrice,
-        pricingType: quickAddPricingType,
+        pricingType: finalPricingType,
         shippinCost: product.shippinCost || 0,
         shortCode: product.shortCode
       }])
@@ -334,12 +367,12 @@ const UpdatePreOrder = () => {
       return [product, ...filtered].slice(0, 10)
     })
     
-    toast({ title: "Added!", description: `${quickAddQuantity} ${quickAddPricingType === 'box' ? 'box(es)' : 'unit(s)'} of ${product.name}` })
+    toast({ title: "Added!", description: `${quickAddQuantity} box(es) of ${product.name}` })
     setQuickAddInput("")
     setQuickAddPreview(null)
     setQuickAddQuantity(1)
     quickAddRef.current?.focus()
-  }, [quickAddPreview, quickAddQuantity, quickAddPricingType, orderItems, toast, getProductPrice])
+  }, [quickAddPreview, quickAddQuantity, orderItems, toast, getProductPrice])
 
   // Keyboard shortcut
   useEffect(() => {
@@ -374,36 +407,19 @@ const UpdatePreOrder = () => {
         // Check if preorder has a price list linked
         let formattedProducts: ProductType[] = []
         
-        if (res?.priceListId && res.priceListId.products && res.priceListId.products.length > 0) {
-          // Use products from the linked price list
-          const priceListProducts = res.priceListId.products
-          formattedProducts = priceListProducts.map((p: any, index: number) => ({
-            ...p,
-            id: p.id || p._id,
-            _id: p.id || p._id,
-            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-            salesMode: p.salesMode || "case",
-            // Use price from price list based on store's category
-            pricePerBox: p[storeCategory] || p.aPrice || p.pricePerBox || 0,
-            price: p.price || 0,
-            shippinCost: p.shippinCost || 0
-          }))
-          setHasMoreProducts(false) // All price list products loaded
-        } else {
-          // Fallback to all inventory products (like create pre-order)
-          const productsData = await getAllProductAPI()
-          formattedProducts = productsData.map((p: any, index: number) => ({
-            ...p,
-            id: p._id || p.id,
-            shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-            salesMode: p.salesMode || "both",
-            // Use standard product pricing for admin
-            pricePerBox: p.pricePerBox || 0,
-            price: p.price || 0,
-            shippinCost: p.shippinCost || 0
-          }))
-          setHasMoreProducts(false) // All products loaded at once
-        }
+        // Always fetch all products for display
+        const allProductsData = await getAllProductAPI()
+        formattedProducts = allProductsData.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          _id: p._id || p.id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both",
+          pricePerBox: p.pricePerBox || 0,
+          price: p.price || 0,
+          shippinCost: p.shippinCost || 0
+        }))
+        setHasMoreProducts(false) // All products loaded at once
         
         setProducts(formattedProducts)
         setDisplayedProducts(formattedProducts)
@@ -443,6 +459,10 @@ const UpdatePreOrder = () => {
           priceListId: res.priceListId || null,
         }
 
+        console.log("Pre-order data loaded:", res)
+        console.log("Price List ID:", res.priceListId)
+        console.log("Formatted Order:", formattedOrder)
+
         setOrder(formattedOrder)
         setOrderItems(formattedOrder.items)
        setOrderStatus(formattedOrder.status.toLowerCase())
@@ -461,7 +481,7 @@ const UpdatePreOrder = () => {
     }
   }, [id, token])
 
-  // Search products from backend with debounce (or filter price list products locally)
+  // Search products from backend with debounce - filter from all products
   const handleProductSearchChange = useCallback(async (value: string) => {
     setProductSearch(value)
     setCurrentPage(1)
@@ -471,41 +491,7 @@ const UpdatePreOrder = () => {
       clearTimeout(productSearchTimeoutRef.current)
     }
     
-    // If preorder has a price list, filter locally from price list products
-    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
-      const priceListProducts = order.priceListId.products
-      const searchLower = value.toLowerCase()
-      
-      let filtered = priceListProducts
-      if (value.trim()) {
-        filtered = priceListProducts.filter((p: any) => 
-          p.name?.toLowerCase().includes(searchLower) ||
-          p.shortCode?.toLowerCase().includes(searchLower)
-        )
-      }
-      
-      // Also filter by category if selected
-      if (selectedCategory !== "all") {
-        filtered = filtered.filter((p: any) => p.category === selectedCategory)
-      }
-      
-      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-        ...p,
-        id: p.id || p._id,
-        _id: p.id || p._id,
-        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "case",
-        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
-        price: p.price || 0,
-        shippinCost: p.shippinCost || 0
-      }))
-      setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false)
-      return
-    }
-    
-    // If no price list, filter from all inventory products locally
+    // Filter from all products locally
     productSearchTimeoutRef.current = setTimeout(async () => {
       setProductSearchLoading(true)
       try {
@@ -544,50 +530,14 @@ const UpdatePreOrder = () => {
         setProductSearchLoading(false)
       }
     }, 300)
-  }, [selectedCategory, order, storePriceCategory])
+  }, [selectedCategory])
 
-  // Handle category change - filter price list products or all inventory products
+  // Handle category change - filter from all inventory products
   const handleCategoryChange = useCallback(async (category: string) => {
     setSelectedCategory(category)
     setCurrentPage(1)
     
-    // If preorder has a price list, filter locally from price list
-    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
-      const priceListProducts = order.priceListId.products
-      const searchLower = productSearch.toLowerCase()
-      
-      let filtered = priceListProducts
-      
-      // Filter by search term
-      if (productSearch.trim()) {
-        filtered = filtered.filter((p: any) => 
-          p.name?.toLowerCase().includes(searchLower) ||
-          p.shortCode?.toLowerCase().includes(searchLower)
-        )
-      }
-      
-      // Filter by category
-      if (category !== "all") {
-        filtered = filtered.filter((p: any) => p.category === category)
-      }
-      
-      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-        ...p,
-        id: p.id || p._id,
-        _id: p.id || p._id,
-        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "case",
-        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
-        price: p.price || 0,
-        shippinCost: p.shippinCost || 0
-      }))
-      setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false)
-      return
-    }
-    
-    // If no price list, filter from all inventory products
+    // Filter from all inventory products
     setProductSearchLoading(true)
     try {
       const allProducts = await getAllProductAPI()
@@ -625,7 +575,7 @@ const UpdatePreOrder = () => {
     } finally {
       setProductSearchLoading(false)
     }
-  }, [productSearch, order, storePriceCategory])
+  }, [productSearch])
 
   // Filter products - now just returns products from backend search
   const filteredProducts = products
@@ -689,44 +639,26 @@ const UpdatePreOrder = () => {
     setSelectedCategory("all")
     setCurrentPage(1)
     
-    // If preorder has a price list, show only price list products
-    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
-      const priceListProducts = order.priceListId.products
-      const formattedProducts: ProductType[] = priceListProducts.map((p: any, index: number) => ({
+    // Always show all inventory products
+    setProductSearchLoading(true)
+    try {
+      const allProducts = await getAllProductAPI()
+      const formattedProducts: ProductType[] = allProducts.map((p: any, index: number) => ({
         ...p,
-        id: p.id || p._id,
-        _id: p.id || p._id,
+        id: p._id || p.id,
         shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "case",
-        pricePerBox: p[storePriceCategory] || p.aPrice || p.pricePerBox || 0,
+        salesMode: p.salesMode || "both",
+        pricePerBox: p.pricePerBox || 0,
         price: p.price || 0,
         shippinCost: p.shippinCost || 0
       }))
       setProducts(formattedProducts)
       setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false) // Price list has fixed products, no more to load
-    } else {
-      // If no price list, show all inventory products
-      setProductSearchLoading(true)
-      try {
-        const allProducts = await getAllProductAPI()
-        const formattedProducts: ProductType[] = allProducts.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both",
-          pricePerBox: p.pricePerBox || 0,
-          price: p.price || 0,
-          shippinCost: p.shippinCost || 0
-        }))
-        setProducts(formattedProducts)
-        setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(false) // All products loaded at once
-      } catch (error) {
-        console.error("Error fetching products:", error)
-      } finally {
-        setProductSearchLoading(false)
-      }
+      setHasMoreProducts(false) // All products loaded at once
+    } catch (error) {
+      console.error("Error fetching products:", error)
+    } finally {
+      setProductSearchLoading(false)
     }
   }
 
@@ -902,19 +834,22 @@ const UpdatePreOrder = () => {
               {/* Left Column */}
               <div className="lg:col-span-2 space-y-4">
                 {/* Product Source Info */}
-                {order && (
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center gap-2 text-blue-700">
-                      <FileText className="h-4 w-4" />
-                      <span className="font-medium">Product Source:</span>
-                      {order.priceListId ? (
-                        <span>Price List - {order.priceListId.name} ({order.priceListId.products?.length || 0} products)</span>
-                      ) : (
-                        <span>All Inventory Products</span>
-                      )}
-                    </div>
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 text-blue-700">
+                    <FileText className="h-4 w-4" />
+                    <span className="font-medium">Showing:</span>
+                    <span>All Products ({products.length})</span>
+                    {order?.priceListId ? (
+                      <Badge variant="secondary" className="text-xs">
+                        Prices from: {order.priceListId.name}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-orange-600">
+                        No Price List - Prices will be $0
+                      </Badge>
+                    )}
                   </div>
-                )}
+                </div>
 
                 {/* Store Information */}
                 <Card>
@@ -1280,11 +1215,7 @@ const UpdatePreOrder = () => {
             <div className="grid grid-cols-1 gap-2">
               {displayedProducts.map((product, index) => {
                 const shortCode = product.shortCode || String(index + 1).padStart(2, '0')
-                const salesMode = product.salesMode || "both"
-                const showBoxButton = salesMode === "case" || salesMode === "both"
-                const showUnitButton = salesMode === "unit" || salesMode === "both"
                 const boxPrice = getProductPrice(product, "box")
-                const unitPrice = getProductPrice(product, "unit")
                 
                 return (
                   <div key={product.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 group">
@@ -1293,19 +1224,12 @@ const UpdatePreOrder = () => {
                       <div className="flex-1">
                         <div className="font-medium flex items-center gap-2">
                           {product.name}
-                          <Badge variant="secondary" className={cn(
-                            "text-[10px] px-1.5",
-                            salesMode === "unit" && "bg-blue-100 text-blue-700",
-                            salesMode === "case" && "bg-green-100 text-green-700",
-                            salesMode === "both" && "bg-purple-100 text-purple-700"
-                          )}>
-                            {salesMode === "unit" ? "Unit Only" : salesMode === "case" ? "Case Only" : "Both"}
+                          <Badge variant="secondary" className="text-[10px] px-1.5 bg-green-100 text-green-700">
+                            Case Only
                           </Badge>
                         </div>
                         <div className="text-sm text-muted-foreground flex items-center gap-2">
-                          {showBoxButton && <span>Box: ${boxPrice?.toFixed(2)}</span>}
-                          {showBoxButton && showUnitButton && <span>|</span>}
-                          {showUnitButton && <span>Unit: ${unitPrice?.toFixed(2)}</span>}
+                          <span>Box: ${boxPrice?.toFixed(2)}</span>
                           {product.category && (
                             <>
                               <span className="text-gray-300">•</span>
@@ -1319,7 +1243,7 @@ const UpdatePreOrder = () => {
                       <Button size="sm" variant="outline" onClick={() => {
                         setSelectedProductForAdd({ ...product, shortCode })
                         setAddQuantity(1)
-                        setAddPricingType(showBoxButton ? "box" : "unit")
+                        setAddPricingType("box")
                       }} className="hover:bg-orange-50 hover:border-orange-400">
                         <Plus className="h-3 w-3 mr-1" /> Add
                       </Button>
@@ -1369,12 +1293,7 @@ const UpdatePreOrder = () => {
           </DialogHeader>
           
           {selectedProductForAdd && (() => {
-            const salesMode = selectedProductForAdd.salesMode || "both"
-            const showBoxOption = salesMode === "case" || salesMode === "both"
-            const showUnitOption = salesMode === "unit" || salesMode === "both"
             const boxPrice = getProductPrice(selectedProductForAdd, "box")
-            const unitPrice = getProductPrice(selectedProductForAdd, "unit")
-            const currentPrice = addPricingType === "box" ? boxPrice : unitPrice
             
             return (
               <div className="space-y-4">
@@ -1386,25 +1305,9 @@ const UpdatePreOrder = () => {
                     <span className="font-medium">{selectedProductForAdd.name}</span>
                   </div>
                   <div className="text-sm text-muted-foreground mt-1">
-                    {showBoxOption && <span>Box: ${boxPrice?.toFixed(2)}</span>}
-                    {/* {showBoxOption && showUnitOption && <span> | </span>}
-                    {showUnitOption && <span>Unit: ${unitPrice?.toFixed(2)}</span>} */}
+                    Box: ${boxPrice?.toFixed(2)}
                   </div>
                 </div>
-
-                {salesMode === "both" && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Select Type</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button type="button" variant={addPricingType === "box" ? "default" : "outline"} className={cn("h-12", addPricingType === "box" && "bg-blue-600 hover:bg-blue-700")} onClick={() => setAddPricingType("box")}>
-                        <Package className="h-4 w-4 mr-2" />Case/Box
-                      </Button>
-                      {/* <Button type="button" variant={addPricingType === "unit" ? "default" : "outline"} className={cn("h-12", addPricingType === "unit" && "bg-green-600 hover:bg-green-700")} onClick={() => setAddPricingType("unit")}>
-                        <DollarSign className="h-4 w-4 mr-2" />Unit
-                      </Button> */}
-                    </div>
-                  </div>
-                )}
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Quantity (min: 1)</label>
@@ -1421,15 +1324,15 @@ const UpdatePreOrder = () => {
 
                 <div className="p-3 bg-orange-50 rounded-lg border border-orange-200">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">{addQuantity} × ${currentPrice?.toFixed(2)} ({addPricingType === "box" ? "per box" : "per unit"})</span>
-                    <span className="text-lg font-bold text-orange-600">${(addQuantity * (currentPrice || 0)).toFixed(2)}</span>
+                    <span className="text-sm text-muted-foreground">{addQuantity} × ${boxPrice?.toFixed(2)} (per box)</span>
+                    <span className="text-lg font-bold text-orange-600">${(addQuantity * (boxPrice || 0)).toFixed(2)}</span>
                   </div>
                 </div>
 
                 <div className="flex gap-2 pt-2">
                   <Button type="button" variant="outline" className="flex-1" onClick={() => setSelectedProductForAdd(null)}>Cancel</Button>
                   <Button type="button" className="flex-1 bg-orange-600 hover:bg-orange-700" onClick={() => {
-                    const existingIndex = orderItems.findIndex(item => item.productId === selectedProductForAdd.id && item.pricingType === addPricingType)
+                    const existingIndex = orderItems.findIndex(item => item.productId === selectedProductForAdd.id && item.pricingType === "box")
                     
                     if (existingIndex >= 0) {
                       const updated = [...orderItems]
@@ -1440,8 +1343,8 @@ const UpdatePreOrder = () => {
                         productId: selectedProductForAdd.id,
                         productName: selectedProductForAdd.name,
                         quantity: addQuantity,
-                        unitPrice: currentPrice || 0,
-                        pricingType: addPricingType,
+                        unitPrice: boxPrice || 0,
+                        pricingType: "box",
                         shippinCost: selectedProductForAdd.shippinCost || 0,
                         shortCode: selectedProductForAdd.shortCode
                       }])
@@ -1452,7 +1355,7 @@ const UpdatePreOrder = () => {
                       return [selectedProductForAdd, ...filtered].slice(0, 10)
                     })
                     
-                    toast({ title: "Added!", description: `${addQuantity} ${addPricingType === "box" ? "box(es)" : "unit(s)"} of ${selectedProductForAdd.name}` })
+                    toast({ title: "Added!", description: `${addQuantity} box(es) of ${selectedProductForAdd.name}` })
                     setSelectedProductForAdd(null)
                     setAddQuantity(1)
                   }}>
