@@ -24,6 +24,7 @@ const { CREATE_PRODUCT,
     ASSIGN_PRODUCT_TO_STORE,
     GET_USER_LATEST_ORDERS,
     GET_ORDER_MATRIX,
+    GET_ORDER_MATRIX_STATS,
     EXPORT_ORDER_MATRIX,
     UPDATE_ORDER_MATRIX_ITEM,
     UPDATE_PREORDER_MATRIX_ITEM,
@@ -777,6 +778,46 @@ export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, lim
           hasNextPage: false,
           hasPrevPage: false
         }
+      }
+    };
+  }
+};
+
+// Get Order Matrix Overall Statistics - Overall counts without pagination
+export const getOrderMatrixStatsAPI = async (token, weekOffset = 0) => {
+  try {
+    const params = new URLSearchParams({
+      weekOffset: weekOffset.toString(),
+    });
+
+    const response = await apiConnector(
+      "GET",
+      `${GET_ORDER_MATRIX_STATS}?${params.toString()}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to fetch order matrix statistics");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("getOrderMatrixStatsAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to fetch order matrix statistics");
+    return {
+      success: false,
+      data: {
+        totalStores: 0,
+        activeStores: 0,
+        totalProducts: 0,
+        totalOrders: 0,
+        totalPreOrders: 0,
+        weekRange: null,
+        weekOffset: 0
       }
     };
   }

@@ -59,7 +59,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
-import { getOrderMatrixDataAPI, exportOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
+import { getOrderMatrixDataAPI, getOrderMatrixStatsAPI, exportOrderMatrixDataAPI, updateOrderMatrixItemAPI, updatePreOrderMatrixItemAPI, getPendingPreOrdersAPI, confirmPreOrdersAPI } from "@/services2/operations/order";
 import { addIncomingStockAPI, bulkLinkIncomingStockAPI } from "@/services2/operations/incomingStock";
 import { getAllVendorsAPI } from "@/services2/operations/vendor";
 import { useSelector } from "react-redux";
@@ -315,7 +315,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   
   // Smart filtering
   const [showOnlyWithOrders, setShowOnlyWithOrders] = useState(false);
-  const [stockFilter, setStockFilter] = useState<"all" | "short" | "ok">("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "short" | "ok" | "remaining">("all");
   const [selectedState, setSelectedState] = useState<string>("all");
   
   // Store visibility for pagination
@@ -351,6 +351,17 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
   const [confirmBlockReason, setConfirmBlockReason] = useState<string | null>(null);
   const [hasUnlinkedIncoming, setHasUnlinkedIncoming] = useState(false);
   const [shortageInfo, setShortageInfo] = useState<any>(null);
+  
+  // Overall statistics state
+  const [overallStats, setOverallStats] = useState<any>({
+    totalStores: 0,
+    activeStores: 0,
+    totalProducts: 0,
+    totalOrders: 0,
+    totalOrdersCount: 0,
+    totalPreOrders: 0,
+    totalPreOrdersCount: 0
+  });
   
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -406,10 +417,31 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
     }
   }, [token, weekOffset, pageSize]);
 
+  // Fetch overall statistics from API
+  const fetchOverallStats = useCallback(async () => {
+    try {
+      const response = await getOrderMatrixStatsAPI(token, weekOffset);
+      if (response?.success && response?.data) {
+        setOverallStats({
+          totalStores: response.data.totalStores || 0,
+          activeStores: response.data.activeStores || 0,
+          totalProducts: response.data.totalProducts || 0,
+          totalOrders: response.data.totalOrders || 0,
+          totalOrdersCount: response.data.totalOrdersCount || 0, // New field
+          totalPreOrders: response.data.totalPreOrders || 0,
+          totalPreOrdersCount: response.data.totalPreOrdersCount || 0 // New field
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching overall statistics:", error);
+    }
+  }, [token, weekOffset]);
+
   useEffect(() => {
     setCurrentPage(1);
     fetchMatrixData(1, searchTerm, stockFilter);
-  }, [weekOffset, stockFilter]);
+    fetchOverallStats(); // Fetch overall stats when week changes
+  }, [weekOffset, stockFilter, fetchOverallStats]);
 
   // Trigger fetch when pageSize changes
   useEffect(() => {
@@ -423,11 +455,12 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
       // Small delay to ensure backend has processed the change
       setTimeout(() => {
         fetchMatrixData(currentPage, searchTerm, stockFilter);
+        fetchOverallStats(); // Also refresh overall stats
       }, 500);
     });
 
     return () => unsubscribe();
-  }, [currentPage, searchTerm, fetchMatrixData]);
+  }, [currentPage, searchTerm, fetchMatrixData, fetchOverallStats]);
 
   // Handle ESC key to exit fullscreen
   useEffect(() => {
@@ -642,7 +675,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           toast.success("PreOrder updated", { autoClose: 1000 });
           
           // Auto-refresh after update
-          setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
+          setTimeout(() => {
+            fetchMatrixData(currentPage, searchTerm, stockFilter);
+            fetchOverallStats();
+          }, 500);
         }
       } else {
         // ORDER Mode - Create/Update Order
@@ -707,7 +743,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           toast.success(response.preOrderHandled ? "PreOrder converted!" : "Updated", { autoClose: 1000 });
           
           // Auto-refresh after update
-          setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
+          setTimeout(() => {
+            fetchMatrixData(currentPage, searchTerm, stockFilter);
+            fetchOverallStats();
+          }, 500);
         }
       }
     } catch (error) {
@@ -779,7 +818,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         toast.success("Incoming stock updated", { autoClose: 1000 });
         
         // Auto-refresh after update
-        setTimeout(() => fetchMatrixData(currentPage, searchTerm, stockFilter), 500);
+        setTimeout(() => {
+          fetchMatrixData(currentPage, searchTerm, stockFilter);
+          fetchOverallStats();
+        }, 500);
       }
     } catch (error) {
       console.error("Error updating incoming stock:", error);
@@ -913,6 +955,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         setSelectedItemsToLink(new Set());
         // Refresh matrix data
         fetchMatrixData(currentPage, searchTerm, stockFilter);
+        fetchOverallStats();
       }
     } catch (error) {
       console.error("Error linking to vendor:", error);
@@ -1175,6 +1218,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           
           // Refresh matrix data
           fetchMatrixData(currentPage, searchTerm, stockFilter);
+          fetchOverallStats();
           return;
         }
         
@@ -1239,6 +1283,7 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           
           // Refresh matrix data
           fetchMatrixData(currentPage, searchTerm, stockFilter);
+          fetchOverallStats();
         } else {
           await Swal.fire({
             icon: 'info',
@@ -1328,7 +1373,10 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    onClick={() => fetchMatrixData(currentPage, searchTerm, stockFilter)}
+                    onClick={() => {
+                      fetchMatrixData(currentPage, searchTerm, stockFilter);
+                      fetchOverallStats();
+                    }}
                     disabled={loading}
                     className="border-green-500 text-green-600 hover:bg-green-50 h-8 w-8 sm:w-auto sm:px-3 p-0"
                   >
@@ -1611,9 +1659,9 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
           </Button>
 
           {/* Stock Filter Dropdown */}
-          <Select value={stockFilter} onValueChange={(value: "all" | "short" | "ok") => setStockFilter(value)}>
-            <SelectTrigger className={`h-8 w-[100px] sm:w-[130px] text-xs ${stockFilter === "short" ? "bg-red-100 border-red-500 text-red-700" : stockFilter === "ok" ? "bg-green-100 border-green-500 text-green-700" : ""}`}>
-              <AlertTriangle className={`h-3 w-3 mr-1 ${stockFilter === "short" ? "text-red-600" : stockFilter === "ok" ? "text-green-600" : "text-gray-500"}`} />
+          <Select value={stockFilter} onValueChange={(value: "all" | "short" | "ok" | "remaining") => setStockFilter(value)}>
+            <SelectTrigger className={`h-8 w-[100px] sm:w-[130px] text-xs ${stockFilter === "short" ? "bg-red-100 border-red-500 text-red-700" : stockFilter === "ok" ? "bg-green-100 border-green-500 text-green-700" : stockFilter === "remaining" ? "bg-blue-100 border-blue-500 text-blue-700" : ""}`}>
+              <AlertTriangle className={`h-3 w-3 mr-1 ${stockFilter === "short" ? "text-red-600" : stockFilter === "ok" ? "text-green-600" : stockFilter === "remaining" ? "text-blue-600" : "text-gray-500"}`} />
               <SelectValue placeholder="Stock Filter" />
             </SelectTrigger>
             <SelectContent>
@@ -1621,6 +1669,11 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
               <SelectItem value="short">
                 <span className="flex items-center gap-1 text-red-600">
                   <AlertTriangle className="h-3 w-3" /> Short Only
+                </span>
+              </SelectItem>
+              <SelectItem value="remaining">
+                <span className="flex items-center gap-1 text-blue-600">
+                  <Package className="h-3 w-3" /> Remaining Stock
                 </span>
               </SelectItem>
               {/* <SelectItem value="ok">
@@ -1718,19 +1771,29 @@ const WeeklyOrderMatrix: React.FC<WeeklyOrderMatrixProps> = ({ products, onRefre
         <div className="flex flex-wrap gap-2 mb-3 text-xs">
           <Badge variant="outline" className="gap-1">
             <Store className="h-3 w-3" />
-            {filteredStores.length} Stores ({storesWithOrdersCount} active)
+            {overallStats.totalStores} Stores ({overallStats.activeStores} active)
           </Badge>
           <Badge variant="outline" className="gap-1">
             <Package className="h-3 w-3" />
-            {matrixData.length} Products
+            {overallStats.totalProducts} Products
           </Badge>
           <Badge variant="outline" className="gap-1 bg-orange-50">
             <ClipboardList className="h-3 w-3" />
-            {preOrdersCount} PreOrders
+            {overallStats.totalPreOrders} PreOrders
+            {overallStats.totalPreOrdersCount && (
+              <span className="text-[10px] opacity-70 ml-1">
+                ({overallStats.totalPreOrdersCount} preorders)
+              </span>
+            )}
           </Badge>
           <Badge variant="outline" className="gap-1 bg-blue-50">
             <ShoppingCart className="h-3 w-3" />
-            {totals.orderTotal} Orders
+            {overallStats.totalOrders} Orders
+            {overallStats.totalOrdersCount && (
+              <span className="text-[10px] opacity-70 ml-1">
+                ({overallStats.totalOrdersCount} orders)
+              </span>
+            )}
           </Badge>
         </div>
 

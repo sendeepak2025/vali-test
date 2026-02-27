@@ -31,6 +31,7 @@ export const endpoints = {
   // Store Analytics
   GET_STORE_ANALYTICS_API: BASE_URL + "/auth/store-analytics",
   GET_ALL_STORES_ANALYTICS_API: BASE_URL + "/auth/stores-analytics",
+  EXPORT_STORES_DATA_API: BASE_URL + "/auth/stores-export",
   GET_PAGINATED_PAYMENT_STORES_API: BASE_URL + "/auth/stores-payment-status",
   GET_STORE_ORDERS_PAGINATED_API: BASE_URL + "/auth/store",
   // Store Communication & Payment
@@ -119,6 +120,7 @@ export const order = {
 
   // Order Matrix APIs
   GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
+  GET_ORDER_MATRIX_STATS: BASE_URL + "/order/matrix/stats",
   EXPORT_ORDER_MATRIX: BASE_URL + "/order/matrix/export",
   UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
   UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",

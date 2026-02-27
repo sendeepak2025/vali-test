@@ -3634,9 +3634,9 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       productQuery.name = { $regex: search, $options: "i" };
     }
 
-    // For "short" or "ok" filter, we need ALL products first to calculate stock, then filter and paginate
+    // For "short", "ok", or "remaining" filter, we need ALL products first to calculate stock, then filter and paginate
     // For "all" filter, we can use normal pagination
-    const needsFullProductList = statusFilter === "short" || statusFilter === "ok";
+    const needsFullProductList = statusFilter === "short" || statusFilter === "ok" || statusFilter === "remaining";
 
     // ✅ OPTIMIZED: Run all independent queries in parallel using Promise.all
     const [
@@ -3920,11 +3920,17 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     // Convert to array format
     let matrixArray = Object.values(matrixData);
 
-    // Apply status filter (SHORT or OK) BEFORE pagination
+    // Apply status filter (SHORT, OK, or REMAINING) BEFORE pagination
     if (statusFilter === "short") {
       matrixArray = matrixArray.filter(row => row.isShort === true);
     } else if (statusFilter === "ok") {
       matrixArray = matrixArray.filter(row => row.isShort === false);
+    } else if (statusFilter === "remaining") {
+      // Filter products where finalStock > 0 (FIN column > 0, not including 0)
+      matrixArray = matrixArray.filter(row => {
+        const finalStock = row.finalStock || 0;
+        return finalStock > 0; // Strictly greater than 0, excludes 0
+      });
     }
 
     // For short/ok filter: Update totalProducts and apply pagination AFTER filtering
@@ -5377,6 +5383,139 @@ const getRegionalOrderTrends = async (req, res) => {
   }
 };
 
+// Get Order Matrix Overall Statistics - Overall counts without pagination
+const getOrderMatrixStatsCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0 } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the TARGET week (based on offset)
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // ✅ Run all queries in parallel for better performance
+    const [
+      currentWeekOrders,
+      preOrders,
+      allStores
+    ] = await Promise.all([
+      // Get all orders for TARGET week (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"  // This is the correct spelling used in the system
+      }).populate("store", "storeName").lean(),
+
+      // Get PreOrders for the TARGET week - MORE SPECIFIC QUERY
+      PreOrderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },  // Only preorders created this week
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).populate("store", "storeName").lean(),
+
+      // Get all stores
+      authModel.find({ role: "store" }).select("storeName").lean()
+    ]);
+
+    // Calculate active stores (stores that placed orders OR preorders in current week)
+    const activeStoresSet = new Set();
+    
+    // Add stores from orders
+    currentWeekOrders.forEach(order => {
+      const storeId = order.store?._id?.toString() || order.store?.toString();
+      if (storeId) {
+        activeStoresSet.add(storeId);
+      }
+    });
+    
+    // Add stores from preorders
+    preOrders.forEach(preOrder => {
+      const storeId = preOrder.store?._id?.toString() || preOrder.store?.toString();
+      if (storeId) {
+        activeStoresSet.add(storeId);
+      }
+    });
+
+    // Calculate total orders count (sum of all order item quantities)
+    let totalOrderQuantity = 0;
+    let totalOrdersCount = currentWeekOrders.length; // Number of actual orders
+    currentWeekOrders.forEach(order => {
+      order.items?.forEach(item => {
+        totalOrderQuantity += item.quantity || 0;
+      });
+    });
+
+    // Calculate total preorders count (sum of all preorder item quantities)
+    let totalPreOrderQuantity = 0;
+    let totalPreOrdersCount = preOrders.length; // Number of actual preorders
+    preOrders.forEach(preOrder => {
+      preOrder.items?.forEach(item => {
+        totalPreOrderQuantity += item.quantity || 0;
+      });
+    });
+
+    // Calculate products that have orders or preorders in current week
+    const productsWithActivitySet = new Set();
+    
+    // Add products from orders
+    currentWeekOrders.forEach(order => {
+      order.items?.forEach(item => {
+        if (item.productId) {
+          productsWithActivitySet.add(item.productId.toString());
+        }
+      });
+    });
+    
+    // Add products from preorders
+    preOrders.forEach(preOrder => {
+      preOrder.items?.forEach(item => {
+        if (item.productId) {
+          productsWithActivitySet.add(item.productId.toString());
+        }
+      });
+    });
+
+    // Debug logging
+    console.log(`📊 Order Matrix Stats Debug:
+    - Week: ${monday.toISOString().split('T')[0]} to ${sunday.toISOString().split('T')[0]}
+    - Orders: ${totalOrdersCount} orders with ${totalOrderQuantity} total quantity
+    - PreOrders: ${totalPreOrdersCount} preorders with ${totalPreOrderQuantity} total quantity
+    - Active stores: ${activeStoresSet.size}
+    - Products with activity: ${productsWithActivitySet.size}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Order matrix statistics fetched successfully",
+      data: {
+        totalStores: allStores.length,
+        activeStores: activeStoresSet.size,
+        totalProducts: productsWithActivitySet.size, // Products with activity in current week
+        totalOrders: totalOrderQuantity, // Total quantity of all order items
+        totalOrdersCount: totalOrdersCount, // Number of actual orders
+        totalPreOrders: totalPreOrderQuantity, // Total quantity of all preorder items  
+        totalPreOrdersCount: totalPreOrdersCount, // Number of actual preorders
+        weekRange: {
+          start: monday.toISOString(),
+          end: sunday.toISOString(),
+          label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        },
+        weekOffset: offset
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching order matrix statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching order matrix statistics",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createOrderCtrl,
   getAllOrderCtrl,
@@ -5399,6 +5538,7 @@ module.exports = {
   assignProductToStore,
   getUserLatestOrdersCtrl,
   getOrderMatrixDataCtrl,
+  getOrderMatrixStatsCtrl,
   exportOrderMatrixDataCtrl,
   updateOrderMatrixItemCtrl,
   updatePreOrderMatrixItemCtrl,

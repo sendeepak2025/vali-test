@@ -27,7 +27,8 @@ const {
   UPDATE_CHEQUE_STATUS_API,
   GET_ALL_CHEQUES_API,
   GET_STORE_ANALYTICS_API,
-  GET_ALL_STORES_ANALYTICS_API
+  GET_ALL_STORES_ANALYTICS_API,
+  EXPORT_STORES_DATA_API
 } = endpoints;
 
 export async function login(email, password, navigate, dispatch) {
@@ -1125,5 +1126,34 @@ export const rejectStoreAPI = async (storeId, reason, token) => {
     return null;
   } finally {
     toast.dismiss(toastId);
+  }
+};
+
+// Export Stores Data - Multiple export types (All, Overdue, Warning, Good Standing)
+export const exportStoresDataAPI = async (exportType = "all") => {
+  try {
+    const queryParams = new URLSearchParams({
+      exportType
+    }).toString();
+    
+    const response = await apiConnector("GET", `${EXPORT_STORES_DATA_API}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to export stores data");
+    }
+
+    return response?.data;
+  } catch (error) {
+    console.error("EXPORT STORES DATA API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to export stores data");
+    return {
+      success: false,
+      data: {
+        stores: [],
+        exportType,
+        exportTitle: "Export Failed",
+        totalStores: 0
+      }
+    };
   }
 };
