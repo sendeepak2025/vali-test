@@ -48,68 +48,89 @@ export const exportBillOfLadingToPDF = (
   const CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2);
   let yPos = 0;
 
-  // ===== HEADER SECTION (Full Width) =====
+  // ===== HEADER SECTION (More Compact) =====
   doc.setFillColor(5, 150, 105); 
-  doc.rect(0, 0, PAGE_WIDTH, 35, "F");
+  doc.rect(0, 0, PAGE_WIDTH, 30, "F");
 
-  // Logo Fix: No Stretch
+  // Logo (Left side)
   try {
     const logoUrl = "/logg.png";
-    doc.addImage(logoUrl, "PNG", MARGIN, 9, 22, 22, undefined, 'FAST');
+    doc.addImage(logoUrl, "PNG", MARGIN, 4, 18, 18, undefined, 'FAST');
   } catch (e) {
     doc.setFontSize(10);
     doc.setTextColor(255, 255, 255);
-    doc.text("VALI PRODUCE", MARGIN, 18);
+    doc.text("VALI", MARGIN, 13);
   }
 
-  // Header Text
+  // FROM: SHIPPER (Next to logo - White text on green background)
+  const shipperStartX = MARGIN + 23;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(255, 255, 255);
+  doc.text("FROM: SHIPPER", shipperStartX, 7);
+  
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.text(data.shipperName, shipperStartX, 12);
+  
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.text(data.shipperAddress, shipperStartX, 17);
+  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}, USA`, shipperStartX, 22);
+
+  // Header Text (Center)
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
-  doc.text("BILL OF LADING", PAGE_WIDTH / 2 + 10, 18, { align: "center" });
+  doc.setFontSize(18);
+  doc.text("BILL OF LADING", PAGE_WIDTH / 2, 10, { align: "center" });
 
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "normal");
-  doc.text(`B/L NUMBER: ${data.bolNumber}`, PAGE_WIDTH / 2 + 10, 26, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.text(`B/L NUMBER: ${data.bolNumber}`, PAGE_WIDTH / 2, 17, { align: "center" });
   
   doc.setFontSize(7);
-  doc.text("ORIGINAL - NON NEGOTIABLE", PAGE_WIDTH / 2 + 10, 31, { align: "center" });
+  doc.setFont("helvetica", "bold");
+  doc.text("ORIGINAL - NON NEGOTIABLE", PAGE_WIDTH / 2, 22, { align: "center" });
 
-  yPos = 45;
+  // Page number position (top right corner) - Will be updated dynamically later
+  doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
+  // Placeholder - will be replaced in the page number loop at the end
+  
+  // Effective Date (Below Page number)
+  const effectiveDate = new Date().toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Effective Date: ${effectiveDate}`, PAGE_WIDTH - MARGIN, 12, { align: "right" });
 
-  // ===== SHIPPER & CONSIGNEE BOXES (Aligned to Edges) =====
-  const boxSpacing = 6;
-  const boxWidth = (CONTENT_WIDTH - boxSpacing) / 2;
-  const boxHeight = 38;
+  yPos = 33;
 
-  const drawAddressBox = (x: number, title: string, name: string, addr: string, cityState: string, phone?: string) => {
-    doc.setDrawColor(220, 220, 220);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x, yPos, boxWidth, boxHeight, 1, 1, "FD");
+  // ===== CONSIGNEE INFO (Single Line - Bold and bigger font) =====
+  const infoStartY = yPos;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(5, 150, 105);
-    doc.text(title, x + 5, yPos + 7);
+  // TO: CONSIGNEE label with details immediately after
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(5, 150, 105);
+  doc.text("TO: CONSIGNEE", MARGIN, infoStartY + 4);
+  
+  // All info in ONE single line - BOLD and bigger font (9pt)
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(0, 0, 0); // Pure black for better visibility
+  
+  // Build complete single line text with minimal gaps
+  const phoneText = data.consigneePhone ? ` TEL: ${data.consigneePhone}` : '';
+  const singleLineText = `${data.consigneeName}  ${data.consigneeAddress}  ${data.consigneeCity}, ${data.consigneeState} ${data.consigneeZip}+${phoneText}`;
+  
+  // Start text right after "TO: CONSIGNEE" label - BOLD
+  doc.text(singleLineText, MARGIN + 35, infoStartY + 4);
 
-    doc.setFontSize(10);
-    doc.setTextColor(20, 20, 20);
-    doc.text(name.substring(0, 35), x + 5, yPos + 16);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(80, 80, 80);
-    doc.text(addr.substring(0, 40), x + 5, yPos + 23);
-    doc.text(cityState, x + 5, yPos + 30);
-    if (phone) doc.text(`TEL: ${phone}`, x + 5, yPos + 35);
-  };
-
-  // Left Box (Shipper)
-  drawAddressBox(MARGIN, "FROM: SHIPPER", data.shipperName, data.shipperAddress, `${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`);
-  // Right Box (Consignee) - Aligned exactly to Right Margin
-  drawAddressBox(MARGIN + boxWidth + boxSpacing, "TO: CONSIGNEE", data.consigneeName, data.consigneeAddress, `${data.consigneeCity}, ${data.consigneeState} ${data.consigneeZip}`, data.consigneePhone);
-
-  yPos += boxHeight + 8;
+  yPos += 10;
 
   // ===== CARRIER INFO (Full Width Fix) =====
   doc.setFillColor(248, 250, 252);
@@ -121,6 +142,7 @@ export const exportBillOfLadingToPDF = (
   doc.text("CARRIER:", MARGIN + 5, yPos + 7.5);
   doc.text("SERVICE LEVEL:", MARGIN + (CONTENT_WIDTH / 2), yPos + 7.5);
 
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(20, 20, 20);
   doc.text(data.carrierName.toUpperCase(), MARGIN + 25, yPos + 7.5);
   doc.text(data.serviceLevel.toUpperCase(), MARGIN + (CONTENT_WIDTH / 2) + 28, yPos + 7.5);
@@ -144,11 +166,12 @@ export const exportBillOfLadingToPDF = (
     theme: 'striped',
     margin: { left: MARGIN, right: MARGIN }, // Force alignment
     tableWidth: CONTENT_WIDTH, // Force full width
-    styles: { fontSize: 9, cellPadding: 4, halign: 'center', overflow: 'linebreak' },
+    styles: { fontSize: 9, cellPadding: 4, halign: 'center', overflow: 'linebreak', fontStyle: 'bold' },
     headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
-      1: { halign: 'left', cellWidth: 'auto' },
+      1: { halign: 'left', cellWidth: 'auto', fontStyle: 'bold' },
     },
+    bodyStyles: { fontStyle: 'bold' },
     foot: [[
         data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString(),
         "TOTALS",
@@ -172,29 +195,32 @@ export const exportBillOfLadingToPDF = (
   // Shipper Aligned Left
   doc.line(MARGIN, yPos + 10, MARGIN + sigLineLength, yPos + 10);
   doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(100, 100, 100);
   doc.text("SHIPPER SIGNATURE", MARGIN, yPos + 14);
-  doc.setFont("helvetica", "italic");
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(20, 20, 20);
   doc.text(data.signatureShipper || "test", MARGIN, yPos + 8);
 
   // Carrier Aligned Right
   doc.line(PAGE_WIDTH - MARGIN - sigLineLength, yPos + 10, PAGE_WIDTH - MARGIN, yPos + 10);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("helvetica", "bold");
   doc.text("CARRIER SIGNATURE", PAGE_WIDTH - MARGIN - sigLineLength, yPos + 14);
   
   // Footer
   doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(150, 150, 150);
   doc.text("Vali Produce | 4300 Pleasantdale Rd, Atlanta, GA 30340 | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
 
-  // ===== PAGE NUMBERS (Correct Loop) =====
+  // ===== PAGE NUMBERS (Dynamic - Correct Loop) =====
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text(`Page ${i} of ${totalPages}`, PAGE_WIDTH - MARGIN, 8, { align: "right" });
+    doc.text(`Page ${i} of ${totalPages}`, PAGE_WIDTH - MARGIN, 7, { align: "right" });
   }
 
   // Final Action

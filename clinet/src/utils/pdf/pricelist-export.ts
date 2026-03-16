@@ -23,12 +23,10 @@ export const exportPriceListToPDF = (
   const totalProducts = template.products.length;
   const isLargeDataset = totalProducts > 100;
 
-  // Print-safe margins - accounts for Microsoft Print to PDF default margins (~12.7mm)
-  const MARGIN = 10;
-  const PRINT_MARGIN_COMPENSATION = 14; // Extra bottom space for printer margins
+  const MARGIN = 8;
   const TABLE_FONT_SIZE = isLargeDataset ? 7 : 8;
   const HEADER_FONT_SIZE = 7;
-  const ROW_PADDING = isLargeDataset ? 1 : 1.5;
+  const ROW_PADDING = isLargeDataset ? 0.5 : 0.8;
 
   const today = new Date();
   const logoUrl = "/logg.png";
@@ -41,14 +39,27 @@ export const exportPriceListToPDF = (
   const rightColumnX = leftColumnX + columnWidth + columnGap;
   const startY = 22;
   const HEADER_HEIGHT = 20;
-  const FOOTER_HEIGHT = 8;
-  const MAX_Y = pageHeight - MARGIN - FOOTER_HEIGHT - PRINT_MARGIN_COMPENSATION;
+  const FOOTER_HEIGHT = 10;
+  const MAX_Y = pageHeight - MARGIN - FOOTER_HEIGHT;
 
   const drawHeader = () => {
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, pageWidth, HEADER_HEIGHT + 2, "F");
 
     doc.addImage(logoUrl, "PNG", MARGIN, 0, 30, 15);
+
+    // Address next to logo (compact)
+    const addressStartX = MARGIN + 32;
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(40, 40, 40);
+    doc.text("Vali Produce", addressStartX, 4);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(5.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text("4300 Pleasantdale Rd", addressStartX, 8);
+    doc.text("Atlanta, GA 30340, USA", addressStartX, 11.5);
 
     doc.setFontSize(HEADER_FONT_SIZE);
     doc.setFont("helvetica", "normal");
@@ -119,23 +130,25 @@ export const exportPriceListToPDF = (
   const sortedCategories = allCategories.sort((a, b) => {
     const priorityA = categoryPriority[a.toUpperCase()] || 100;
     const priorityB = categoryPriority[b.toUpperCase()] || 100;
+
     if (priorityA !== priorityB) {
       return priorityA - priorityB;
     }
+
     return productsByCategory[b].length - productsByCategory[a].length;
   });
 
-  drawHeader();
+  drawHeader(); // --- ऊँचाई मापने वाले फ़ंक्शंस (Height Measurement Functions) ---
 
-  // --- Fixed Height Measurements for 4 Columns ---
   const SINGLE_ROW_HEIGHT = (() => {
     const tempDoc = new jsPDF();
     autoTable(tempDoc, {
       startY: 0,
-      body: [["#000", "SAMPLE", "$0.00", ""]], // 4 elements to match 4 columns
+      body: [["SAMPLE", "$0.00", ""]],
       tableWidth: columnWidth,
       styles: { fontSize: TABLE_FONT_SIZE, cellPadding: ROW_PADDING },
-    });
+      didDrawPage: () => {},
+    }); // Get row height
     return tempDoc.lastAutoTable?.finalY ?? 4;
   })();
 
@@ -143,15 +156,27 @@ export const exportPriceListToPDF = (
     const tempDoc = new jsPDF();
     autoTable(tempDoc, {
       startY: 0,
-      body: [[{ content: "CATEGORY", colSpan: 4 }]], // colSpan 4
+      body: [
+        [
+          {
+            content: "CATEGORY",
+            colSpan: 3,
+            styles: { fontSize: TABLE_FONT_SIZE + 1 },
+          },
+        ],
+      ],
       tableWidth: columnWidth,
       styles: { cellPadding: ROW_PADDING },
+      didDrawPage: () => {},
     });
     return tempDoc.lastAutoTable?.finalY ?? 6;
   })();
 
   const measureProductHeight = () => SINGLE_ROW_HEIGHT;
-  const measureCategoryHeaderHeight = () => CATEGORY_HEADER_HEIGHT;
+  const measureCategoryHeaderHeight = () => CATEGORY_HEADER_HEIGHT;  // --- नया रेंडर फ़ंक्शन (New Render Function) ---
+  /**
+   * Renders just a "chunk" of a category (a header and N products)
+   */
 
   const renderCategoryChunk = (
     categoryName: string,
@@ -166,7 +191,7 @@ export const exportPriceListToPDF = (
       bodyData.push([
         {
           content: categoryName.toUpperCase(),
-          colSpan: 4,
+          colSpan: 3,
           styles: {
             halign: "left",
             fillColor: [220, 220, 220],
@@ -180,14 +205,7 @@ export const exportPriceListToPDF = (
 
     bodyData.push(
       ...products.map((product) => [
-        {
-          content: product.shortCode ? `#${product.shortCode}` : "-",
-          styles: { fontStyle: "normal", textColor: [80, 80, 80] },
-        },
-        {
-          content: product.name.toUpperCase(),
-          styles: { fontStyle: "bold" },
-        },
+        { content: product.name.toUpperCase(), styles: { fontStyle: "bold" } },
         {
           content: `${formatCurrencyValue(
             product[price as keyof PriceListProduct] as number
@@ -196,7 +214,7 @@ export const exportPriceListToPDF = (
         },
         { content: "", styles: { fontStyle: "bold", halign: "center" } },
       ])
-    );
+    ); // If no header and no products, don't render anything
 
     if (bodyData.length === 0) return y;
 
@@ -215,25 +233,31 @@ export const exportPriceListToPDF = (
         lineWidth: 0.1,
       },
       columnStyles: {
-  0: { cellWidth: columnWidth * 0.12 },
-  1: { cellWidth: columnWidth * 0.50 },
-  2: { cellWidth: columnWidth * 0.19, halign: "center" },
-  3: { cellWidth: columnWidth * 0.19, halign: "center" },
-},
-
-      alternateRowStyles: { fillColor: [250, 250, 250] },
+        0: { cellWidth: columnWidth * 0.55 },
+        1: { cellWidth: columnWidth * 0.16, halign: "center" },
+        2: { cellWidth: columnWidth * 0.2, halign: "center" },
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 250],
+      }, // We manually handle page breaks, so tell autoTable not to
       pageBreak: "avoid",
-      didDrawPage: () => {
-        drawHeader();
+      didDrawPage: (data) => {
+        // This hook should not be called if pageBreak is 'avoid'
+        // But if it is, we must redraw the header
+        if (data.pageNumber > doc.internal.getCurrentPageInfo().pageNumber) {
+          drawHeader();
+        }
       },
     });
 
     return doc.lastAutoTable?.finalY ?? y + 10;
-  };
+  }; // --- नया लेआउट लॉजिक (New Layout Logic) ---
 
   const layoutCategories = () => {
     let leftY = startY;
     let rightY = startY;
+    let currentPage = 1; // Track the next product index for each category
+
     const categoryCursors: Record<string, number> = {};
     sortedCategories.forEach((cat) => (categoryCursors[cat] = 0));
 
@@ -242,7 +266,7 @@ export const exportPriceListToPDF = (
     while (currentCategoryIndex < sortedCategories.length) {
       const categoryName = sortedCategories[currentCategoryIndex];
       const allProducts = productsByCategory[categoryName];
-      let cursor = categoryCursors[categoryName];
+      let cursor = categoryCursors[categoryName]; // 1. Pick the shorter column
 
       const isLeftColumn = leftY <= rightY;
       let currentX = isLeftColumn ? leftColumnX : rightColumnX;
@@ -250,43 +274,81 @@ export const exportPriceListToPDF = (
 
       let availableSpace = MAX_Y - currentY;
       const showHeader = cursor === 0;
-      const headerHeight = showHeader ? measureCategoryHeaderHeight() : 0;
-      const minSpaceNeeded = headerHeight + (allProducts.length > 0 ? measureProductHeight() : 0);
+      const headerHeight = showHeader ? measureCategoryHeaderHeight() : 0; // 2. Check if the column is "full" // If not enough space for header OR (header + 1 product)
 
-      if (availableSpace < minSpaceNeeded && availableSpace < headerHeight + 5) {
-        if (isLeftColumn) leftY = MAX_Y; else rightY = MAX_Y;
+      const minSpaceNeeded =
+        headerHeight + (allProducts.length > 0 ? measureProductHeight() : 0);
+
+      if (
+        availableSpace < minSpaceNeeded &&
+        availableSpace < headerHeight + 5
+      ) {
+        // 5 as a small buffer
+        // This column is full. Mark it as full and retry in the other column.
+        if (isLeftColumn) {
+          leftY = MAX_Y;
+        } else {
+          rightY = MAX_Y;
+        } // If *both* columns are now full, create a new page
+
         if (leftY >= MAX_Y && rightY >= MAX_Y) {
           doc.addPage();
           drawHeader();
+          currentPage++;
           leftY = startY;
           rightY = startY;
         }
-        continue;
-      }
+        continue; // Re-run the loop (will try the other column or new page)
+      } // 3. Calculate how many products can fit
 
       let spaceForProducts = availableSpace - headerHeight;
-      let numProductsToFit = Math.floor(spaceForProducts / measureProductHeight());
+      let numProductsToFit = Math.floor(
+        spaceForProducts / measureProductHeight()
+      );
       numProductsToFit = Math.max(0, numProductsToFit);
 
-      const remainingProductsCount = allProducts.length - cursor;
+      const remainingProductsCount = allProducts.length - cursor; // If header fits, but 0 products fit, and we *have* products,
+      // the column is effectively full.
       if (showHeader && numProductsToFit === 0 && remainingProductsCount > 0) {
-        if (isLeftColumn) leftY = MAX_Y; else rightY = MAX_Y;
+        if (isLeftColumn) {
+          leftY = MAX_Y;
+        } else {
+          rightY = MAX_Y;
+        }
+
         if (leftY >= MAX_Y && rightY >= MAX_Y) {
           doc.addPage();
           drawHeader();
+          currentPage++;
           leftY = startY;
           rightY = startY;
         }
-        continue;
+        continue; // Retry
       }
 
-      const productsToRenderCount = Math.min(remainingProductsCount, numProductsToFit);
-      const productsChunk = allProducts.slice(cursor, cursor + productsToRenderCount);
+      const productsToRenderCount = Math.min(
+        remainingProductsCount,
+        numProductsToFit
+      );
+      const productsChunk = allProducts.slice(
+        cursor,
+        cursor + productsToRenderCount
+      ); // 4. Render the chunk
 
-      const newY = renderCategoryChunk(categoryName, productsChunk, currentX, currentY, showHeader);
+      const newY = renderCategoryChunk(
+        categoryName,
+        productsChunk,
+        currentX,
+        currentY,
+        showHeader
+      ); // 5. Update cursor and Y-position
 
-      if (isLeftColumn) leftY = newY + 0.3; else rightY = newY + 0.3;
-      categoryCursors[categoryName] += productsChunk.length;
+      if (isLeftColumn) {
+        leftY = newY + 0.3;
+      } else {
+        rightY = newY + 0.3;
+      }
+      categoryCursors[categoryName] += productsChunk.length; // 6. If category is finished, move to the next one
 
       if (categoryCursors[categoryName] >= allProducts.length) {
         currentCategoryIndex++;
@@ -299,14 +361,27 @@ export const exportPriceListToPDF = (
   const totalPagesCount = doc.getNumberOfPages();
   for (let i = 1; i <= totalPagesCount; i++) {
     doc.setPage(i);
+
     doc.setFontSize(6);
-    doc.text(`Page ${i} of ${totalPagesCount}`, pageWidth - MARGIN, 22, { align: "right" });
+    doc.text(`Page ${i} of ${totalPagesCount}`, pageWidth - MARGIN, 22, {
+      align: "right",
+    });
+
+    const footerY = pageHeight - 6;
     doc.setFontSize(6);
     doc.setFont("helvetica", "italic");
-    // Footer positioned to be visible even with Microsoft Print to PDF margins
-    doc.text("Pricing and availability subject to change without prior notice. © Vali Produce", pageWidth / 2, pageHeight - MARGIN - PRINT_MARGIN_COMPENSATION, { align: "center" });
+    doc.text(
+      "Pricing and availability subject to change without prior notice. © Vali Produce",
+      pageWidth / 2,
+      footerY,
+      { align: "center" }
+    );
   }
 
-  doc.save(`vali-produce-price-list-${template.name.toLowerCase().replace(/\s+/g, "-")}.pdf`);
+  doc.save(
+    `vali-produce-price-list-${template.name
+      .toLowerCase()
+      .replace(/\s+/g, "-")}.pdf`
+  );
   return doc;
 };
