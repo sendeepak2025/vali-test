@@ -3,6 +3,7 @@ const productModel = require("../models/productModel")
 const categoryModel = require("../models/categoryModel")
 const Order = require("../models/orderModle");
 const Product = require("../models/productModel");
+const IncomingStock = require("../models/incomingStockModel");
 const mongoose = require("mongoose");
 const { calculateInventoryPallets } = require("../utils/palletCalculator");
 
@@ -620,7 +621,7 @@ exports.deleteTask = async (req, res) => {
 };
 
 // Get products for a specific store
-exports.getProductsByStore = async (req, res) => {
+const getProductsByStore = async (req, res) => {
   try {
     const { storeId } = req.params;
     
@@ -635,6 +636,132 @@ exports.getProductsByStore = async (req, res) => {
     res.status(200).json({ success: true, products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get detailed purchase history for a product
+const getProductPurchaseHistory = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: "Invalid Product ID" });
+    }
+
+    // Get product details
+    const product = await Product.findById(productId).select('name image totalPurchase unitPurchase purchaseHistory lbPurchaseHistory updatedFromOrders');
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Date filtering
+    let dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.purchaseDate = {};
+      if (startDate) {
+        dateFilter.purchaseDate.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        dateFilter.purchaseDate.$lte = new Date(endDate + "T23:59:59.999Z");
+      }
+    }
+
+    // Get all approved purchase orders for this product
+    const PurchaseOrder = require('../models/purchaseModel');
+    const purchaseOrders = await PurchaseOrder.find({
+      'items.productId': productId,
+      'items.qualityStatus': 'approved',
+      ...dateFilter
+    }).populate('vendorId', 'name').sort({ purchaseDate: -1 });
+
+    // Build detailed purchase history
+    const detailedHistory = [];
+    let totalQuantityFromOrders = 0;
+    let totalWeightFromOrders = 0;
+
+    purchaseOrders.forEach(po => {
+      po.items.forEach(item => {
+        if (item.productId.toString() === productId && item.qualityStatus === 'approved') {
+          totalQuantityFromOrders += item.quantity;
+          totalWeightFromOrders += (item.totalWeight || 0);
+          
+          detailedHistory.push({
+            purchaseOrderId: po._id,
+            purchaseOrderNumber: po.purchaseOrderNumber,
+            purchaseDate: po.purchaseDate,
+            vendorName: po.vendorId?.name || 'Unknown Vendor',
+            quantity: item.quantity,
+            totalWeight: item.totalWeight || 0,
+            lb: item.lb || null,
+            qualityStatus: item.qualityStatus,
+            qualityNotes: item.qualityNotes || '',
+            batchNumber: item.batchNumber || '',
+            actualWeight: item.actualWeight || 0,
+            expectedWeight: item.expectedWeight || 0,
+            weightVariance: item.weightVariance || 0,
+            weightVariancePercent: item.weightVariancePercent || 0
+          });
+        }
+      });
+    });
+
+    // Group by date for summary
+    const dateWiseSummary = {};
+    detailedHistory.forEach(entry => {
+      const dateKey = new Date(entry.purchaseDate).toISOString().split('T')[0];
+      if (!dateWiseSummary[dateKey]) {
+        dateWiseSummary[dateKey] = {
+          date: dateKey,
+          totalQuantity: 0,
+          totalWeight: 0,
+          purchaseOrders: []
+        };
+      }
+      dateWiseSummary[dateKey].totalQuantity += entry.quantity;
+      dateWiseSummary[dateKey].totalWeight += entry.totalWeight;
+      dateWiseSummary[dateKey].purchaseOrders.push({
+        purchaseOrderNumber: entry.purchaseOrderNumber,
+        vendorName: entry.vendorName,
+        quantity: entry.quantity,
+        totalWeight: entry.totalWeight
+      });
+    });
+
+    // Convert to array and sort by date
+    const dateWiseArray = Object.values(dateWiseSummary).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Summary statistics
+    const summary = {
+      totalPurchaseFromDB: product.totalPurchase,
+      totalUnitPurchaseFromDB: product.unitPurchase,
+      totalQuantityFromOrders: totalQuantityFromOrders,
+      totalWeightFromOrders: totalWeightFromOrders,
+      purchaseHistoryEntries: product.purchaseHistory?.length || 0,
+      lbPurchaseHistoryEntries: product.lbPurchaseHistory?.length || 0,
+      updatedFromOrdersEntries: product.updatedFromOrders?.length || 0,
+      isConsistent: product.totalPurchase === totalQuantityFromOrders,
+      lastUpdated: product.updatedAt
+    };
+
+    res.status(200).json({
+      success: true,
+      product: {
+        _id: product._id,
+        name: product.name,
+        image: product.image
+      },
+      summary,
+      detailedHistory,
+      dateWiseSummary: dateWiseArray,
+      purchaseHistory: product.purchaseHistory,
+      lbPurchaseHistory: product.lbPurchaseHistory,
+      updatedFromOrders: product.updatedFromOrders
+    });
+
+  } catch (error) {
+    console.error("Error fetching product purchase history:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
   }
 };
 
@@ -1194,6 +1321,145 @@ const resetAndRebuildHistoryForAllProducts = async (
   };
 };
 
+// ✅ Helper: Sum array by field (reduce shortcut)
+const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
+
+// ✅ Helper: Filter array by date range
+const filterByDate = (arr, from, to) => {
+  if (!arr || arr.length === 0) return [];
+  return arr.filter(item => {
+    const d = new Date(item.date);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+};
+
+// ✅ Calculate CURRENT WEEK STOCK (Monday to Sunday current week only)
+const calculateActualStock = (product) => {
+  const now = new Date();
+
+  // Get current week's Monday and Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
+
+  return calculateStockForDateRange(product, monday, sunday);
+};
+
+// ✅ Calculate STOCK for any date range
+const calculateStockForDateRange = (product, fromDate, toDate) => {
+  // Filter data for the specified date range
+  const stockPurchase = filterByDate(
+    product?.purchaseHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockSell = filterByDate(
+    product?.salesHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockUnitPurchase = filterByDate(
+    product?.lbPurchaseHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockUnitSell = filterByDate(
+    product?.lbSellHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockTrash = filterByDate(
+    product?.quantityTrash || [],
+    fromDate,
+    toDate
+  );
+
+  // Trash calculation
+  const trashBox = stockTrash
+    .filter(t => t.type?.toLowerCase() === "box")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  const trashUnit = stockTrash
+    .filter(t => t.type?.toLowerCase() === "unit")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  // Totals for the date range
+  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+  const stockSellTotal = sumBy(stockSell, "quantity");
+
+  const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
+  const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
+
+  // Manual add (only if within date range)
+  const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
+  const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
+
+  // CALCULATION FOR DATE RANGE (NEGATIVE ALLOWED)
+  const totalRemaining = stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+  const unitRemaining = stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
+
+  return {
+    totalRemaining, // can be negative
+    unitRemaining,  // can be negative
+    trashBox,
+    trashUnit,
+    stockPurchaseTotal,
+    stockSellTotal,
+    stockUnitPurchaseTotal,
+    stockUnitSellTotal,
+    dateRange: {
+      from: fromDate.toISOString(),
+      to: toDate.toISOString()
+    },
+    isOverSold: totalRemaining < 0
+  };
+};
+
+
+// ✅ Calculate REPORT DATA (user ke date filter ke hisaab se - sirf dikhane ke liye)
+const calculateReportData = (product, reportFrom, reportTo) => {
+  // Report data - user ke selected date range se
+  const reportPurchase = reportFrom || reportTo
+    ? filterByDate(product?.purchaseHistory || [], reportFrom, reportTo)
+    : product?.purchaseHistory || [];
+  
+  const reportSell = reportFrom || reportTo
+    ? filterByDate(product?.salesHistory || [], reportFrom, reportTo)
+    : product?.salesHistory || [];
+  
+  const reportUnitPurchase = reportFrom || reportTo
+    ? filterByDate(product?.lbPurchaseHistory || [], reportFrom, reportTo)
+    : product?.lbPurchaseHistory || [];
+  
+  const reportUnitSell = reportFrom || reportTo
+    ? filterByDate(product?.lbSellHistory || [], reportFrom, reportTo)
+    : product?.lbSellHistory || [];
+
+  return {
+    totalPurchase: sumBy(reportPurchase, "quantity"),
+    totalSell: sumBy(reportSell, "quantity"),
+    unitPurchase: sumBy(reportUnitPurchase, "weight"),
+    unitSell: sumBy(reportUnitSell, "weight")
+  };
+};
+
 const getAllProductsWithHistorySummary = async (req, res) => {
   try {
     const {
@@ -1203,9 +1469,9 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       limit = 20,
       search = '',
       categoryId = '',
-      sortBy = 'updatedAt', // Default sort
+      sortBy = 'updatedAt',
       sortOrder = 'desc',
-      stockLevel = 'all', // "low", "out", "high", "all"
+      stockLevel = 'all',
       hard = false
     } = req.query;
 
@@ -1214,22 +1480,13 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       await resetAndRebuildHistoryForAllProducts();
     }
 
-    // ✅ Prepare date filters (UTC-safe)
-    const fromDate = startDate ? new Date(`${startDate}T00:00:00.000Z`) : null;
-    const toDate = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
-
-    // ✅ Range check function
-    const isWithinRange = (date) => {
-      const d = new Date(date);
-      if (fromDate && d < fromDate) return false;
-      if (toDate && d > toDate) return false;
-      return true;
-    };
+    // ✅ Report date range (user ke filter ke liye - stock pe effect nahi)
+    const reportFrom = startDate ? new Date(`${startDate}T00:00:00.000Z`) : null;
+    const reportTo = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
 
     // ✅ Build DB filter
     const filter = {};
     if (search) {
-      // Search by name OR shortCode
       filter.$or = [
         { name: { $regex: search, $options: "i" } },
         { shortCode: { $regex: `^${search}`, $options: "i" } }
@@ -1239,78 +1496,100 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       filter.category = categoryId;
     }
 
+    // ✅ Get total count for pagination
+    const totalCount = await Product.countDocuments(filter);
+
     // ✅ Pagination setup
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    // ✅ Fetch products
- let products = await Product.find(filter)
-      .populate("category", "categoryName") // populate only categoryName
+    // ✅ Fetch products with DB-level pagination (OPTIMIZED)
+    const products = await Product.find(filter)
+      .populate("category", "categoryName")
+      .sort({ [sortBy]: sortOrder === 'asc' ? 1 : -1 })
+      .skip(skip)
+      .limit(limitNum)
       .lean();
-    // ✅ Add summary for each product
+
+    // ✅ Get current week's incoming stock for all products
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() - ((day + 6) % 7),
+        0, 0, 0, 0
+      )
+    );
+    const sunday = new Date(
+      Date.UTC(
+        monday.getUTCFullYear(),
+        monday.getUTCMonth(),
+        monday.getUTCDate() + 6,
+        23, 59, 59, 999
+      )
+    );
+
+    // Fetch incoming stock for current week (only draft and linked - not received/verified)
+    const incomingStockData = await IncomingStock.find({
+      weekStart: { $gte: monday },
+      weekEnd: { $lte: sunday },
+      status: { $in: ["draft", "linked"] },
+    }).lean();
+
+    // Create a map of productId -> total incoming quantity
+    const incomingStockMap = {};
+    incomingStockData.forEach((item) => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+      if (!incomingStockMap[productId]) {
+        incomingStockMap[productId] = 0;
+      }
+      incomingStockMap[productId] += item.quantity || 0;
+    });
+
+    // ✅ Calculate summary for each product
     let productsWithSummary = products.map(product => {
-      const hasDateFilter = fromDate || toDate;
+      // 🔴 STOCK CALCULATION - use date range if provided, otherwise current week
+      let actualStock;
+      if (reportFrom && reportTo) {
+        // Use user's selected date range for stock calculation
+        actualStock = calculateStockForDateRange(product, reportFrom, reportTo);
+      } else {
+        // Use current week for stock calculation
+        actualStock = calculateActualStock(product);
+      }
+      
+      // 🔵 REPORT DATA - user ke date filter se (sirf dikhane ke liye)
+      const reportData = calculateReportData(product, reportFrom, reportTo);
 
-      // ✅ Filter histories based on date
-      const filteredPurchase = hasDateFilter
-        ? (product?.purchaseHistory || []).filter(p => isWithinRange(p.date))
-        : (product?.purchaseHistory || []);
-
-      const filteredSell = hasDateFilter
-        ? (product?.salesHistory || []).filter(s => isWithinRange(s.date))
-        : (product?.salesHistory || []);
-
-      const filteredUnitPurchase = hasDateFilter
-        ? (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date))
-        : (product?.lbPurchaseHistory || []);
-
-      const filteredUnitSell = hasDateFilter
-        ? (product?.lbSellHistory || []).filter(s => isWithinRange(s.date))
-        : (product?.lbSellHistory || []);
-
-      const filteredTrash = hasDateFilter
-        ? (product?.quantityTrash || []).filter(t => isWithinRange(t.date))
-        : (product?.quantityTrash || []);
-
-      // ✅ Trash calculations
-      const trashBox = filteredTrash
-        .filter(t => t.type === "box")
-        .reduce((sum, t) => sum + t.quantity, 0);
-
-      const trashUnit = filteredTrash
-        .filter(t => t.type === "unit")
-        .reduce((sum, t) => sum + t.quantity, 0);
-
-      // ✅ Totals
-      const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-      const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-      const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-      const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
-
-      const totalRemaining = Math.max(
-        totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-        0
-      );
-
-      const unitRemaining = Math.max(
-        unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-        0
-      );
+      // 🟢 INCOMING STOCK - current week ka incoming
+      const productId = product._id?.toString();
+      const incomingStock = incomingStockMap[productId] || 0;
 
       return {
         ...product,
-        categoryName: product?.category?.categoryName || "", 
+        categoryName: product?.category?.categoryName || "",
         summary: {
-          totalPurchase,
-          totalSell,
-          totalRemaining,
-          unitPurchase,
-          unitSell,
-          unitRemaining,
-        },
+          // Report data (filtered by user's date range)
+          totalPurchase: reportData.totalPurchase,
+          totalSell: reportData.totalSell,
+          unitPurchase: reportData.unitPurchase,
+          unitSell: reportData.unitSell,
+          // Stock calculation (based on date range or current week)
+          totalRemaining: actualStock.totalRemaining,
+          unitRemaining: actualStock.unitRemaining,
+          trashBox: actualStock.trashBox,
+          trashUnit: actualStock.trashUnit,
+          // Incoming stock for current week
+          incomingStock: incomingStock
+        }
       };
     });
 
-    // ✅ Stock filter
+    // ✅ Stock filter (post-query filter - only if needed)
     if (stockLevel !== "all") {
       productsWithSummary = productsWithSummary.filter(p => {
         const remaining = p.summary?.totalRemaining || 0;
@@ -1321,37 +1600,25 @@ const getAllProductsWithHistorySummary = async (req, res) => {
       });
     }
 
-    // ✅ Sorting
-    const sortedProducts = productsWithSummary.sort((a, b) => {
-      const fieldA = a[sortBy] || a.summary?.[sortBy];
-      const fieldB = b[sortBy] || b.summary?.[sortBy];
-
-      if (typeof fieldA === "string" && typeof fieldB === "string") {
-        return sortOrder === "asc"
-          ? fieldA.localeCompare(fieldB)
-          : fieldB.localeCompare(fieldA);
-      } else {
-        return sortOrder === "asc"
-          ? (fieldA || 0) - (fieldB || 0)
-          : (fieldB || 0) - (fieldA || 0);
-      }
-    });
-
-    // ✅ Total count after filtering
-    const total = sortedProducts.length;
-
-    // ✅ Pagination
-    const paginated = sortedProducts.slice(skip, skip + parseInt(limit));
-
     // ✅ Final response
     res.status(200).json({
       success: true,
-      data: paginated,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-      appliedDateFilter: { startDate, endDate },
+      data: productsWithSummary,
+      total: totalCount,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount / limitNum),
+      appliedDateFilter: { 
+        startDate: startDate || null, 
+        endDate: endDate || null 
+      },
+      stockCalculationBase: reportFrom && reportTo 
+        ? `Date Range: ${reportFrom.toISOString().split('T')[0]} to ${reportTo.toISOString().split('T')[0]}`
+        : "Current Week Only (Monday to Sunday)",
+      currentWeekRange: {
+        start: monday.toISOString(),
+        end: sunday.toISOString()
+      }
     });
 
   } catch (error) {
@@ -1359,8 +1626,6 @@ const getAllProductsWithHistorySummary = async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
-
-
 
 
 
@@ -2073,6 +2338,143 @@ const getProductByShortCodeCtrl = async (req, res) => {
     }
 };
 
+// Search products with pagination - for order creation
+const searchProductsCtrl = async (req, res) => {
+    try {
+        const { search = "", limit = 10, category = "", skip = 0 } = req.query;
+        
+        let query = {};
+        
+        // Add search filter if search term provided
+        if (search.trim()) {
+            const searchRegex = new RegExp(search.trim(), "i");
+            query.$or = [
+                { name: searchRegex },
+                { shortCode: searchRegex }
+            ];
+        }
+        
+        // Add category filter if provided - need to find category by name first
+        if (category && category !== "all" && category !== "") {
+            const categoryModel = require("../models/categoryModel");
+            const categoryDoc = await categoryModel.findOne({ 
+                categoryName: { $regex: new RegExp(`^${category}$`, "i") }
+            });
+            if (categoryDoc) {
+                query.category = categoryDoc._id;
+            }
+        }
+        
+        const products = await productModel.find(query)
+            .populate({
+                path: "category",
+                select: "categoryName",
+            })
+            .select("_id name price pricePerBox shippinCost shortCode salesMode image")
+            .sort({ name: 1 })
+            .skip(parseInt(skip))
+            .limit(parseInt(limit))
+            .lean();
+        
+        // Format products
+        const formattedProducts = products.map(product => ({
+            ...product,
+            id: product._id,
+            category: product.category?.categoryName || null,
+            salesMode: product.salesMode || "both"
+        }));
+        
+        return res.status(200).json({
+            success: true,
+            products: formattedProducts,
+            count: formattedProducts.length
+        });
+    } catch (error) {
+        console.error("Error in searchProductsCtrl:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error searching products",
+        });
+    }
+};
+
+// Export all products to Excel - optimized for price list
+const exportProductsExcelCtrl = async (req, res) => {
+    try {
+        const XLSX = require('xlsx');
+        
+        // Fetch all products with category - optimized query
+        const products = await productModel.find()
+            .populate({
+                path: "category",
+                select: "categoryName",
+            })
+            .select("_id name shortCode category pricePerBox price aPrice bPrice cPrice restaurantPrice")
+            .sort({ "category.categoryName": 1, name: 1 })
+            .lean();
+        
+        if (!products || products.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "No products found"
+            });
+        }
+        
+        // Sort by category name
+        const sortedProducts = products.sort((a, b) => {
+            const catA = (a.category?.categoryName || "Uncategorized").toLowerCase();
+            const catB = (b.category?.categoryName || "Uncategorized").toLowerCase();
+            return catA.localeCompare(catB);
+        });
+        
+        // Create Excel data - same format as frontend
+        const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"];
+        const rows = sortedProducts.map(p => {
+            const basePrice = p.pricePerBox || 0;
+            return [
+                p.name || "",
+                p.shortCode || "",
+                p.category?.categoryName || "",
+                basePrice,
+                (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
+                (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
+                (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
+                (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice,
+            ];
+        });
+        
+        // Create worksheet
+        const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        
+        // Set column widths
+        ws['!cols'] = [
+            { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
+        ];
+        
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Price List");
+        
+        // Generate buffer
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        
+        // Set headers for file download
+        const filename = `price_update_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', buffer.length);
+        
+        return res.send(buffer);
+    } catch (error) {
+        console.error("Error exporting products to Excel:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error exporting products",
+            error: error.message
+        });
+    }
+};
+
 module.exports = { 
     createProductCtrl, 
     getAllProductCtrl, 
@@ -2081,6 +2483,8 @@ module.exports = {
     updateProductCtrl, 
     updateProductPrice, 
     bulkDiscountApply,
+    getProductsByStore,
+    getProductPurchaseHistory,
     getWeeklyOrdersByProductCtrl,
     updateTotalSellForAllProducts,
     getAllProductsWithHistorySummary,
@@ -2090,5 +2494,7 @@ module.exports = {
     addToManually,
     calculateTripWeight,
     generateShortCodesCtrl,
-    getProductByShortCodeCtrl
+    getProductByShortCodeCtrl,
+    searchProductsCtrl,
+    exportProductsExcelCtrl
 };

@@ -42,12 +42,15 @@ import {
   createPriceListAPI,
   getAllPriceListAPI,
   updatePriceList,
-  deltePriceAPI
+  deltePriceAPI,
+  getSinglePriceAPI
 } from "@/services2/operations/priceList"
-import { getAllProductAPI } from "@/services2/operations/product"
+import { getAllProductAPI, searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
 import { priceListEmailMulti } from "@/services2/operations/email"
 import { exportPriceListToPDF } from "@/utils/pdf"
 import SelecteStores from "@/components/inventory/pricelist/SelecteStores"
+import { fetchCategoriesAPI } from "@/services2/operations/category"
+import { getAllStoresAPI, searchStoresAPI } from "@/services2/operations/auth"
 
 // Stats Card Component
 const StatsCard = ({ title, value, subtitle, icon: Icon, color = "blue" }: any) => {
@@ -120,6 +123,15 @@ const PriceListEnhanced = () => {
   })
   const [selectedStores, setSelectedStores] = useState<any[]>([])
   const [isSending, setIsSending] = useState(false)
+  
+  // Category mode stores
+  const [categoryStores, setCategoryStores] = useState<any[]>([])
+  const [selectedCategoryStores, setSelectedCategoryStores] = useState<string[]>([])
+  const [loadingCategoryStores, setLoadingCategoryStores] = useState(false)
+  const [categoryStoresPage, setCategoryStoresPage] = useState(1)
+  const [totalCategoryStores, setTotalCategoryStores] = useState(0)
+  const [storeSearchQuery, setStoreSearchQuery] = useState("")
+  const STORES_LIMIT = 20
 
   // Stats
   const [stats, setStats] = useState({
@@ -144,16 +156,20 @@ const PriceListEnhanced = () => {
   const [excelColumns, setExcelColumns] = useState<string[]>([])
   const [columnMapping, setColumnMapping] = useState<{
     productName: string;
+    shortCode: string;
     price: string;
     aPrice: string;
     bPrice: string;
     cPrice: string;
+    restaurantPrice: string;
   }>({
     productName: "",
+    shortCode: "",
     price: "",
     aPrice: "",
     bPrice: "",
-    cPrice: ""
+    cPrice: "",
+    restaurantPrice: ""
   })
   const [matchedProducts, setMatchedProducts] = useState<any[]>([])
   const [uploadStep, setUploadStep] = useState<"upload" | "mapping" | "preview">("upload")
@@ -170,17 +186,22 @@ const PriceListEnhanced = () => {
   const [quickAddInput, setQuickAddInput] = useState("")
   const [quickAddPreview, setQuickAddPreview] = useState<any>(null)
   const [quickAddQuantity, setQuickAddQuantity] = useState(1)
+  const [quickAddLoading, setQuickAddLoading] = useState(false)
   const quickAddRef = useRef<HTMLInputElement>(null)
+  const quickAddSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Product code map for quick lookup
-  const productCodeMap = useMemo(() => {
-    const map = new Map<string, any>()
-    products.forEach((p) => {
-      const code = p.shortCode || ""
-      if (code) map.set(code, p)
-    })
-    return map
-  }, [products])
+  // Product table states for pagination and search
+  const [productTableSearch, setProductTableSearch] = useState("")
+  const [productTableCategory, setProductTableCategory] = useState("all")
+  const [displayedProducts, setDisplayedProducts] = useState<any[]>([])
+  const [hasMoreProducts, setHasMoreProducts] = useState(true)
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
+  const [productSearchLoading, setProductSearchLoading] = useState(false)
+  const [categories, setCategories] = useState<string[]>([])
+  const [downloadingFullList, setDownloadingFullList] = useState(false)
+  const [matchingProducts, setMatchingProducts] = useState(false)
+  const [matchingSummary, setMatchingSummary] = useState<{ total: number; matched: number; zeroPriceCount: number; willAdd: number } | null>(null)
+  const productSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Keyboard shortcut: Focus quick add with /
   useEffect(() => {
@@ -226,16 +247,28 @@ const PriceListEnhanced = () => {
     }
   }
 
-  // Fetch products for template creation
+  // Fetch products for template creation - only 10 initially
   const fetchProducts = async () => {
     try {
-      const response = await getAllProductAPI();
-      if (response) {
-        const updatedProducts = response.map((product: any) => ({
+      const [productsData, categoriesData] = await Promise.all([
+        searchProductsForOrderAPI("", 10),
+        fetchCategoriesAPI()
+      ])
+      
+      if (productsData) {
+        const updatedProducts = productsData.map((product: any) => ({
           ...product,
-          id: product._id,
+          id: product._id || product.id,
         }))
         setProducts(updatedProducts)
+        setDisplayedProducts(updatedProducts)
+        setHasMoreProducts(productsData.length === 10)
+      }
+      
+      // Set categories
+      if (categoriesData) {
+        const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
+        setCategories(categoryNames)
       }
     } catch (error) {
       console.error("Error fetching products:", error)
@@ -331,19 +364,60 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 };
 
 
-  // Download PDF
-  const handleDownloadPDF = (template: any, priceType: string = "pricePerBox") => {
+  // Download PDF with price selection
+  const [pdfPriceModalOpen, setPdfPriceModalOpen] = useState(false)
+  const [selectedPdfTemplate, setSelectedPdfTemplate] = useState<any>(null)
+  const [selectedPriceType, setSelectedPriceType] = useState("all")
+
+  const openPdfPriceModal = (template: any) => {
+    setSelectedPdfTemplate(template)
+    setSelectedPriceType("all")
+    setPdfPriceModalOpen(true)
+  }
+
+  const handleDownloadPDF = async (template: any, priceType: string = "all") => {
     try {
-      exportPriceListToPDF(template, priceType)
-      toast({ title: "Downloaded", description: "PDF has been generated" })
+      setDownloadingFullList(true)
+      
+      // Fetch the complete template data with all products
+      const fullTemplate = await getSinglePriceAPI(template.id || template._id)
+      
+      if (!fullTemplate || !fullTemplate.products || fullTemplate.products.length === 0) {
+        toast({ variant: "destructive", title: "Error", description: "No products found in this price list" })
+        return
+      }
+      
+      console.log("Full template data for PDF:", fullTemplate)
+      console.log("Total products to include in PDF:", fullTemplate.products.length)
+      console.log("Selected price type:", priceType)
+      
+      exportPriceListToPDF(fullTemplate, priceType)
+      
+      const priceTypeLabel = priceType === "all" ? "all prices" : 
+                           priceType === "base" ? "base price only" :
+                           priceType === "aPrice" ? "A price only" :
+                           priceType === "bPrice" ? "B price only" :
+                           priceType === "cPrice" ? "C price only" :
+                           priceType === "restaurant" ? "restaurant price only" : "selected prices"
+      
+      toast({ title: "Downloaded", description: `PDF generated with ${fullTemplate.products.length} products (${priceTypeLabel})` })
+      setPdfPriceModalOpen(false)
     } catch (error) {
+      console.error("PDF generation error:", error)
       toast({ variant: "destructive", title: "Error", description: "Failed to generate PDF" })
+    } finally {
+      setDownloadingFullList(false)
     }
   }
 
   // Send to stores
   const handleSend = async () => {
     if (sendMode === "bulk" && selectedStores.length === 0) {
+      toast({ variant: "destructive", title: "Error", description: "Select at least one store" })
+      return
+    }
+    
+    if (sendMode === "category" && selectedCategoryStores.length === 0) {
       toast({ variant: "destructive", title: "Error", description: "Select at least one store" })
       return
     }
@@ -356,27 +430,101 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
         await priceListEmailMulti({ url, selectedStore: selectedStores }, token)
         toast({ title: "Sent!", description: `Price list sent to ${selectedStores.length} stores` })
       } else if (sendMode === "category") {
-        const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL || 'http://localhost:5000/api'}/email/send-by-price-category`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ templateId: selectedTemplate.id }),
+        // Send to selected stores from category list
+        // Note: selectedCategoryStores contains emails, we need to send them directly
+        const selectedStoreObjects = selectedCategoryStores.map(email => {
+          const store = categoryStores.find(s => s.email === email)
+          return { 
+            value: email, 
+            label: store?.storeName || email 
+          }
         })
-        const data = await response.json()
-        if (data.success) {
-          toast({ title: "Sent!", description: `Price list sent to ${data.totalSent} stores by category` })
-        } else {
-          throw new Error(data.message)
-        }
+        
+        console.log("=== Email Send Debug ===")
+        console.log("Selected emails:", selectedCategoryStores)
+        console.log("Store objects to send:", selectedStoreObjects)
+        console.log("Total count:", selectedStoreObjects.length)
+        
+        const url = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
+        await priceListEmailMulti({ url, selectedStore: selectedStoreObjects }, token)
+        toast({ title: "Sent!", description: `Price list sent to ${selectedStoreObjects.length} stores` })
       }
       setSendModalOpen(false)
       setSelectedStores([])
+      setSelectedCategoryStores([])
     } catch (error: any) {
       toast({ variant: "destructive", title: "Error", description: error.message || "Failed to send" })
     } finally {
       setIsSending(false)
+    }
+  }
+  
+  // Fetch stores for category mode
+  const fetchCategoryStores = async (pageNum = 1, search = storeSearchQuery) => {
+    setLoadingCategoryStores(true)
+    
+    try {
+      const skip = (pageNum - 1) * STORES_LIMIT
+      const storesData = await searchStoresAPI(search, STORES_LIMIT, skip)
+      
+      if (storesData && storesData.length > 0) {
+        setCategoryStores(storesData)
+        // If we got full page, assume there might be more
+        if (storesData.length === STORES_LIMIT) {
+          setTotalCategoryStores(Math.max(totalCategoryStores, skip + storesData.length + 1))
+        } else {
+          setTotalCategoryStores(skip + storesData.length)
+        }
+      } else {
+        setCategoryStores([])
+        if (pageNum === 1) setTotalCategoryStores(0)
+      }
+      setCategoryStoresPage(pageNum)
+    } catch (error) {
+      console.error("Error fetching stores:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to fetch stores" })
+    } finally {
+      setLoadingCategoryStores(false)
+    }
+  }
+  
+  // Handle store search
+  const handleStoreSearch = (value: string) => {
+    setStoreSearchQuery(value)
+    setCategoryStoresPage(1)
+    fetchCategoryStores(1, value)
+  }
+  
+  // Pagination handlers
+  const totalStorePages = Math.ceil(totalCategoryStores / STORES_LIMIT)
+  
+  const goToNextStorePage = () => {
+    if (categoryStoresPage < totalStorePages) {
+      fetchCategoryStores(categoryStoresPage + 1)
+    }
+  }
+  
+  const goToPrevStorePage = () => {
+    if (categoryStoresPage > 1) {
+      fetchCategoryStores(categoryStoresPage - 1)
+    }
+  }
+  
+  // Toggle store selection in category mode
+  const toggleCategoryStore = (email: string) => {
+    setSelectedCategoryStores(prev => 
+      prev.includes(email) 
+        ? prev.filter(e => e !== email)
+        : [...prev, email]
+    )
+  }
+  
+  // Select all stores in category mode
+  const selectAllCategoryStores = () => {
+    if (selectedCategoryStores.length === categoryStores.length) {
+      setSelectedCategoryStores([])
+    } else {
+      setSelectedCategoryStores(categoryStores.map(s => s.email))
     }
   }
 
@@ -521,6 +669,25 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     })
   }
 
+  // Remove selected products from the price list
+  const removeSelectedProducts = () => {
+    if (selectedProductIds.length === 0) return
+    
+    const removedCount = selectedProductIds.length
+    
+    setFormData(prev => ({
+      ...prev,
+      products: prev.products.filter(p => !selectedProductIds.includes(p.id))
+    }))
+    
+    setSelectedProductIds([])
+    
+    toast({ 
+      title: "Products Removed", 
+      description: `Removed ${removedCount} products from the price list` 
+    })
+  }
+
   // Import products from existing price list
   const importFromTemplate = (template: any) => {
     if (!template?.products?.length) return
@@ -541,10 +708,15 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setImportModalOpen(false)
   }
 
-  // Filter products in modal
-  const filteredFormProducts = formData.products.filter(p => 
-    (p.name || p.productName || "").toLowerCase().includes(productSearch.toLowerCase())
-  )
+  // Filter products in modal - using useMemo for real-time filtering
+  const filteredFormProducts = useMemo(() => {
+    if (!productSearch.trim()) {
+      return formData.products
+    }
+    return formData.products.filter(p => 
+      (p.name || p.productName || "").toLowerCase().includes(productSearch.toLowerCase())
+    )
+  }, [formData.products, productSearch])
 
   // Excel Upload Functions
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -578,22 +750,38 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
           return obj
         }))
 
-        // Auto-detect column mapping
+        // Auto-detect column mapping - improved regex patterns
         const autoMapping = {
           productName: headers.find(h => 
-            /product|name|item|description/i.test(h)
+            /^product\s*name$|^name$|^item\s*name$|^description$|^product$/i.test(h)
+          ) || headers.find(h => 
+            /product|name|item/i.test(h)
+          ) || "",
+          shortCode: headers.find(h => 
+            /^short\s*code$|^code$|^sku$|^product\s*code$|^item\s*code$/i.test(h)
           ) || "",
           price: headers.find(h => 
-            /^price$|base.*price|price.*box|cost/i.test(h)
+            /^base\s*price$|^price$|^new\s*base\s*price$|price\s*per\s*box|^cost$/i.test(h)
+          ) || headers.find(h => 
+            /base.*price|new.*price|price/i.test(h) && !/a\s*price|b\s*price|c\s*price|restaurant/i.test(h)
           ) || "",
           aPrice: headers.find(h => 
+            /^a\s*price$|^new\s*a\s*price$|^tier\s*a$|^price\s*a$/i.test(h)
+          ) || headers.find(h => 
             /a.*price|price.*a|tier.*a/i.test(h)
           ) || "",
           bPrice: headers.find(h => 
+            /^b\s*price$|^new\s*b\s*price$|^tier\s*b$|^price\s*b$/i.test(h)
+          ) || headers.find(h => 
             /b.*price|price.*b|tier.*b/i.test(h)
           ) || "",
           cPrice: headers.find(h => 
+            /^c\s*price$|^new\s*c\s*price$|^tier\s*c$|^price\s*c$/i.test(h)
+          ) || headers.find(h => 
             /c.*price|price.*c|tier.*c/i.test(h)
+          ) || "",
+          restaurantPrice: headers.find(h => 
+            /restaurant|resto|new\s*restaurant/i.test(h)
           ) || ""
         }
         setColumnMapping(autoMapping)
@@ -608,42 +796,96 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     reader.readAsBinaryString(file)
   }
 
-  // Match Excel data with existing products
-  const matchExcelToProducts = () => {
-    if (!columnMapping.productName) {
-      toast({ variant: "destructive", title: "Error", description: "Please select the Product Name column" })
+  // Match Excel data with existing products - improved matching
+  const matchExcelToProducts = async () => {
+    if (!columnMapping.productName && !columnMapping.shortCode) {
+      toast({ variant: "destructive", title: "Error", description: "Please select at least Product Name or Short Code column" })
       return
     }
 
-    const matched: any[] = []
-    const allProducts = formData.products.length > 0 ? formData.products : products
+    setMatchingProducts(true)
 
-    excelData.forEach((row) => {
-      const excelName = String(row[columnMapping.productName] || "").toLowerCase().trim()
-      if (!excelName) return
+    try {
+      // Fetch ALL products from backend for matching
+      const allProductsFromBackend = await getAllProductAPI()
+      const allProducts = formData.products.length > 0 ? formData.products : (allProductsFromBackend || []).map((p: any) => ({ ...p, id: p._id || p.id }))
 
-      // Find matching product using fuzzy matching
-      const matchedProduct = allProducts.find((p: any) => {
-        const productName = (p.name || p.productName || "").toLowerCase().trim()
-        // Exact match
-        if (productName === excelName) return true
-        // Contains match
-        if (productName.includes(excelName) || excelName.includes(productName)) return true
-        // Word match (at least 2 words match)
-        const excelWords = excelName.split(/\s+/)
-        const productWords = productName.split(/\s+/)
-        const matchingWords = excelWords.filter(w => productWords.some(pw => pw.includes(w) || w.includes(pw)))
-        return matchingWords.length >= 2 || (matchingWords.length === 1 && excelWords.length === 1)
-      })
+      const matched: any[] = []
 
-      matched.push({
-        excelName: row[columnMapping.productName],
-        excelPrice: columnMapping.price ? parseFloat(row[columnMapping.price]) || 0 : null,
-        excelAPrice: columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || 0 : null,
-        excelBPrice: columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || 0 : null,
-        excelCPrice: columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || 0 : null,
+      excelData.forEach((row) => {
+        const excelName = String(row[columnMapping.productName] || "").toLowerCase().trim()
+        const excelShortCode = columnMapping.shortCode ? String(row[columnMapping.shortCode] || "").trim() : ""
+        
+        if (!excelName && !excelShortCode) return
+
+        // Find matching product - priority: shortCode > exact name > fuzzy name
+        let matchedProduct = null
+        
+        // 1. Try matching by short code first (most accurate)
+        if (excelShortCode) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productCode = String(p.shortCode || "").trim()
+            return productCode && productCode === excelShortCode
+          })
+        }
+        
+        // 2. If no shortCode match, try exact name match
+        if (!matchedProduct && excelName) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productName = (p.name || p.productName || "").toLowerCase().trim()
+            return productName === excelName
+          })
+        }
+        
+        // 3. If still no match, try fuzzy name matching
+        if (!matchedProduct && excelName) {
+          matchedProduct = allProducts.find((p: any) => {
+            const productName = (p.name || p.productName || "").toLowerCase().trim()
+            
+            // Contains match (one contains the other)
+            if (productName.includes(excelName) || excelName.includes(productName)) return true
+            
+            // Word match - at least 2 significant words match
+            const excelWords = excelName.split(/\s+/).filter(w => w.length > 2)
+            const productWords = productName.split(/\s+/).filter(w => w.length > 2)
+            const matchingWords = excelWords.filter(w => 
+              productWords.some(pw => pw.includes(w) || w.includes(pw))
+            )
+            
+            // Match if 2+ words match, or 1 word matches for single-word names
+            return matchingWords.length >= 2 || 
+                   (matchingWords.length === 1 && excelWords.length === 1)
+          })
+        }
+
+        // Parse prices from Excel
+        const basePrice = columnMapping.price ? parseFloat(row[columnMapping.price]) || null : null
+        const aPrice = columnMapping.aPrice ? parseFloat(row[columnMapping.aPrice]) || null : null
+        const bPrice = columnMapping.bPrice ? parseFloat(row[columnMapping.bPrice]) || null : null
+        const cPrice = columnMapping.cPrice ? parseFloat(row[columnMapping.cPrice]) || null : null
+        const restaurantPrice = columnMapping.restaurantPrice ? parseFloat(row[columnMapping.restaurantPrice]) || null : null
+
+        // Skip products with base price = 0 (remove them from list)
+        if (basePrice === 0) return
+
+        // Use base price as default for all tiers if tier price is 0 or not provided
+        const effectiveBasePrice = basePrice
+        const effectiveAPrice = (aPrice !== null && aPrice > 0) ? aPrice : effectiveBasePrice
+        const effectiveBPrice = (bPrice !== null && bPrice > 0) ? bPrice : effectiveBasePrice
+        const effectiveCPrice = (cPrice !== null && cPrice > 0) ? cPrice : effectiveBasePrice
+        const effectiveRestaurantPrice = (restaurantPrice !== null && restaurantPrice > 0) ? restaurantPrice : effectiveBasePrice
+
+        matched.push({
+          excelName: row[columnMapping.productName] || "",
+        excelShortCode: excelShortCode,
+        excelPrice: effectiveBasePrice,
+        excelAPrice: effectiveAPrice,
+        excelBPrice: effectiveBPrice,
+        excelCPrice: effectiveCPrice,
+        excelRestaurantPrice: effectiveRestaurantPrice,
         matchedProduct: matchedProduct || null,
-        isMatched: !!matchedProduct
+        isMatched: !!matchedProduct,
+        matchType: matchedProduct ? (excelShortCode && matchedProduct.shortCode === excelShortCode ? "code" : "name") : null
       })
     })
 
@@ -651,10 +893,24 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setUploadStep("preview")
     
     const matchCount = matched.filter(m => m.isMatched).length
-    toast({ 
-      title: "Matching Complete", 
-      description: `Matched ${matchCount} of ${matched.length} products` 
+    const zeroPriceCount = matched.filter(m => m.isMatched && (!m.excelPrice || m.excelPrice === 0)).length
+    const willBeAdded = matchCount - zeroPriceCount
+    
+    // Set summary for display in modal
+    setMatchingSummary({
+      total: matched.length,
+      matched: matchCount,
+      zeroPriceCount: zeroPriceCount,
+      willAdd: willBeAdded
     })
+    
+    toast({ title: "Matching Complete", description: `${matchCount} products matched` })
+    } catch (error) {
+      console.error("Error matching products:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to match products" })
+    } finally {
+      setMatchingProducts(false)
+    }
   }
 
   // Apply Excel prices to products
@@ -671,29 +927,43 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       setFormData(prev => ({
         ...prev,
         products: prev.products.map(p => {
-          const match = updates.find(u => u.matchedProduct.id === p.id)
+          const match = updates.find(u => (u.matchedProduct.id || u.matchedProduct._id) === (p.id || p._id))
           if (match) {
+            // Get base price - use excel price or keep existing
+            const basePrice = (match.excelPrice !== null && match.excelPrice > 0) ? match.excelPrice : p.pricePerBox
+            
             return {
               ...p,
-              // Only update if new price exists and is not null/empty, otherwise keep old
-              pricePerBox: (match.excelPrice !== null && match.excelPrice !== 0) ? match.excelPrice : p.pricePerBox,
-              aPrice: (match.excelAPrice !== null && match.excelAPrice !== 0) ? match.excelAPrice : p.aPrice,
-              bPrice: (match.excelBPrice !== null && match.excelBPrice !== 0) ? match.excelBPrice : p.bPrice,
-              cPrice: (match.excelCPrice !== null && match.excelCPrice !== 0) ? match.excelCPrice : p.cPrice,
+              // Base price
+              pricePerBox: basePrice,
+              // Other tiers - use excel value if provided, otherwise use base price as default
+              aPrice: (match.excelAPrice !== null && match.excelAPrice > 0) ? match.excelAPrice : basePrice,
+              bPrice: (match.excelBPrice !== null && match.excelBPrice > 0) ? match.excelBPrice : basePrice,
+              cPrice: (match.excelCPrice !== null && match.excelCPrice > 0) ? match.excelCPrice : basePrice,
+              restaurantPrice: (match.excelRestaurantPrice !== null && match.excelRestaurantPrice > 0) ? match.excelRestaurantPrice : basePrice,
             }
           }
           return p
         })
       }))
     } else {
-      // Add matched products to form
-      const productsToAdd = updates.map(u => ({
-        ...u.matchedProduct,
-        pricePerBox: (u.excelPrice !== null && u.excelPrice !== 0) ? u.excelPrice : u.matchedProduct.pricePerBox,
-        aPrice: (u.excelAPrice !== null && u.excelAPrice !== 0) ? u.excelAPrice : u.matchedProduct.aPrice,
-        bPrice: (u.excelBPrice !== null && u.excelBPrice !== 0) ? u.excelBPrice : u.matchedProduct.bPrice,
-        cPrice: (u.excelCPrice !== null && u.excelCPrice !== 0) ? u.excelCPrice : u.matchedProduct.cPrice,
-      }))
+      // Add matched products to form - filter out products with base price 0
+      const productsToAdd = updates
+        .filter(u => {
+          const basePrice = (u.excelPrice !== null && u.excelPrice > 0) ? u.excelPrice : u.matchedProduct.pricePerBox
+          return basePrice > 0 // Only add products with valid base price
+        })
+        .map(u => {
+          const basePrice = (u.excelPrice !== null && u.excelPrice > 0) ? u.excelPrice : u.matchedProduct.pricePerBox
+          return {
+            ...u.matchedProduct,
+            pricePerBox: basePrice,
+            aPrice: (u.excelAPrice !== null && u.excelAPrice > 0) ? u.excelAPrice : basePrice,
+            bPrice: (u.excelBPrice !== null && u.excelBPrice > 0) ? u.excelBPrice : basePrice,
+            cPrice: (u.excelCPrice !== null && u.excelCPrice > 0) ? u.excelCPrice : basePrice,
+            restaurantPrice: (u.excelRestaurantPrice !== null && u.excelRestaurantPrice > 0) ? u.excelRestaurantPrice : basePrice,
+          }
+        })
       setFormData(prev => ({ ...prev, products: productsToAdd }))
     }
 
@@ -818,29 +1088,113 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     setExcelModalOpen(false)
     setExcelData([])
     setExcelColumns([])
-    setColumnMapping({ productName: "", price: "", aPrice: "", bPrice: "", cPrice: "" })
+    setColumnMapping({ productName: "", shortCode: "", price: "", aPrice: "", bPrice: "", cPrice: "", restaurantPrice: "" })
     setMatchedProducts([])
     setUploadStep("upload")
     setExcelCategoryFilter("all")
     setExcelBulkPercent("")
     setSelectedExcelRows([])
+    setMatchingSummary(null)
   }
 
-  // Download sample Excel template
+  // Download sample Excel template - with actual products
   const downloadSampleExcel = () => {
-    const sampleData = [
-      ["Product Name", "Price", "A Price", "B Price", "C Price"],
-      ["Tomatoes Roma", 25.99, 24.99, 23.99, 22.99],
-      ["Onions Yellow", 18.50, 17.50, 16.50, 15.50],
-      ["Peppers Green", 32.00, 31.00, 30.00, 29.00],
-    ]
+    // Use actual products if available, otherwise use sample data
+    const productsToExport = products.length > 0 ? products.slice(0, 50) : []
     
-    const ws = XLSX.utils.aoa_to_sheet(sampleData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Price List")
-    XLSX.writeFile(wb, "price_list_template.xlsx")
-    
-    toast({ title: "Downloaded", description: "Sample Excel template downloaded" })
+    if (productsToExport.length > 0) {
+      // Export actual products with current prices
+      // If A/B/C/Restaurant price is 0, use Base Price as default
+      const headers = ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"]
+      const rows = productsToExport.map((p: any) => {
+        const basePrice = p.pricePerBox || 0
+        return [
+          p.name || p.productName || "",
+          p.shortCode || "",
+          p.category?.categoryName || p.category || "",
+          basePrice,
+          (p.aPrice && p.aPrice > 0) ? p.aPrice : basePrice,
+          (p.bPrice && p.bPrice > 0) ? p.bPrice : basePrice,
+          (p.cPrice && p.cPrice > 0) ? p.cPrice : basePrice,
+          (p.restaurantPrice && p.restaurantPrice > 0) ? p.restaurantPrice : basePrice
+        ]
+      })
+      
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 35 }, // Product Name
+        { wch: 10 }, // Short Code
+        { wch: 15 }, // Category
+        { wch: 12 }, // Base Price
+        { wch: 12 }, // A Price
+        { wch: 12 }, // B Price
+        { wch: 12 }, // C Price
+        { wch: 15 }, // Restaurant Price
+      ]
+      
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Price List")
+      XLSX.writeFile(wb, `price_list_template_${new Date().toISOString().slice(0,10)}.xlsx`)
+      
+      toast({ title: "Downloaded", description: `Template with ${productsToExport.length} products downloaded` })
+    } else {
+      // Fallback sample data
+      const sampleData = [
+        ["Product Name", "Short Code", "Category", "Base Price", "A Price", "B Price", "C Price", "Restaurant Price"],
+        ["Tomatoes Roma 25lb", "01", "Vegetables", 25.99, 24.99, 23.99, 22.99, 21.99],
+        ["Onions Yellow 50lb", "02", "Vegetables", 18.50, 17.50, 16.50, 15.50, 14.50],
+        ["Peppers Green Bell 25lb", "03", "Vegetables", 32.00, 31.00, 30.00, 29.00, 28.00],
+        ["Cilantro Bunch 60ct", "04", "Herbs", 15.00, 14.50, 14.00, 13.50, 13.00],
+        ["Limes 200ct", "05", "Fruits", 28.00, 27.00, 26.00, 25.00, 24.00],
+      ]
+      
+      const ws = XLSX.utils.aoa_to_sheet(sampleData)
+      ws['!cols'] = [
+        { wch: 35 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }
+      ]
+      
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Price List")
+      XLSX.writeFile(wb, "price_list_template.xlsx")
+      
+      toast({ title: "Downloaded", description: "Sample Excel template downloaded" })
+    }
+  }
+
+  // Download full product list for price update - using backend API
+  const downloadFullProductList = async () => {
+    setDownloadingFullList(true)
+    try {
+      const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/product/export-excel`, {
+        method: 'GET',
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to download')
+      }
+      
+      // Get the blob from response
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `price_update_${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      toast({ title: "Downloaded", description: "Full product list downloaded successfully" })
+    } catch (error) {
+      console.error("Error downloading full product list:", error)
+      toast({ variant: "destructive", title: "Error", description: "Failed to download product list" })
+    } finally {
+      setDownloadingFullList(false)
+    }
   }
 
   // Quick Price Update - Parse input and update price
@@ -933,30 +1287,55 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     toast({ title: "Undone", description: `Reverted ${last.code} ${last.field} to $${last.oldPrice.toFixed(2)}` })
   }
 
-  // Search product by name
-  const searchProductByName = (searchTerm: string): any | null => {
-    const term = searchTerm.toLowerCase()
-    const found = products.find(p => 
-      p.name?.toLowerCase().includes(term) ||
-      p.shortCode?.toLowerCase().includes(term)
-    )
-    return found || null
-  }
-
-  // Quick Add - Handle input change and show preview
+  // Quick Add - Handle input change and show preview (backend search)
   const handleQuickAddChange = (value: string) => {
     setQuickAddInput(value)
-    const code = value.trim().padStart(2, '0')
-    const product = productCodeMap.get(code)
-    if (product) {
-      setQuickAddPreview(product)
-    } else if (value.trim()) {
-      // If not a code, search by name
-      const foundProduct = searchProductByName(value)
-      setQuickAddPreview(foundProduct)
-    } else {
+    const trimmedValue = value.trim()
+    
+    if (!trimmedValue) {
       setQuickAddPreview(null)
+      return
     }
+    
+    // Clear previous timeout
+    if (quickAddSearchTimeoutRef.current) {
+      clearTimeout(quickAddSearchTimeoutRef.current)
+    }
+    
+    // Debounce backend search
+    quickAddSearchTimeoutRef.current = setTimeout(async () => {
+      setQuickAddLoading(true)
+      try {
+        let product = null
+        
+        // Check if input is numeric (product code) or text (product name)
+        const isNumeric = /^\d+$/.test(trimmedValue)
+        
+        if (isNumeric) {
+          // Search by product code from backend
+          const code = trimmedValue.padStart(2, '0')
+          product = await getProductByShortCodeAPI(code)
+          if (product) {
+            product = { ...product, id: product._id || product.id }
+          }
+        }
+        
+        if (!product && trimmedValue) {
+          // Search by name from backend
+          const results = await searchProductsForOrderAPI(trimmedValue, 1)
+          if (results.length > 0) {
+            product = { ...results[0], id: results[0]._id || results[0].id }
+          }
+        }
+        
+        setQuickAddPreview(product)
+      } catch (error) {
+        console.error("Error searching product:", error)
+        setQuickAddPreview(null)
+      } finally {
+        setQuickAddLoading(false)
+      }
+    }, 300)
   }
 
   // Quick Add - Add product to price list
@@ -993,6 +1372,101 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
     if (e.key === "Enter") {
       e.preventDefault()
       handleQuickAddProduct()
+    }
+  }
+
+  // Product table search with debounce
+  const handleProductTableSearch = (value: string) => {
+    setProductTableSearch(value)
+    setHasMoreProducts(true)
+    
+    // Clear previous timeout
+    if (productSearchTimeoutRef.current) {
+      clearTimeout(productSearchTimeoutRef.current)
+    }
+    
+    // Debounce search
+    productSearchTimeoutRef.current = setTimeout(async () => {
+      setProductSearchLoading(true)
+      try {
+        const results = await searchProductsForOrderAPI(value, 10, productTableCategory === "all" ? "" : productTableCategory)
+        const updatedProducts = results.map((product: any) => ({
+          ...product,
+          id: product._id || product.id,
+        }))
+        setProducts(updatedProducts)
+        setDisplayedProducts(updatedProducts)
+        setHasMoreProducts(results.length === 10)
+      } catch (error) {
+        console.error("Error searching products:", error)
+      } finally {
+        setProductSearchLoading(false)
+      }
+    }, 300)
+  }
+
+  // Product table category change
+  const handleProductTableCategoryChange = async (category: string) => {
+    setProductTableCategory(category)
+    setHasMoreProducts(true)
+    setProductSearchLoading(true)
+    try {
+      const results = await searchProductsForOrderAPI(productTableSearch, 10, category === "all" ? "" : category)
+      const updatedProducts = results.map((product: any) => ({
+        ...product,
+        id: product._id || product.id,
+      }))
+      setProducts(updatedProducts)
+      setDisplayedProducts(updatedProducts)
+      setHasMoreProducts(results.length === 10)
+    } catch (error) {
+      console.error("Error fetching products by category:", error)
+    } finally {
+      setProductSearchLoading(false)
+    }
+  }
+
+  // Load more products (infinite scroll)
+  const loadMoreProductsForTable = async () => {
+    if (loadingMoreProducts || !hasMoreProducts) return
+    
+    setLoadingMoreProducts(true)
+    try {
+      const skip = displayedProducts.length
+      const results = await searchProductsForOrderAPI(
+        productTableSearch, 
+        10, 
+        productTableCategory === "all" ? "" : productTableCategory,
+        skip
+      )
+      
+      if (results.length > 0) {
+        const updatedProducts = results.map((product: any) => ({
+          ...product,
+          id: product._id || product.id,
+        }))
+        setDisplayedProducts(prev => [...prev, ...updatedProducts])
+        setProducts(prev => [...prev, ...updatedProducts])
+      }
+      
+      if (results.length < 10) {
+        setHasMoreProducts(false)
+      }
+    } catch (error) {
+      console.error("Error loading more products:", error)
+    } finally {
+      setLoadingMoreProducts(false)
+    }
+  }
+
+  // Handle scroll in product table
+  const handleProductTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    
+    if (scrollHeight - scrollTop <= clientHeight + 100) {
+      if (hasMoreProducts && !loadingMoreProducts) {
+        loadMoreProductsForTable()
+      }
     }
   }
 
@@ -1147,7 +1621,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                               <DropdownMenuItem onClick={() => handleDuplicate(template)}>
                                 <Copy className="h-4 w-4 mr-2" /> Duplicate
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDownloadPDF(template)}>
+                              <DropdownMenuItem onClick={() => openPdfPriceModal(template)}>
                                 <Download className="h-4 w-4 mr-2" /> Download PDF
                               </DropdownMenuItem>
                           
@@ -1255,14 +1729,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-600 font-bold">#</span>
                       <Input
                         ref={quickAddRef}
-                        placeholder="Enter product code (e.g., 21)"
+                        placeholder="Enter product code (e.g., 21) or name"
                         value={quickAddInput}
                         onChange={(e) => handleQuickAddChange(e.target.value)}
                         onKeyDown={handleQuickAddKeyDown}
                         className="pl-8 text-lg font-mono bg-white"
                       />
+                      {quickAddLoading && (
+                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
                     </div>
-                    <Button onClick={handleQuickAddProduct} disabled={!quickAddPreview}>
+                    <Button onClick={handleQuickAddProduct} disabled={!quickAddPreview || quickAddLoading}>
                       <Plus className="h-4 w-4 mr-1" /> Add
                     </Button>
                   </div>
@@ -1283,9 +1760,9 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                     </div>
                   )}
                   
-                  {quickAddInput && !quickAddPreview && (
+                  {quickAddInput && !quickAddPreview && !quickAddLoading && (
                     <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200 text-red-600 text-sm">
-                      No product found with code "{quickAddInput}"
+                      No product found with "{quickAddInput}"
                     </div>
                   )}
                 </CardContent>
@@ -1293,8 +1770,23 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
               {/* Quick Actions */}
               <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
-                <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: products }))}>
+                <Button variant="outline" size="sm" onClick={async () => {
+                  try {
+                    toast({ title: "Loading...", description: "Fetching all products" })
+                    const allProducts = await getAllProductAPI()
+                    if (allProducts) {
+                      const formattedProducts = allProducts.map((p: any) => ({ ...p, id: p._id || p.id }))
+                      setFormData(prev => ({ ...prev, products: formattedProducts }))
+                      toast({ title: "Added", description: `${formattedProducts.length} products added` })
+                    }
+                  } catch (error) {
+                    toast({ variant: "destructive", title: "Error", description: "Failed to fetch products" })
+                  }
+                }}>
                   <Plus className="h-4 w-4 mr-1" /> Select All Products
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: [...prev.products, ...displayedProducts.filter(p => !prev.products.some(fp => fp.id === p.id))] }))}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Displayed ({displayedProducts.length})
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setFormData(prev => ({ ...prev, products: [] }))}>
                   Clear All
@@ -1307,10 +1799,43 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                 </Button>
               </div>
 
-              {/* Product Selection */}
+              {/* Product Selection with Search and Category Filter */}
               <div className="space-y-2">
-                <Label>Select Products ({formData.products.length} selected)</Label>
-                <ScrollArea className="h-[280px] border rounded-md">
+                <div className="flex items-center justify-between">
+                  <Label>Select Products ({formData.products.length} selected)</Label>
+                  <Badge variant="outline" className="text-xs">
+                    {displayedProducts.length} products {hasMoreProducts && "(scroll for more)"}
+                  </Badge>
+                </div>
+                
+                {/* Search and Category Filter */}
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search products..."
+                      value={productTableSearch}
+                      onChange={(e) => handleProductTableSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                    {productSearchLoading && (
+                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  <Select value={productTableCategory} onValueChange={handleProductTableCategoryChange}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="All Categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Categories</SelectItem>
+                      {categories.map(cat => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <ScrollArea className="h-[280px] border rounded-md" onScrollCapture={handleProductTableScroll}>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1321,10 +1846,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {products.map((product) => {
+                      {displayedProducts.map((product, index) => {
                         const isSelected = formData.products.some(p => p.id === product.id)
                         return (
-                          <TableRow key={product.id} className={isSelected ? "bg-blue-50" : ""}>
+                          <TableRow key={`${product.id}-${index}`} className={isSelected ? "bg-blue-50" : ""}>
                             <TableCell>
                               <Checkbox
                                 checked={isSelected}
@@ -1349,6 +1874,31 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                           </TableRow>
                         )
                       })}
+                      {/* Loading more indicator */}
+                      {loadingMoreProducts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-4">
+                            <Loader2 className="h-5 w-5 mx-auto animate-spin text-blue-600" />
+                            <p className="text-sm text-muted-foreground mt-1">Loading more products...</p>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {/* No products found */}
+                      {displayedProducts.length === 0 && !productSearchLoading && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                            No products found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {/* All products loaded */}
+                      {displayedProducts.length > 0 && !hasMoreProducts && !loadingMoreProducts && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center py-2 text-muted-foreground text-xs">
+                            All products loaded ({displayedProducts.length} total)
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </ScrollArea>
@@ -1458,11 +2008,11 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                               return name.includes(quickPriceFilter.toLowerCase()) || code.includes(quickPriceFilter.toLowerCase())
                             })
                             .sort((a, b) => (a.shortCode || "99").localeCompare(b.shortCode || "99"))
-                            .map((product) => {
+                            .map((product, index) => {
                               // Check if this product was recently updated
                               const recentUpdate = quickPriceHistory.find(h => h.code === product.shortCode)
                               return (
-                                <TableRow key={product.id} className={recentUpdate ? "bg-green-50" : ""}>
+                                <TableRow key={`${product.id}-${index}`} className={recentUpdate ? "bg-green-50" : ""}>
                                   <TableCell className="font-mono font-bold text-blue-600 text-lg">
                                     {product.shortCode || "—"}
                                   </TableCell>
@@ -1557,6 +2107,19 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                     >
                       <Zap className="h-3 w-3 mr-1" /> Copy Base → All Tiers
                     </Button>
+                    
+                    <div className="h-4 w-px bg-border mx-2" />
+                    
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={removeSelectedProducts}
+                      disabled={selectedProductIds.length === 0}
+                      className="text-red-600"
+                      title={selectedProductIds.length > 0 ? `Remove ${selectedProductIds.length} selected products` : "Select products to remove"}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Clear Selected
+                    </Button>
                   </div>
 
                   {/* Search */}
@@ -1586,10 +2149,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredFormProducts.map((product) => {
+                        {filteredFormProducts.map((product, index) => {
                           const isSelected = selectedProductIds.includes(product.id)
                           return (
-                            <TableRow key={product.id} className={isSelected ? "bg-blue-50" : ""}>
+                            <TableRow key={`${product.id}-${index}`} className={isSelected ? "bg-blue-50" : ""}>
                               <TableCell>
                                 <Checkbox
                                   checked={isSelected}
@@ -1757,16 +2320,29 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                   <HelpCircle className="h-4 w-4" /> How it works
                 </h4>
                 <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                  <li>Upload your Excel file with product names and prices</li>
+                  <li>Upload your Excel file with product names/codes and prices</li>
                   <li>Map columns to match our price fields</li>
-                  <li>System auto-matches products by name (fuzzy matching)</li>
+                  <li>System auto-matches products by Short Code (exact) or Name (fuzzy)</li>
                   <li>Review matches and apply price updates</li>
                 </ul>
               </div>
 
-              <Button variant="outline" onClick={downloadSampleExcel} className="w-full">
-                <Download className="h-4 w-4 mr-2" /> Download Sample Template
-              </Button>
+              <div className="grid grid-cols-2 gap-3">
+                <Button variant="outline" onClick={downloadSampleExcel} className="w-full">
+                  <Download className="h-4 w-4 mr-2" /> Sample Template
+                </Button>
+                <Button variant="outline" onClick={downloadFullProductList} disabled={downloadingFullList} className="w-full text-blue-600">
+                  {downloadingFullList ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Downloading...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-4 w-4 mr-2" /> Full Product List
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1783,15 +2359,31 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               <div className="space-y-3">
                 <Label className="text-base font-medium">Map Excel Columns to Price Fields</Label>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <Label className="text-sm">Product Name Column *</Label>
-                    <Select value={columnMapping.productName} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, productName: v }))}>
+                    <Select value={columnMapping.productName || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, productName: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column" />
                       </SelectTrigger>
                       <SelectContent>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
+                          <SelectItem key={col} value={col}>{col}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm">Short Code Column</Label>
+                    <Select value={columnMapping.shortCode || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, shortCode: v === "__none__" ? "" : v }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="For exact matching" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1800,13 +2392,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">Base Price Column</Label>
-                    <Select value={columnMapping.price} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, price: v }))}>
+                    <Select value={columnMapping.price || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, price: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1815,13 +2407,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">A Price Column</Label>
-                    <Select value={columnMapping.aPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, aPrice: v }))}>
+                    <Select value={columnMapping.aPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, aPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1830,13 +2422,13 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">B Price Column</Label>
-                    <Select value={columnMapping.bPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, bPrice: v }))}>
+                    <Select value={columnMapping.bPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, bPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1845,13 +2437,28 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
                   <div className="space-y-1">
                     <Label className="text-sm">C Price Column</Label>
-                    <Select value={columnMapping.cPrice} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, cPrice: v }))}>
+                    <Select value={columnMapping.cPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, cPrice: v === "__none__" ? "" : v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select column (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">-- None --</SelectItem>
-                        {excelColumns.map(col => (
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
+                          <SelectItem key={col} value={col}>{col}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-sm">Restaurant Price Column</Label>
+                    <Select value={columnMapping.restaurantPrice || "__none__"} onValueChange={(v) => setColumnMapping(prev => ({ ...prev, restaurantPrice: v === "__none__" ? "" : v }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select column (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">-- None --</SelectItem>
+                        {excelColumns.filter(col => col).map(col => (
                           <SelectItem key={col} value={col}>{col}</SelectItem>
                         ))}
                       </SelectContent>
@@ -1862,21 +2469,21 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
               {/* Preview first few rows */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Preview (first 5 rows)</Label>
-                <ScrollArea className="h-[150px] border rounded-md">
+                <Label className="text-sm text-muted-foreground">Excel (first 5 rows)</Label>
+                <ScrollArea className="h-[180px] border rounded-md">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {excelColumns.slice(0, 6).map(col => (
-                          <TableHead key={col} className="text-xs">{col}</TableHead>
+                        {excelColumns.slice(0, 8).map(col => (
+                          <TableHead key={col} className="text-xs whitespace-nowrap">{col}</TableHead>
                         ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {excelData.slice(0, 5).map((row, idx) => (
                         <TableRow key={idx}>
-                          {excelColumns.slice(0, 6).map(col => (
-                            <TableCell key={col} className="text-xs py-1">{row[col]}</TableCell>
+                          {excelColumns.slice(0, 8).map(col => (
+                            <TableCell key={col} className="text-xs py-1 whitespace-nowrap">{row[col]}</TableCell>
                           ))}
                         </TableRow>
                       ))}
@@ -1890,6 +2497,21 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
           {/* Step 3: Preview Matches */}
           {uploadStep === "preview" && (
             <div className="space-y-4 py-4">
+              {/* Summary Banner */}
+              {matchingSummary && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="font-medium text-blue-900">Summary:</span>
+                      <span className="text-blue-700">Total: <strong>{matchingSummary.total}</strong></span>
+                      <span className="text-green-700">Matched: <strong>{matchingSummary.matched}</strong></span>
+                      <span className="text-red-700">Price 0 (won't add): <strong>{matchingSummary.zeroPriceCount}</strong></span>
+                      <span className="text-blue-900 font-semibold">Will Add: <strong>{matchingSummary.willAdd}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {/* Stats Row */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
@@ -1992,6 +2614,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                       <TableHead className="text-right">New A</TableHead>
                       <TableHead className="text-right">New B</TableHead>
                       <TableHead className="text-right">New C</TableHead>
+                      <TableHead className="text-right">New Rest.</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2047,7 +2670,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.pricePerBox || 0)}
                                 value={item.excelPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2060,7 +2683,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.aPrice || 0)}
                                 value={item.excelAPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelAPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2073,7 +2696,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.bPrice || 0)}
                                 value={item.excelBPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelBPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2086,7 +2709,20 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
                                 placeholder={String(item.matchedProduct?.cPrice || 0)}
                                 value={item.excelCPrice ?? ""}
                                 onChange={(e) => updateMatchedPrice(idx, "excelCPrice", e.target.value)}
-                                className="w-20 h-7 text-right text-sm"
+                                className="w-16 h-7 text-right text-sm"
+                              />
+                            ) : "-"}
+                          </TableCell>
+                          {/* Editable Restaurant Price */}
+                          <TableCell className="text-right p-1">
+                            {item.isMatched ? (
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={String(item.matchedProduct?.restaurantPrice || 0)}
+                                value={item.excelRestaurantPrice ?? ""}
+                                onChange={(e) => updateMatchedPrice(idx, "excelRestaurantPrice", e.target.value)}
+                                className="w-16 h-7 text-right text-sm"
                               />
                             ) : "-"}
                           </TableCell>
@@ -2113,8 +2749,14 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
             <Button variant="outline" onClick={resetExcelUpload}>Cancel</Button>
             
             {uploadStep === "mapping" && (
-              <Button onClick={matchExcelToProducts} disabled={!columnMapping.productName}>
-                Match Products
+              <Button onClick={matchExcelToProducts} disabled={!columnMapping.productName || matchingProducts}>
+                {matchingProducts ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Matching...
+                  </>
+                ) : (
+                  "Match Products"
+                )}
               </Button>
             )}
             
@@ -2133,8 +2775,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
       </Dialog>
 
       {/* Send Modal */}
-      <Dialog open={sendModalOpen} onOpenChange={setSendModalOpen}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={sendModalOpen} onOpenChange={(open) => {
+        setSendModalOpen(open)
+        if (!open) {
+          setSelectedCategoryStores([])
+          setCategoryStores([])
+          setCategoryStoresPage(1)
+          setTotalCategoryStores(0)
+          setStoreSearchQuery("")
+        }
+      }}>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Send Price List</DialogTitle>
             <DialogDescription>
@@ -2157,12 +2808,17 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               </Card>
               <Card 
                 className={`cursor-pointer transition-all ${sendMode === "category" ? "border-orange-500 bg-orange-50" : "hover:border-gray-300"}`}
-                onClick={() => setSendMode("category")}
+                onClick={() => {
+                  setSendMode("category")
+                  if (categoryStores.length === 0) {
+                    fetchCategoryStores()
+                  }
+                }}
               >
                 <CardContent className="p-4 text-center">
                   <Globe className="h-8 w-8 mx-auto mb-2 text-orange-600" />
                   <h4 className="font-medium">By Price Category</h4>
-                  <p className="text-xs text-muted-foreground">Auto-send by store pricing</p>
+                  <p className="text-xs text-muted-foreground">Select stores by category</p>
                 </CardContent>
               </Card>
             </div>
@@ -2178,16 +2834,95 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               </div>
             )}
 
-            {/* Category Mode Info */}
+            {/* Category Mode - Direct Store List */}
             {sendMode === "category" && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <h4 className="font-medium text-orange-900 mb-2">How it works:</h4>
-                <ul className="text-sm text-orange-800 space-y-1 list-disc list-inside">
-                  <li>Stores get their assigned price category URL</li>
-                  <li>A Price stores → A Price URL</li>
-                  <li>B Price stores → B Price URL</li>
-                  <li>And so on...</li>
-                </ul>
+              <div>
+                {/* Search Input */}
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search stores by name or email..."
+                    value={storeSearchQuery}
+                    onChange={(e) => handleStoreSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+                
+                {loadingCategoryStores ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                    <span>Loading stores...</span>
+                  </div>
+                ) : categoryStores.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    {storeSearchQuery ? "No stores found for your search" : "No stores found"}
+                  </div>
+                ) : (
+                  <>
+                    {/* Select All Header */}
+                    <div className="flex items-center justify-between mb-3 p-3 bg-gray-50 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={selectedCategoryStores.length === categoryStores.length && categoryStores.length > 0}
+                          onCheckedChange={selectAllCategoryStores}
+                          className="h-5 w-5"
+                        />
+                        <span className="font-medium cursor-pointer" onClick={selectAllCategoryStores}>
+                          Select All (Page {categoryStoresPage})
+                        </span>
+                      </div>
+                      <Badge className={selectedCategoryStores.length > 0 ? "bg-blue-600" : "bg-gray-400"}>
+                        {selectedCategoryStores.length} selected
+                      </Badge>
+                    </div>
+                    
+                    {/* Simple Stores List */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="h-[280px] overflow-y-auto divide-y">
+                        {categoryStores.map((store: any) => (
+                          <label 
+                            key={store.email} 
+                            className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                          >
+                            <Checkbox
+                              checked={selectedCategoryStores.includes(store.email)}
+                              onCheckedChange={() => toggleCategoryStore(store.email)}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{store.storeName}</p>
+                              <p className="text-xs text-muted-foreground truncate">{store.email}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Pagination */}
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                      <span className="text-sm text-muted-foreground">
+                        Page {categoryStoresPage} of {totalStorePages || 1}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={goToPrevStorePage}
+                          disabled={categoryStoresPage <= 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={goToNextStorePage}
+                          disabled={categoryStores.length < STORES_LIMIT}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -2209,7 +2944,10 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
             <Button variant="outline" onClick={() => setSendModalOpen(false)} disabled={isSending}>
               Cancel
             </Button>
-            <Button onClick={handleSend} disabled={isSending || (sendMode === "bulk" && selectedStores.length === 0)}>
+            <Button 
+              onClick={handleSend} 
+              disabled={isSending || (sendMode === "bulk" && selectedStores.length === 0) || (sendMode === "category" && selectedCategoryStores.length === 0)}
+            >
               {isSending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...
@@ -2217,6 +2955,132 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
               ) : (
                 <>
                   <Send className="h-4 w-4 mr-2" /> Send Price List
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF Price Selection Modal */}
+      <Dialog open={pdfPriceModalOpen} onOpenChange={setPdfPriceModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Price Type for PDF</DialogTitle>
+            <DialogDescription>
+              Choose which prices to include in the PDF download
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="all-prices"
+                  name="priceType"
+                  value="all"
+                  checked={selectedPriceType === "all"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="all-prices" className="text-sm font-medium">
+                  All Prices (Base, A, B, C, Restaurant)
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="base-price"
+                  name="priceType"
+                  value="base"
+                  checked={selectedPriceType === "base"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="base-price" className="text-sm font-medium">
+                  Base Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="a-price"
+                  name="priceType"
+                  value="aPrice"
+                  checked={selectedPriceType === "aPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="a-price" className="text-sm font-medium">
+                  A Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="b-price"
+                  name="priceType"
+                  value="bPrice"
+                  checked={selectedPriceType === "bPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="b-price" className="text-sm font-medium">
+                  B Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="c-price"
+                  name="priceType"
+                  value="cPrice"
+                  checked={selectedPriceType === "cPrice"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="c-price" className="text-sm font-medium">
+                  C Price Only
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id="restaurant-price"
+                  name="priceType"
+                  value="restaurant"
+                  checked={selectedPriceType === "restaurant"}
+                  onChange={(e) => setSelectedPriceType(e.target.value)}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <label htmlFor="restaurant-price" className="text-sm font-medium">
+                  Restaurant Price Only
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPdfPriceModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => selectedPdfTemplate && handleDownloadPDF(selectedPdfTemplate, selectedPriceType)}
+              disabled={downloadingFullList}
+            >
+              {downloadingFullList ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" /> Download PDF
                 </>
               )}
             </Button>

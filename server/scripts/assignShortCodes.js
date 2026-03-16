@@ -53,3 +53,4 @@ async function assignShortCodes() {
 }
 
 assignShortCodes();
+// node scripts/assignShortCodes.js

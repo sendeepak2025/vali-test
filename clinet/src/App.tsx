@@ -70,6 +70,7 @@ import AccountingEnhanced from "./pages/AccountingEnhanced";
 import StoreChequePayment from "./pages/StoreChequePayment";
 import StoreChequePaymentEnhanced from "./pages/StoreChequePaymentEnhanced";
 import PreOrder from "./pages/PreOrder";
+import CreatePreOrder from "./pages/CreatePreOrder";
 import UpdatePreOrder from "./pages/UpdatePreOrder";
 import OrderToPOWorkflow from "./pages/OrderToPOWorkflow";
 import UpdatePreOrderByStore from "./pages/UpdatePreOrderByStore";
@@ -77,6 +78,7 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import StoreLegalDocuments from "./pages/StoreLegalDocuments";
 import QualityIssues from "./pages/QualityIssues";
 import StoreAccount from "./pages/StoreAccount";
+import WorkOrders from "./pages/WorkOrders";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
@@ -403,10 +405,26 @@ export default function App() {
           }
         />
         <Route
+          path="/admin/pre-order/create"
+          element={
+            <PrivateRoute>
+              <CreatePreOrder />
+            </PrivateRoute>
+          }
+        />
+        <Route
           path="/admin/pre-order/:id"
           element={
             <PrivateRoute>
               <UpdatePreOrder />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/work-orders"
+          element={
+            <PrivateRoute>
+              <WorkOrders />
             </PrivateRoute>
           }
         />

@@ -45,7 +45,6 @@ const StoreOrderMobile = () => {
   const urlParams = new URLSearchParams(window.location.search)
   const templateId = urlParams.get("templateId") || "all"
   const emailFromUrl = urlParams.get("email")
-  const phoneFromUrl = urlParams.get("phone")
 
   const [currentStep, setCurrentStep] = useState<Step>("welcome")
   const [loading, setLoading] = useState(true)
@@ -58,7 +57,7 @@ const StoreOrderMobile = () => {
   const [orderDetails, setOrderDetails] = useState<any>(null)
   const [viewMode, setViewMode] = useState<"all" | "lastWeek">("all")
 
-  const [searchType, setSearchType] = useState<"email" | "phone">("phone")
+  const [searchType, setSearchType] = useState<"email">("email")
   const [searchValue, setSearchValue] = useState("")
   const [storeInfo, setStoreInfo] = useState<any>(null)
   const [storeLoading, setStoreLoading] = useState(false)
@@ -177,9 +176,8 @@ const StoreOrderMobile = () => {
   }, [templateId])
 
   useEffect(() => {
-    if (emailFromUrl) { setSearchType("email"); setSearchValue(emailFromUrl); handleFindStore(emailFromUrl, "email") }
-    else if (phoneFromUrl) { setSearchType("phone"); setSearchValue(phoneFromUrl); handleFindStore(phoneFromUrl, "phone") }
-  }, [emailFromUrl, phoneFromUrl])
+    if (emailFromUrl) { setSearchValue(emailFromUrl); handleFindStore(emailFromUrl, "email") }
+  }, [emailFromUrl])
 
   // Auto-fill address for logged-in store users - skip OTP verification
   useEffect(() => {
@@ -231,40 +229,25 @@ const StoreOrderMobile = () => {
     }
   }, [isLoggedInStore, user])
 
-  const handleFindStore = async (value?: string, type?: "email" | "phone") => {
+  const handleFindStore = async (value?: string, type?: "email") => {
     
     const searchVal = value || searchValue
-    const searchBy = type || searchType
-    if (!searchVal) { toast({ variant: "destructive", title: "Required", description: `Please enter your ${searchBy}` }); return }
+    if (!searchVal) { toast({ variant: "destructive", title: "Required", description: "Please enter your email" }); return }
     
-    // For email, send OTP first
-    if (searchBy === "email") {
-      setStoreLoading(true)
-      try {
-        const result = await sendStoreOrderOtp(searchVal)
-        if (result.success) {
-          setOtpEmail(searchVal)
-          setShowEmailOtp(true)
-          setEmailOtp("")
-        }
-      } catch (error) {
-        toast({ variant: "destructive", title: "Error", description: "Failed to send OTP." })
-      } finally {
-        setStoreLoading(false)
-      }
-      return
-    }
-    
-    // For phone, proceed directly
+    // Send OTP for email verification
     setStoreLoading(true)
     try {
-      const query = { phone: searchVal }
-      const response = await getUserAPI(query)
-      if (!response) { toast({ variant: "destructive", title: "Not Found", description: "Store not found." }); return }
-      
-      await processStoreInfo(response)
-    } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to find store." }) }
-    finally { setStoreLoading(false) }
+      const result = await sendStoreOrderOtp(searchVal)
+      if (result.success) {
+        setOtpEmail(searchVal)
+        setShowEmailOtp(true)
+        setEmailOtp("")
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to send OTP." })
+    } finally {
+      setStoreLoading(false)
+    }
   }
 
   // Verify OTP and get store info
@@ -369,7 +352,11 @@ const StoreOrderMobile = () => {
   }
 
   // Categories
-  const categories = template?.products ? ["all", ...new Set(template.products.map((p: any) => p.category || "Other"))] : ["all"]
+  const categorySet = new Set<string>()
+  template?.products?.forEach((p: any) => {
+    categorySet.add(p.category || "Other")
+  })
+  const categories: string[] = ["all", ...Array.from(categorySet)]
   
   // Get last week product IDs
   const lastWeekProductIds = new Set(lastWeekOrder.map((item: any) => item.productId || item.product))
@@ -496,7 +483,14 @@ const StoreOrderMobile = () => {
       }
       
       const orderRes = await createPreOrderAPI(order, token)
-      const orderNumber = orderRes?.preOrderNumber || "ORD-" + Date.now()
+      
+      // Check if order creation was successful
+      if (!orderRes || !orderRes.preOrderNumber) {
+        toast({ variant: "destructive", title: "Error", description: "Internal server error. Please try again later." })
+        return
+      }
+      
+      const orderNumber = orderRes.preOrderNumber
       
       setOrderDetails({ ...order, preOrderNumber: orderNumber })
       setCurrentStep("complete")
@@ -511,7 +505,7 @@ const StoreOrderMobile = () => {
       } catch (e) {}
       
       toast({ title: "Order Placed!", description: `Order #${orderNumber} created` })
-    } catch (error) { toast({ variant: "destructive", title: "Error", description: "Failed to create order" }) }
+    } catch (error) { toast({ variant: "destructive", title: "Error", description: "Internal server error. Please try again later." }) }
     finally { setIsSubmitting(false) }
   }
 
@@ -633,17 +627,13 @@ const StoreOrderMobile = () => {
           {!showEmailOtp ? (
             <Card className="shadow-xl"><CardContent className="p-6">
               <h2 className="text-lg font-semibold mb-4 text-center">Find Your Store</h2>
-              <div className="flex gap-2 mb-4">
-                <Button variant={searchType === "phone" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("phone")}><Phone className="h-4 w-4 mr-2" /> Phone</Button>
-                <Button variant={searchType === "email" ? "default" : "outline"} className="flex-1" onClick={() => setSearchType("email")}><Mail className="h-4 w-4 mr-2" /> Email</Button>
-              </div>
               <div className="space-y-4">
                 <div>
-                  <Label className="text-sm text-gray-600 mb-1 block">{searchType === "phone" ? "Phone Number" : "Email Address"}</Label>
-                  <Input type={searchType === "phone" ? "tel" : "email"} placeholder={searchType === "phone" ? "Enter phone number" : "Enter email address"} value={searchValue} onChange={(e) => setSearchValue(e.target.value)} className="text-lg py-6" onKeyDown={(e) => e.key === "Enter" && handleFindStore()} />
+                  <Label className="text-sm text-gray-600 mb-1 block">Email Address</Label>
+                  <Input type="email" placeholder="Enter email address" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} className="text-lg py-6" onKeyDown={(e) => e.key === "Enter" && handleFindStore()} />
                 </div>
                 <Button className="w-full py-6 text-lg" onClick={() => handleFindStore()} disabled={storeLoading || !searchValue}>
-                  {storeLoading ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> {searchType === "email" ? "Sending OTP..." : "Finding..."}</> : <><Search className="h-5 w-5 mr-2" /> Find My Store</>}
+                  {storeLoading ? <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Sending OTP...</> : <><Search className="h-5 w-5 mr-2" /> Find My Store</>}
                 </Button>
               </div>
             </CardContent></Card>
@@ -899,24 +889,23 @@ const StoreOrderMobile = () => {
         </div>
         
         {/* Category Tabs */}
-       <div className="w-full overflow-x-auto scrollbar-hide">
-  <div className="flex items-center gap-2 px-3 py-2 min-w-max">
-    {categories.map((cat) => (
-      <button
-        key={cat}
-        onClick={() => setSelectedCategory(cat)}
-        className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200
-          ${
-            selectedCategory === cat
-              ? "bg-blue-600 text-white shadow"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
-      >
-        {cat === "all" ? "All" : cat}
-      </button>
-    ))}
-  </div>
-</div>
+        <div className="w-full overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-2 px-3 py-2 min-w-max">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 ${
+                  selectedCategory === cat
+                    ? "bg-blue-600 text-white shadow"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {cat === "all" ? "All" : cat}
+              </button>
+            ))}
+          </div>
+        </div>
 
       </div>
 
@@ -1016,7 +1005,7 @@ const StoreOrderMobile = () => {
               )}
 
               {/* Unit Quantity - Show if salesMode is "unit" or "both" */}
-              {(product.salesMode === "unit" || product.salesMode === "both") && (
+              {/* {(product.salesMode === "unit" || product.salesMode === "both") && (
               <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg p-2">
                 <div className="flex items-center gap-1">
                   <Scale className="h-4 w-4 text-green-600" />
@@ -1044,7 +1033,7 @@ const StoreOrderMobile = () => {
                   </button>
                 </div>
               </div>
-              )}
+              )} */}
             </div>
           </div>
         </CardContent>

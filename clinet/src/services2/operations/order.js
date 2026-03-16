@@ -24,6 +24,8 @@ const { CREATE_PRODUCT,
     ASSIGN_PRODUCT_TO_STORE,
     GET_USER_LATEST_ORDERS,
     GET_ORDER_MATRIX,
+    GET_ORDER_MATRIX_STATS,
+    EXPORT_ORDER_MATRIX,
     UPDATE_ORDER_MATRIX_ITEM,
     UPDATE_PREORDER_MATRIX_ITEM,
     GET_REGIONAL_ORDER_TRENDS
@@ -32,11 +34,14 @@ const { CREATE_PRODUCT,
 
 import Swal from "sweetalert2";
 
-export const createOrderAPI = async (formData, token) => {
+export const createOrderAPI = async (formData, token, sendEmail = false) => {
   const toastId = toast.loading("Loading...");
 
   try {
-    const response = await apiConnector("POST", CREATE_ORDER, formData, {
+    // Add sendEmail flag to formData
+    const orderData = { ...formData, sendEmail };
+    
+    const response = await apiConnector("POST", CREATE_ORDER, orderData, {
       Authorization: `Bearer ${token}`,
     });
 
@@ -254,7 +259,7 @@ export const getStatement = async (id,token) => {
         return response?.data.data|| [];
     } catch (error) {
         console.error("GET GET_ALL_ORDER API ERROR:", error);
-        toast.error(error?.response?.data?.message || "Failed to get GET_ALL_ORDER!");
+        // toast.error(error?.response?.data?.message || "Failed to get GET_ALL_ORDER!");
         return [];
     }
 
@@ -359,13 +364,15 @@ export const getAllOrderAPI = async (token, queryParams = "") => {
   }
 }
 
-export const updateOrderAPI = async (formData, token,id) => {
+export const updateOrderAPI = async (formData, token, id, sendEmail = false) => {
 
     const toastId = toast.loading("Loading...");
 
-
     try {
-        const response = await apiConnector("PUT", `${UPDATE_ORDER}/${id}`, formData, {
+        // Add sendEmail flag to formData
+        const orderData = { ...formData, sendEmail };
+        
+        const response = await apiConnector("PUT", `${UPDATE_ORDER}/${id}`, orderData, {
             Authorization: `Bearer ${token}`,
         });
 
@@ -727,12 +734,13 @@ export const getUserLatestOrdersAPI = async (storeId, limit = 5) => {
 
 
 // Get Order Matrix Data - Store wise product orders with previous purchase history
-export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, limit = 50, search = "") => {
+export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, limit = 50, search = "", statusFilter = "all") => {
   try {
     const params = new URLSearchParams({
       weekOffset: weekOffset.toString(),
       page: page.toString(),
       limit: limit.toString(),
+      statusFilter: statusFilter,
     });
     if (search) {
       params.append("search", search);
@@ -772,6 +780,75 @@ export const getOrderMatrixDataAPI = async (token, weekOffset = 0, page = 1, lim
         }
       }
     };
+  }
+};
+
+// Get Order Matrix Overall Statistics - Overall counts without pagination
+export const getOrderMatrixStatsAPI = async (token, weekOffset = 0) => {
+  try {
+    const params = new URLSearchParams({
+      weekOffset: weekOffset.toString(),
+    });
+
+    const response = await apiConnector(
+      "GET",
+      `${GET_ORDER_MATRIX_STATS}?${params.toString()}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to fetch order matrix statistics");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("getOrderMatrixStatsAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to fetch order matrix statistics");
+    return {
+      success: false,
+      data: {
+        totalStores: 0,
+        activeStores: 0,
+        totalProducts: 0,
+        totalOrders: 0,
+        totalPreOrders: 0,
+        weekRange: null,
+        weekOffset: 0
+      }
+    };
+  }
+};
+
+// Export Order Matrix Data - All products without pagination for CSV download
+export const exportOrderMatrixDataAPI = async (token, weekOffset = 0) => {
+  try {
+    const params = new URLSearchParams({
+      weekOffset: weekOffset.toString(),
+    });
+
+    const response = await apiConnector(
+      "GET",
+      `${EXPORT_ORDER_MATRIX}?${params.toString()}`,
+      {},
+      {
+        Authorization: `Bearer ${token}`,
+      }
+    );
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to export order matrix data");
+    }
+
+    return response.data;
+
+  } catch (error) {
+    console.error("exportOrderMatrixDataAPI ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to export order matrix data");
+    return null;
   }
 };
 
@@ -896,8 +973,6 @@ export const getPendingPreOrdersAPI = async (token, weekOffset = 0) => {
 
 // Confirm PreOrders
 export const confirmPreOrdersAPI = async (formData, token) => {
-  const toastId = toast.loading("Confirming PreOrders...");
-  
   try {
     const response = await apiConnector(
       "POST",
@@ -912,14 +987,11 @@ export const confirmPreOrdersAPI = async (formData, token) => {
       throw new Error(response?.data?.message || "Failed to confirm preorders");
     }
 
-    toast.success(response?.data?.message || "PreOrders confirmed successfully");
+    // Return data without toast - handled by component with Swal
     return response.data;
 
   } catch (error) {
     console.error("confirmPreOrdersAPI ERROR:", error);
-    toast.error(error?.response?.data?.message || "Failed to confirm preorders");
     return null;
-  } finally {
-    toast.dismiss(toastId);
   }
 };

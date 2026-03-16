@@ -31,6 +31,7 @@ import {
   Scale,
   Layers,
   Info,
+  Truck,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -61,6 +62,8 @@ import {
   refreshSingleProductAPI,
   addQuantityProductAPI,
 } from "@/services2/operations/product";
+import axios from "axios";
+import { product } from "@/services2/apis";
 import Swal from "sweetalert2";
 import { RootState } from "@/redux/store";
 import { useSelector } from "react-redux";
@@ -91,6 +94,7 @@ interface Product {
     unitPurchase?: number;
     unitRemaining?: number;
     unitSell?: number;
+    incomingStock?: number;
   };
   weightVariation?: number;
   expiryDate?: string;
@@ -155,6 +159,10 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
     type: "purchased" | "sell" | "remaining";
     product: Product;
   } | null>(null);
+
+  // Purchase history state
+  const [purchaseHistory, setPurchaseHistory] = useState<any>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [trashForm, setTrashForm] = useState({
     quantity: "",
@@ -252,12 +260,33 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
   };
 
   // Handle summary popup
-  const handleSummaryClick = (
+  const handleSummaryClick = async (
     type: "purchased" | "sell" | "remaining",
     product: Product
   ) => {
     setSummaryData({ type, product });
     setSummaryPopup(true);
+    
+    // If it's purchased details, fetch purchase history
+    if (type === "purchased") {
+      await fetchPurchaseHistory(product._id || product.id);
+    }
+  };
+
+  // Fetch purchase history
+  const fetchPurchaseHistory = async (productId: string) => {
+    setLoadingHistory(true);
+    try {
+      const response = await axios.get(`${product.GET_PRODUCT_PURCHASE_HISTORY}/${productId}`);
+      if (response.data.success) {
+        setPurchaseHistory(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching purchase history:', error);
+      toast.error('Failed to fetch purchase history');
+    } finally {
+      setLoadingHistory(false);
+    }
   };
 
   // Get summary popup content
@@ -436,6 +465,12 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
             </TableHead>
             <TableHead className="text-center">
               <div className="flex items-center justify-center gap-1">
+                <Truck className="h-4 w-4 text-purple-600" />
+                Incoming
+              </div>
+            </TableHead>
+            <TableHead className="text-center">
+              <div className="flex items-center justify-center gap-1">
                 <Layers className="h-4 w-4" />
                 Pallets
               </div>
@@ -459,7 +494,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
           {sortedProducts.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={12}
+                colSpan={13}
                 className="text-center text-muted-foreground py-8"
               >
                 No products found
@@ -570,6 +605,30 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                   <div className="font-medium text-orange-600 hover:text-orange-800">
                     {product?.summary?.totalRemaining || 0}
                   </div>
+                </TableCell>
+                {/* Incoming Stock Column - Current Week */}
+                <TableCell className="text-center">
+                  {(product?.summary?.incomingStock || 0) > 0 ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center justify-center gap-1 cursor-help">
+                            <span className="font-medium text-purple-600">
+                              {product?.summary?.incomingStock || 0}
+                            </span>
+                            <Truck className="h-3 w-3 text-purple-500" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            {product?.summary?.incomingStock} units expected this week
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 {/* Pallet Estimate Column */}
                 <TableCell className="text-center">
@@ -875,8 +934,13 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
       />
 
       {/* Summary Popup Dialog */}
-      <Dialog open={summaryPopup} onOpenChange={setSummaryPopup}>
-        <DialogContent className="sm:max-w-[400px]">
+      <Dialog open={summaryPopup} onOpenChange={(open) => {
+        setSummaryPopup(open);
+        if (!open) {
+          setPurchaseHistory(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl font-semibold flex items-center gap-2">
               {getSummaryContent()?.icon}
@@ -897,7 +961,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     {summaryData.product.name}
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    {summaryData.product.category}
+                    {typeof summaryData.product.category === 'object' ? summaryData.product.category?.categoryName : summaryData.product.category}
                   </p>
                 </div>
               </div>
@@ -961,11 +1025,80 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                   </span>
                 </div>
               </div>
+
+              {/* Purchase History - Only for Purchased Details */}
+              {getSummaryContent()?.title === "Purchased Details" && (
+                <div className="pt-4 border-t">
+                  <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <ShoppingCart className="w-4 h-4" />
+                    Purchase History
+                  </h4>
+                  
+                  {loadingHistory ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-sm text-muted-foreground mt-2">Loading purchase history...</p>
+                    </div>
+                  ) : purchaseHistory ? (
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {/* Summary Stats */}
+                      <div className="grid grid-cols-2 gap-2 p-3 bg-blue-50 rounded-lg">
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">Total Orders</p>
+                          <p className="font-semibold text-blue-600">{purchaseHistory.detailedHistory?.length || 0}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground">Consistency</p>
+                          <p className={`font-semibold ${purchaseHistory.summary?.isConsistent ? 'text-green-600' : 'text-red-600'}`}>
+                            {purchaseHistory.summary?.isConsistent ? '✅ Good' : '⚠️ Issue'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Date-wise Summary */}
+                      {purchaseHistory.dateWiseSummary?.map((dateEntry: any, index: number) => (
+                        <div key={index} className="border rounded-lg p-3">
+                          <div className="flex justify-between items-center mb-2">
+                            <h5 className="font-medium text-sm">
+                              {new Date(dateEntry.date).toLocaleDateString()}
+                            </h5>
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                              Qty: {dateEntry.totalQuantity}
+                            </span>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            {dateEntry.purchaseOrders?.map((po: any, poIndex: number) => (
+                              <div key={poIndex} className="flex justify-between text-xs text-muted-foreground">
+                                <span>PO: {po.purchaseOrderNumber}</span>
+                                <span>{po.vendorName}</span>
+                                <span>Qty: {po.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* No history message */}
+                      {(!purchaseHistory.dateWiseSummary || purchaseHistory.dateWiseSummary.length === 0) && (
+                        <div className="text-center py-4 text-muted-foreground">
+                          <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No purchase history found</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-muted-foreground">
+                      <p className="text-sm">Click to load purchase history</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* Trash Quantity Update Form - Only for Remaining */}
-          {getSummaryContent()?.title === "Remaining Details SDG" && (
+          {getSummaryContent()?.title === "Remaining Details" && (
             <div className="pt-4 border-t">
               <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-red-600">
                 <Trash2 className="w-4 h-4" />
@@ -998,7 +1131,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
                     <option value="box">Box</option>
-                    <option value="unit">Unit</option>
+                    {/* <option value="unit">Unit</option> */}
                   </select>
                 </div>
 
@@ -1027,7 +1160,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
             </div>
           )}
 
-          {getSummaryContent()?.title === "Remaining Details DFG" && (
+          {getSummaryContent()?.title === "Remaining Details TEST" && (
             <div className="pt-4 border-t">
               <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-green-600">
                 <Trash2 className="w-4 h-4" />
@@ -1060,7 +1193,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                     className="w-full px-3 py-2 border rounded-md text-sm"
                   >
                     <option value="box">Box</option>
-                    <option value="unit">Unit</option>
+                    {/* <option value="unit">Unit</option> */}
                   </select>
                 </div>
 
@@ -1112,7 +1245,7 @@ const [assingProductToStore, setAssingProductToStore] = useState(false);
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{viewDetailsProduct.name}</h3>
-                  <p className="text-sm text-muted-foreground">{viewDetailsProduct.category || "Uncategorized"}</p>
+                  <p className="text-sm text-muted-foreground">{typeof viewDetailsProduct.category === 'object' ? viewDetailsProduct.category?.categoryName : viewDetailsProduct.category || "Uncategorized"}</p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {viewDetailsProduct.organic && (
                       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">

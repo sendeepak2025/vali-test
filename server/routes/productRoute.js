@@ -9,6 +9,7 @@ const {
   updateProductPrice, 
   bulkDiscountApply,
   getProductsByStore,
+  getProductPurchaseHistory,
   getWeeklyOrdersByProductCtrl,
   updateTotalSellForAllProducts,
   getAllProductsWithHistorySummary,
@@ -18,7 +19,9 @@ const {
   addToManually,
   calculateTripWeight,
   generateShortCodesCtrl,
-  getProductByShortCodeCtrl
+  getProductByShortCodeCtrl,
+  searchProductsCtrl,
+  exportProductsExcelCtrl
 } = require("../controllers/productCtrl");
 const router = express.Router();
 
@@ -27,6 +30,7 @@ router.get("/updateQuantity", updateTotalSellForAllProducts)
 router.get("/getAll", getAllProductCtrl)
 router.get("/getAllSummary", getAllProductsWithHistorySummary)
 router.get("/get/:id", getSingleProductCtrl)
+router.get("/purchase-history/:productId", getProductPurchaseHistory)
 router.get("/get-order/:productId", getWeeklyOrdersByProductCtrl)
 // router.get("/get-by-store/:storeId", getProductsByStore)
 router.delete("/delete/:id", deleteProductCtrl)
@@ -41,6 +45,8 @@ router.get('/reset-history/:productId', resetAndRebuildHistoryForSingleProductCt
 // Short code routes for quick product entry
 router.post("/generate-short-codes", generateShortCodesCtrl);
 router.get("/by-code/:code", getProductByShortCodeCtrl);
+router.get("/search", searchProductsCtrl);
+router.get("/export-excel", exportProductsExcelCtrl);
 
 router.post("/calculate-weight", calculateTripWeight);
 

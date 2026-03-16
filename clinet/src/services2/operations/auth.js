@@ -13,6 +13,7 @@ const {
   UPDATE_MEMBER_PERMISSION_API,
   UPDATE_STORE,
   GET_ALL_STORES_API,
+  SEARCH_STORES_API,
   GET_USER_API,
   FETCH_MY_PROFILE_API,
   UPDATE_PASSWORD_API,
@@ -26,7 +27,8 @@ const {
   UPDATE_CHEQUE_STATUS_API,
   GET_ALL_CHEQUES_API,
   GET_STORE_ANALYTICS_API,
-  GET_ALL_STORES_ANALYTICS_API
+  GET_ALL_STORES_ANALYTICS_API,
+  EXPORT_STORES_DATA_API
 } = endpoints;
 
 export async function login(email, password, navigate, dispatch) {
@@ -223,7 +225,7 @@ export async function verifyStoreOrderOtp(email, otp) {
   }
 }
 
-export async function signUp(formData, navigate, dispatch) {
+export async function signUp(formData, navigate, dispatch, skipNavigation = false) {
   Swal.fire({
     title: "Loading",
     allowOutsideClick: false,
@@ -248,8 +250,11 @@ export async function signUp(formData, navigate, dispatch) {
     const isStoreRegistration = formData.role === "store";
     const registrationRef = response?.data?.user?.registrationRef;
 
-    if (isStoreRegistration && registrationRef) {
-      // Show pending approval message for store registrations
+    // Close loading first
+    Swal.close();
+
+    if (isStoreRegistration && registrationRef && !skipNavigation) {
+      // Show pending approval message for store registrations (only for public registration)
       await Swal.fire({
         title: "Registration Submitted!",
         html: `
@@ -270,6 +275,17 @@ export async function signUp(formData, navigate, dispatch) {
       
       // Navigate to login page after store registration
       navigate("/auth");
+    } else if (skipNavigation) {
+      // Admin creating store - just show simple success
+      Swal.fire({
+        title: "Store Created!",
+        text: "Store has been created successfully.",
+        icon: "success",
+        confirmButtonText: "OK",
+        confirmButtonColor: "#3B82F6",
+        timer: 2000,
+        timerProgressBar: true,
+      });
     } else {
       Swal.fire({
         title: `User Register Successful!`,
@@ -281,21 +297,18 @@ export async function signUp(formData, navigate, dispatch) {
       });
     }
 
-    return response?.data?.success;
+    return true;
   } catch (error) {
     console.log("SIGNUP API ERROR............", error);
 
-    // toast.error(error.response?.data?.message)
     Swal.fire({
       title: "Error",
       text: error.response?.data?.message || "Something went wrong. Please try again later.",
       icon: "error",
       confirmButtonText: "OK",
     });
+    return false;
   }
-
-  // Close the loading alert after completion
-  // Swal.close();
 }
 export async function createMemberAPI(formData) {
   Swal.fire({
@@ -447,6 +460,28 @@ export const getAllStoresAPI = async () => {
     return [];
   }
 
+};
+
+// Search stores with pagination - for order creation
+export const searchStoresAPI = async (search = "", limit = 10, skip = 0) => {
+  try {
+    const queryParams = new URLSearchParams({
+      search,
+      limit: limit.toString(),
+      skip: skip.toString()
+    }).toString();
+    
+    const response = await apiConnector("GET", `${SEARCH_STORES_API}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return response?.data?.stores || [];
+  } catch (error) {
+    console.error("Search Stores API ERROR:", error);
+    return [];
+  }
 };
 
 export function logout(navigate) {
@@ -780,13 +815,14 @@ export const getStoreAnalyticsAPI = async (storeId) => {
 // Get analytics for all stores (bulk) - optimized for admin dashboard with pagination
 export const getAllStoresAnalyticsAPI = async (params = {}) => {
   try {
-    const { page = 1, limit = 20, search = "", state = "", paymentStatus = "", sortBy = "storeName", sortOrder = "asc" } = params;
+    const { page = 1, limit = 20, search = "", state = "", paymentStatus = "", priceCategory = "", sortBy = "storeName", sortOrder = "asc" } = params;
     const queryParams = new URLSearchParams({
       page: page.toString(),
       limit: limit.toString(),
       search,
       state,
       paymentStatus,
+      priceCategory,
       sortBy,
       sortOrder
     }).toString();
@@ -1090,5 +1126,34 @@ export const rejectStoreAPI = async (storeId, reason, token) => {
     return null;
   } finally {
     toast.dismiss(toastId);
+  }
+};
+
+// Export Stores Data - Multiple export types (All, Overdue, Warning, Good Standing)
+export const exportStoresDataAPI = async (exportType = "all") => {
+  try {
+    const queryParams = new URLSearchParams({
+      exportType
+    }).toString();
+    
+    const response = await apiConnector("GET", `${EXPORT_STORES_DATA_API}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Failed to export stores data");
+    }
+
+    return response?.data;
+  } catch (error) {
+    console.error("EXPORT STORES DATA API ERROR:", error);
+    toast.error(error?.response?.data?.message || "Failed to export stores data");
+    return {
+      success: false,
+      data: {
+        stores: [],
+        exportType,
+        exportTitle: "Export Failed",
+        totalStores: 0
+      }
+    };
   }
 };

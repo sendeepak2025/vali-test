@@ -59,10 +59,12 @@ import {
   History,
   Keyboard,
 } from "lucide-react"
-import { getAllMembersAPI, getUserAPI } from "@/services2/operations/auth"
-import { getAllProductAPI, generateShortCodesAPI } from "@/services2/operations/product"
+import { getAllMembersAPI, getUserAPI, searchStoresAPI } from "@/services2/operations/auth"
+import { getAllProductAPI, generateShortCodesAPI, searchProductsForOrderAPI, getProductByShortCodeAPI } from "@/services2/operations/product"
 import { createOrderAPI, getUserLatestOrdersAPI } from "@/services2/operations/order"
+import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
+import { EmailControlModal } from "@/components/EmailControlModal"
 
 interface StoreType {
   id: string
@@ -129,14 +131,18 @@ const NewOrderEnhanced = () => {
   const [selectedStore, setSelectedStore] = useState<StoreType | null>(null)
   const [storeSearch, setStoreSearch] = useState("")
   const [showStoreDropdown, setShowStoreDropdown] = useState(false)
+  const [hasMoreStores, setHasMoreStores] = useState(true)
+  const [loadingMoreStores, setLoadingMoreStores] = useState(false)
   
   const [orderItems, setOrderItems] = useState<OrderItem[]>([])
   const [productSearch, setProductSearch] = useState("")
   const [showProductModal, setShowProductModal] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [displayedProducts, setDisplayedProducts] = useState<ProductType[]>([])
-  const [productsPerPage] = useState(20)
+  const [productsPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const [hasMoreProducts, setHasMoreProducts] = useState(true)
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
   const [categories, setCategories] = useState<string[]>([])
   
   const [orderStatus, setOrderStatus] = useState("pending")
@@ -166,21 +172,13 @@ const NewOrderEnhanced = () => {
   const [quickAddQuantity, setQuickAddQuantity] = useState(1)
   const [quickAddPricingType, setQuickAddPricingType] = useState<"box" | "unit">("box")
 
+  // Email control modal state
+  const [showEmailModal, setShowEmailModal] = useState(false)
+
   // Product add with quantity selection state
   const [selectedProductForAdd, setSelectedProductForAdd] = useState<ProductType | null>(null)
   const [addQuantity, setAddQuantity] = useState(1)
   const [addPricingType, setAddPricingType] = useState<"box" | "unit">("box")
-
-  // Product code map for quick lookup
-  const productCodeMap = useMemo(() => {
-    const map = new Map<string, ProductType>()
-    products.forEach((p, index) => {
-      // Use shortCode if available, otherwise use index+1 padded
-      const code = p.shortCode || String(index + 1).padStart(2, '0')
-      map.set(code, { ...p, shortCode: code })
-    })
-    return map
-  }, [products])
 
   // Parse quick add input: formats like "15", "15x5" (5 boxes), "15u3" (3 units)
   const parseQuickAddInput = useCallback((input: string) => {
@@ -202,46 +200,62 @@ const NewOrderEnhanced = () => {
     }
   }, [])
 
-  // Search product by name
-  const searchProductByName = useCallback((searchTerm: string): ProductType | null => {
-    const term = searchTerm.toLowerCase()
-    const found = products.find(p => 
-      p.name?.toLowerCase().includes(term) ||
-      p.shortCode?.toLowerCase().includes(term)
-    )
-    return found ? { ...found, shortCode: found.shortCode || '' } : null
-  }, [products])
-
-  // Handle quick add input change
+  // Handle quick add input change - search from backend
+  const [quickAddLoading, setQuickAddLoading] = useState(false)
+  const quickAddSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
   const handleQuickAddChange = useCallback((value: string) => {
     setQuickAddInput(value)
     
-    const parsed = parseQuickAddInput(value)
-    if (parsed) {
-      // First try to find by shortCode
-      const product = productCodeMap.get(parsed.code)
-      setQuickAddPreview(product || null)
-      if (product) {
-        // Set default pricing type based on salesMode
-        const salesMode = product.salesMode || "both"
-        const defaultType = salesMode === "unit" ? "unit" : "box"
-        setQuickAddPricingType(defaultType)
-        setQuickAddQuantity(1)
-      }
-    } else if (value.trim()) {
-      // If not a code pattern, search by name
-      const product = searchProductByName(value)
-      setQuickAddPreview(product)
-      if (product) {
-        const salesMode = product.salesMode || "both"
-        const defaultType = salesMode === "unit" ? "unit" : "box"
-        setQuickAddPricingType(defaultType)
-        setQuickAddQuantity(1)
-      }
-    } else {
-      setQuickAddPreview(null)
+    // Clear previous timeout
+    if (quickAddSearchTimeoutRef.current) {
+      clearTimeout(quickAddSearchTimeoutRef.current)
     }
-  }, [parseQuickAddInput, productCodeMap, searchProductByName])
+    
+    if (!value.trim()) {
+      setQuickAddPreview(null)
+      return
+    }
+    
+    const parsed = parseQuickAddInput(value)
+    
+    // Debounce backend search
+    quickAddSearchTimeoutRef.current = setTimeout(async () => {
+      setQuickAddLoading(true)
+      try {
+        let product = null
+        
+        if (parsed) {
+          // Search by short code from backend
+          product = await getProductByShortCodeAPI(parsed.code)
+          if (product) {
+            product = { ...product, id: product._id || product.id, shortCode: product.shortCode || parsed.code }
+          }
+        }
+        
+        if (!product && value.trim()) {
+          // Search by name from backend
+          const results = await searchProductsForOrderAPI(value, 1)
+          if (results.length > 0) {
+            product = { ...results[0], id: results[0]._id || results[0].id }
+          }
+        }
+        
+        setQuickAddPreview(product)
+        if (product) {
+          const salesMode = product.salesMode || "both"
+          const defaultType = salesMode === "unit" ? "unit" : "box"
+          setQuickAddPricingType(defaultType)
+          setQuickAddQuantity(1)
+        }
+      } catch (error) {
+        console.error("Error searching product:", error)
+        setQuickAddPreview(null)
+      } finally {
+        setQuickAddLoading(false)
+      }
+    }, 300)
+  }, [parseQuickAddInput])
 
   // Handle quick add submit
   const handleQuickAddSubmit = useCallback(() => {
@@ -313,43 +327,43 @@ const NewOrderEnhanced = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Fetch stores and products
+  // Fetch stores and products - limited initial fetch
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const [storesData, productsData] = await Promise.all([
-          getAllMembersAPI(),
-          getAllProductAPI()
+        // Fetch only 10 stores, 10 products, and all categories initially
+        const [storesData, productsData, categoriesData] = await Promise.all([
+          searchStoresAPI("", 10),
+          searchProductsForOrderAPI("", 10),
+          fetchCategoriesAPI()
         ])
         
-        const filteredStores = storesData
-          .filter((s: any) => s.role === "store")
-          .map((s: any) => ({ ...s, id: s._id }))
-        setStores(filteredStores)
+        const formattedStores = storesData.map((s: any) => ({ ...s, id: s._id }))
+        setStores(formattedStores)
         
-        // Map products with shortCode (use existing or generate from index)
+        // Map products with shortCode
         const formattedProducts: ProductType[] = productsData.map((p: any, index: number) => ({
           ...p,
-          id: p._id,
+          id: p._id || p.id,
           shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
           salesMode: p.salesMode || "both"
         }))
         setProducts(formattedProducts)
-
-        // Extract unique categories
-        const uniqueCategories: string[] = formattedProducts
-          .filter((p: ProductType) => p.category && typeof p.category === 'string')
-          .map((p: ProductType) => p.category as string)
-          .filter((cat, index, arr) => arr.indexOf(cat) === index) // Remove duplicates
-          .sort()
-        setCategories(uniqueCategories)
+        
+        // Set categories
+        const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
+        setCategories(categoryNames)
 
         // Check if clientId is in URL params
         const clientId = searchParams.get('clientId')
         if (clientId) {
-          const store = filteredStores.find((s: StoreType) => s.id === clientId)
-          if (store) handleSelectStore(store)
+          // Fetch specific store by ID
+          const storeData = await getUserAPI({ id: clientId })
+          if (storeData) {
+            const store = { ...storeData, id: storeData._id }
+            handleSelectStore(store)
+          }
         }
       } catch (error) {
         console.error("Error fetching data:", error)
@@ -387,37 +401,137 @@ const NewOrderEnhanced = () => {
     }
   }
 
-  // Filter stores based on search
-  const filteredStores = useMemo(() => {
-    if (!storeSearch) return stores
-    const search = storeSearch.toLowerCase()
-    return stores.filter(s => 
-      s.storeName?.toLowerCase().includes(search) ||
-      s.ownerName?.toLowerCase().includes(search) ||
-      s.city?.toLowerCase().includes(search)
-    )
-  }, [stores, storeSearch])
+  // Search stores from backend with debounce
+  const [storeSearchLoading, setStoreSearchLoading] = useState(false)
+  const storeSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  const handleStoreSearchChange = useCallback(async (value: string) => {
+    setStoreSearch(value)
+    setShowStoreDropdown(true)
+    setHasMoreStores(true)
+    if (!value) setSelectedStore(null)
+    
+    // Clear previous timeout
+    if (storeSearchTimeoutRef.current) {
+      clearTimeout(storeSearchTimeoutRef.current)
+    }
+    
+    // Debounce search - wait 300ms after user stops typing
+    storeSearchTimeoutRef.current = setTimeout(async () => {
+      setStoreSearchLoading(true)
+      try {
+        const results = await searchStoresAPI(value, 10)
+        const formattedStores = results.map((s: any) => ({ ...s, id: s._id }))
+        setStores(formattedStores)
+        setHasMoreStores(results.length === 10)
+      } catch (error) {
+        console.error("Error searching stores:", error)
+      } finally {
+        setStoreSearchLoading(false)
+      }
+    }, 300)
+  }, [])
 
-  // Filter products based on search and category
-  const filteredProducts = useMemo(() => {
-    let filtered = products
+  // Load more stores on scroll
+  const loadMoreStores = useCallback(async () => {
+    if (loadingMoreStores || !hasMoreStores) return
     
-    // Filter by category
-    if (selectedCategory !== "all") {
-      filtered = filtered.filter(p => p.category === selectedCategory)
+    setLoadingMoreStores(true)
+    try {
+      const skip = stores.length
+      const results = await searchStoresAPI(storeSearch, 10, skip)
+      
+      if (results.length > 0) {
+        const formattedStores = results.map((s: any) => ({ ...s, id: s._id }))
+        setStores(prev => [...prev, ...formattedStores])
+      }
+      
+      if (results.length < 10) {
+        setHasMoreStores(false)
+      }
+    } catch (error) {
+      console.error("Error loading more stores:", error)
+    } finally {
+      setLoadingMoreStores(false)
+    }
+  }, [loadingMoreStores, hasMoreStores, stores.length, storeSearch])
+
+  // Handle store dropdown scroll
+  const handleStoreDropdownScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    
+    if (scrollHeight - scrollTop <= clientHeight + 50) {
+      if (hasMoreStores && !loadingMoreStores) {
+        loadMoreStores()
+      }
+    }
+  }, [hasMoreStores, loadingMoreStores, loadMoreStores])
+
+  // Filter stores - now just returns stores from backend search
+  const filteredStores = stores
+
+  // Search products from backend with debounce
+  const [productSearchLoading, setProductSearchLoading] = useState(false)
+  const productSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  const handleProductSearchChange = useCallback(async (value: string) => {
+    setProductSearch(value)
+    setCurrentPage(1)
+    setHasMoreProducts(true)
+    
+    // Clear previous timeout
+    if (productSearchTimeoutRef.current) {
+      clearTimeout(productSearchTimeoutRef.current)
     }
     
-    // Filter by search
-    if (productSearch) {
-      const search = productSearch.toLowerCase()
-      filtered = filtered.filter(p => 
-        p.name?.toLowerCase().includes(search) ||
-        p.category?.toLowerCase().includes(search)
-      )
+    // Debounce search - wait 300ms after user stops typing
+    productSearchTimeoutRef.current = setTimeout(async () => {
+      setProductSearchLoading(true)
+      try {
+        const results = await searchProductsForOrderAPI(value, 10, selectedCategory === "all" ? "" : selectedCategory)
+        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
+        }))
+        setProducts(formattedProducts)
+        setDisplayedProducts(formattedProducts)
+        setHasMoreProducts(results.length === 10)
+      } catch (error) {
+        console.error("Error searching products:", error)
+      } finally {
+        setProductSearchLoading(false)
+      }
+    }, 300)
+  }, [selectedCategory])
+
+  // Handle category change - fetch products from backend
+  const handleCategoryChange = useCallback(async (category: string) => {
+    setSelectedCategory(category)
+    setCurrentPage(1)
+    setHasMoreProducts(true)
+    setProductSearchLoading(true)
+    try {
+      const results = await searchProductsForOrderAPI(productSearch, 10, category === "all" ? "" : category)
+      const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+        ...p,
+        id: p._id || p.id,
+        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
+        salesMode: p.salesMode || "both"
+      }))
+      setProducts(formattedProducts)
+      setDisplayedProducts(formattedProducts)
+      setHasMoreProducts(results.length === 10)
+    } catch (error) {
+      console.error("Error fetching products by category:", error)
+    } finally {
+      setProductSearchLoading(false)
     }
-    
-    return filtered
-  }, [products, productSearch, selectedCategory])
+  }, [productSearch])
+
+  // Filter products - now just returns products from backend search
+  const filteredProducts = products
 
   // Update displayed products when filters change
   useEffect(() => {
@@ -425,31 +539,53 @@ const NewOrderEnhanced = () => {
     setDisplayedProducts(filteredProducts.slice(0, productsPerPage))
   }, [filteredProducts, productsPerPage])
 
-  // Load more products (infinite scroll)
-  const loadMoreProducts = () => {
-    const nextPage = currentPage + 1
-    const startIndex = (nextPage - 1) * productsPerPage
-    const endIndex = startIndex + productsPerPage
-    const newProducts = filteredProducts.slice(startIndex, endIndex)
+  // Load more products from backend (infinite scroll)
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMoreProducts || !hasMoreProducts) return
     
-    if (newProducts.length > 0) {
-      setDisplayedProducts(prev => [...prev, ...newProducts])
-      setCurrentPage(nextPage)
+    setLoadingMoreProducts(true)
+    try {
+      const skip = displayedProducts.length
+      const results = await searchProductsForOrderAPI(
+        productSearch, 
+        10, 
+        selectedCategory === "all" ? "" : selectedCategory,
+        skip
+      )
+      
+      if (results.length > 0) {
+        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
+          ...p,
+          id: p._id || p.id,
+          shortCode: p.shortCode || String(skip + index + 1).padStart(2, '0'),
+          salesMode: p.salesMode || "both"
+        }))
+        setDisplayedProducts(prev => [...prev, ...formattedProducts])
+        setCurrentPage(prev => prev + 1)
+      }
+      
+      // If less than 10 results, no more products available
+      if (results.length < 10) {
+        setHasMoreProducts(false)
+      }
+    } catch (error) {
+      console.error("Error loading more products:", error)
+    } finally {
+      setLoadingMoreProducts(false)
     }
-  }
+  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory])
 
-  // Handle scroll in product modal
-  const handleProductModalScroll = (e: React.UIEvent<HTMLDivElement>) => {
+  // Handle scroll in product modal - load more on scroll
+  const handleProductModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
     
     // Load more when scrolled to bottom (with 100px threshold)
     if (scrollHeight - scrollTop <= clientHeight + 100) {
-      const hasMore = displayedProducts.length < filteredProducts.length
-      if (hasMore) {
+      if (hasMoreProducts && !loadingMoreProducts) {
         loadMoreProducts()
       }
     }
-  }
+  }, [hasMoreProducts, loadingMoreProducts, loadMoreProducts])
 
   // Add product to order
   const addProduct = (product: ProductType, pricingType: "box" | "unit" = "box") => {
@@ -519,6 +655,11 @@ const NewOrderEnhanced = () => {
     orderItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   , [orderItems])
 
+
+  const totalQuantity = useMemo(() => 
+  orderItems.reduce((sum, item) => sum + item.quantity, 0)
+, [orderItems])
+
   const shippingCost = 0
   const total = subtotal
 
@@ -533,6 +674,12 @@ const NewOrderEnhanced = () => {
       return
     }
 
+    // Show email control modal instead of directly submitting
+    setShowEmailModal(true)
+  }
+
+  // Handle email modal confirmation
+  const handleEmailModalConfirm = async (sendEmail: boolean) => {
     setSubmitting(true)
     try {
       const orderData = {
@@ -549,9 +696,14 @@ const NewOrderEnhanced = () => {
         shippingAddress: sameAsBilling ? billingAddress : shippingAddress,
       }
 
-      const res = await createOrderAPI(orderData, token)
+      const res = await createOrderAPI(orderData, token, sendEmail)
       if (res) {
-        toast({ title: "Success", description: "Order created successfully!" })
+        toast({ 
+          title: "Success", 
+          description: sendEmail 
+            ? "Order created successfully and email sent!" 
+            : "Order created successfully!" 
+        })
         navigate("/admin/orders")
       }
     } catch (error) {
@@ -559,6 +711,7 @@ const NewOrderEnhanced = () => {
       toast({ title: "Error", description: "Failed to create order", variant: "destructive" })
     } finally {
       setSubmitting(false)
+      setShowEmailModal(false)
     }
   }
 
@@ -612,18 +765,20 @@ const NewOrderEnhanced = () => {
                       <Input
                         placeholder="Search store by name, owner, or city..."
                         value={storeSearch}
-                        onChange={(e) => {
-                          setStoreSearch(e.target.value)
-                          setShowStoreDropdown(true)
-                          if (!e.target.value) setSelectedStore(null)
-                        }}
+                        onChange={(e) => handleStoreSearchChange(e.target.value)}
                         onFocus={() => setShowStoreDropdown(true)}
                         className="pl-9"
                       />
+                      {storeSearchLoading && (
+                        <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
                       
                       {showStoreDropdown && filteredStores.length > 0 && !selectedStore && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-64 overflow-auto">
-                          {filteredStores.slice(0, 10).map(store => (
+                        <div 
+                          className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-64 overflow-auto"
+                          onScroll={handleStoreDropdownScroll}
+                        >
+                          {filteredStores.map(store => (
                             <div
                               key={store.id}
                               className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-0"
@@ -637,6 +792,16 @@ const NewOrderEnhanced = () => {
                               </div>
                             </div>
                           ))}
+                          {loadingMoreStores && (
+                            <div className="p-3 text-center">
+                              <Loader2 className="h-4 w-4 mx-auto animate-spin text-muted-foreground" />
+                            </div>
+                          )}
+                          {!hasMoreStores && filteredStores.length > 0 && (
+                            <div className="p-2 text-center text-xs text-muted-foreground">
+                              All stores loaded
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -724,10 +889,13 @@ const NewOrderEnhanced = () => {
                           }}
                           className="pl-9 font-mono text-lg"
                         />
+                        {quickAddLoading && (
+                          <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                        )}
                       </div>
                       <Button 
                         onClick={handleQuickAddSubmit}
-                        disabled={!quickAddPreview}
+                        disabled={!quickAddPreview || quickAddLoading}
                         className="px-6"
                       >
                         <Plus className="h-4 w-4 mr-1" />
@@ -795,7 +963,7 @@ const NewOrderEnhanced = () => {
                                   <Package className="h-3 w-3 mr-1" />
                                   Case
                                 </Button>
-                                <Button
+                                {/* <Button
                                   type="button"
                                   size="sm"
                                   variant={quickAddPricingType === "unit" ? "default" : "outline"}
@@ -807,7 +975,7 @@ const NewOrderEnhanced = () => {
                                 >
                                   <DollarSign className="h-3 w-3 mr-1" />
                                   Unit
-                                </Button>
+                                </Button> */}
                               </div>
                             )}
                             
@@ -956,7 +1124,21 @@ const NewOrderEnhanced = () => {
                                   <Badge variant="outline" className="text-xs">
                                     {item.pricingType === "box" ? "Per Box" : "Per Unit"}
                                   </Badge>
-                                  <span>@ ${item.unitPrice.toFixed(2)}</span>
+                                  <span className="flex items-center gap-1">
+                                    @ $
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={item.unitPrice}
+                                      onChange={(e) => {
+                                        const updated = [...orderItems]
+                                        updated[index].unitPrice = Math.max(0, parseFloat(e.target.value) || 0)
+                                        setOrderItems(updated)
+                                      }}
+                                      className="w-20 h-6 text-center text-sm px-1"
+                                    />
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -1045,6 +1227,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.name}
                             onChange={(e) => setBillingAddress({...billingAddress, name: e.target.value})}
                             placeholder="Full name"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1053,6 +1237,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.phone}
                             onChange={(e) => setBillingAddress({...billingAddress, phone: e.target.value})}
                             placeholder="Phone number"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1061,6 +1247,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.email}
                             onChange={(e) => setBillingAddress({...billingAddress, email: e.target.value})}
                             placeholder="Email address"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1069,6 +1257,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.address}
                             onChange={(e) => setBillingAddress({...billingAddress, address: e.target.value})}
                             placeholder="Street address"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1077,6 +1267,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.city}
                             onChange={(e) => setBillingAddress({...billingAddress, city: e.target.value})}
                             placeholder="City"
+                              readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1085,6 +1277,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.country}
                             onChange={(e) => setBillingAddress({...billingAddress, country: e.target.value})}
                             placeholder="State"
+                            readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                         <div>
@@ -1093,6 +1287,8 @@ const NewOrderEnhanced = () => {
                             value={billingAddress.postalCode}
                             onChange={(e) => setBillingAddress({...billingAddress, postalCode: e.target.value})}
                             placeholder="Postal code"
+                            readOnly={sameAsBilling}
+                            className={sameAsBilling ? "bg-gray-100 cursor-not-allowed" : ""}
                           />
                         </div>
                       </div>
@@ -1159,7 +1355,7 @@ const NewOrderEnhanced = () => {
                     {/* Totals */}
                     <div className="border-t pt-4 space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span>Subtotal ({orderItems.length} items)</span>
+                        <span>Subtotal ({orderItems.length} items) QT - {totalQuantity}</span>
                         <span>${subtotal.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
@@ -1233,6 +1429,15 @@ const NewOrderEnhanced = () => {
         </main>
       </div>
 
+      {/* Email Control Modal */}
+      <EmailControlModal
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        onConfirm={handleEmailModalConfirm}
+        type="create"
+        loading={submitting}
+      />
+
       {/* Product Selection Modal */}
       <Dialog open={showProductModal} onOpenChange={setShowProductModal}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -1240,7 +1445,7 @@ const NewOrderEnhanced = () => {
             <DialogTitle className="flex items-center justify-between">
               <span>Add Product</span>
               <Badge variant="outline" className="text-xs">
-                {displayedProducts.length} of {filteredProducts.length} products
+                {displayedProducts.length} products {hasMoreProducts && "(scroll for more)"}
               </Badge>
             </DialogTitle>
           </DialogHeader>
@@ -1254,7 +1459,7 @@ const NewOrderEnhanced = () => {
                 <Input
                   placeholder="Search products..."
                   value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
+                  onChange={(e) => handleProductSearchChange(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && displayedProducts.length > 0) {
                       e.preventDefault()
@@ -1305,11 +1510,14 @@ const NewOrderEnhanced = () => {
                   className="pl-9"
                   autoFocus
                 />
+                {productSearchLoading && (
+                  <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
               </div>
 
               {/* Category Dropdown */}
               <div className="w-52">
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <Select value={selectedCategory} onValueChange={handleCategoryChange}>
                   <SelectTrigger className="h-10">
                     <div className="flex items-center gap-2">
                       <Package className="h-4 w-4 text-muted-foreground" />
@@ -1320,20 +1528,13 @@ const NewOrderEnhanced = () => {
                     <SelectItem value="all">
                       <div className="flex items-center gap-2">
                         <span>All Categories</span>
-                        <Badge variant="outline" className="text-xs ml-auto">
-                          {products.length}
-                        </Badge>
                       </div>
                     </SelectItem>
                     {categories.map(cat => {
-                      const categoryCount = products.filter(p => p.category === cat).length
                       return (
                         <SelectItem key={cat} value={cat}>
                           <div className="flex items-center justify-between w-full">
                             <span>{cat}</span>
-                            <Badge variant="outline" className="text-xs ml-2">
-                              {categoryCount}
-                            </Badge>
                           </div>
                         </SelectItem>
                       )
@@ -1347,7 +1548,7 @@ const NewOrderEnhanced = () => {
             {(selectedCategory !== "all" || productSearch) && (
               <div className="text-xs text-muted-foreground flex items-center gap-2">
                 <span>
-                  Showing {filteredProducts.length} of {products.length} products
+                  Showing {displayedProducts.length} products
                 </span>
                 {selectedCategory !== "all" && (
                   <Badge variant="outline" className="text-xs">
@@ -1370,7 +1571,7 @@ const NewOrderEnhanced = () => {
           >
             <div className="grid grid-cols-1 gap-2">
               {displayedProducts.map((product, index) => {
-                const shortCode = product.shortCode || String(products.findIndex(p => p.id === product.id) + 1).padStart(2, '0')
+                const shortCode = product.shortCode || String(index + 1).padStart(2, '0')
                 const salesMode = product.salesMode || "both"
                 const showBoxButton = salesMode === "case" || salesMode === "both"
                 const showUnitButton = salesMode === "unit" || salesMode === "both"
@@ -1441,7 +1642,7 @@ const NewOrderEnhanced = () => {
               )}
               
               {/* No products found */}
-              {filteredProducts.length === 0 && (
+              {filteredProducts.length === 0 && !productSearchLoading && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Package className="h-12 w-12 mx-auto mb-2 opacity-20" />
                   <p>No products found</p>
@@ -1449,11 +1650,19 @@ const NewOrderEnhanced = () => {
                 </div>
               )}
               
+              {/* Loading more products indicator */}
+              {loadingMoreProducts && (
+                <div className="text-center py-4">
+                  <Loader2 className="h-6 w-6 mx-auto animate-spin text-primary" />
+                  <p className="text-sm text-muted-foreground mt-2">Loading more products...</p>
+                </div>
+              )}
+              
               {/* All products loaded */}
-              {displayedProducts.length > 0 && displayedProducts.length === filteredProducts.length && (
+              {displayedProducts.length > 0 && !hasMoreProducts && !loadingMoreProducts && (
                 <div className="text-center py-4 text-muted-foreground">
                   <CheckCircle2 className="h-5 w-5 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">All products loaded ({filteredProducts.length} total)</p>
+                  <p className="text-sm">All products loaded ({displayedProducts.length} total)</p>
                 </div>
               )}
             </div>
@@ -1498,8 +1707,8 @@ const NewOrderEnhanced = () => {
                   </div>
                   <div className="text-sm text-muted-foreground mt-1">
                     {showBoxOption && <span>Box: ${selectedProductForAdd.pricePerBox?.toFixed(2)}</span>}
-                    {showBoxOption && showUnitOption && <span> | </span>}
-                    {showUnitOption && <span>Unit: ${selectedProductForAdd.price?.toFixed(2)}</span>}
+                    {/* {showBoxOption && showUnitOption && <span> | </span>}
+                    {showUnitOption && <span>Unit: ${selectedProductForAdd.price?.toFixed(2)}</span>} */}
                   </div>
                 </div>
 
@@ -1520,7 +1729,7 @@ const NewOrderEnhanced = () => {
                         <Package className="h-4 w-4 mr-2" />
                         Case/Box
                       </Button>
-                      <Button
+                      {/* <Button
                         type="button"
                         variant={addPricingType === "unit" ? "default" : "outline"}
                         className={cn(
@@ -1531,7 +1740,7 @@ const NewOrderEnhanced = () => {
                       >
                         <DollarSign className="h-4 w-4 mr-2" />
                         Unit
-                      </Button>
+                      </Button> */}
                     </div>
                   </div>
                 )}

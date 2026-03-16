@@ -21,6 +21,7 @@ import {
   UserCheck,
   AlertTriangle,
   LogOut,
+  ClipboardList,
 } from "lucide-react";
 import type { RootState } from "@/redux/store";
 import { useSelector, useDispatch } from "react-redux";
@@ -80,6 +81,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       name: "Pre Orders",
       path: "/admin/pre-orders",
       icon: <ShoppingCart size={20} />,
+    },
+    {
+      name: "Work Orders",
+      path: "/admin/work-orders",
+      icon: <ClipboardList size={20} />,
     },
     {
       name: "Vendors",

@@ -23,6 +23,8 @@ const {
     assignProductToStore,
     getUserLatestOrdersCtrl,
     getOrderMatrixDataCtrl,
+    getOrderMatrixStatsCtrl,
+    exportOrderMatrixDataCtrl,
     updateOrderMatrixItemCtrl,
     updatePreOrderMatrixItemCtrl,
     confirmPreOrdersCtrl,
@@ -57,6 +59,8 @@ router.get("/latest/:storeId", getUserLatestOrdersCtrl);
 
 // Order Matrix APIs
 router.get("/matrix", auth, getOrderMatrixDataCtrl);
+router.get("/matrix/stats", auth, getOrderMatrixStatsCtrl);
+router.get("/matrix/export", auth, exportOrderMatrixDataCtrl);
 router.post("/matrix/update", auth, updateOrderMatrixItemCtrl);
 router.post("/matrix/preorder", auth, updatePreOrderMatrixItemCtrl);
 

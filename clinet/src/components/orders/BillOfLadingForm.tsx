@@ -110,12 +110,12 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
     resolver: zodResolver(bolSchema),
     defaultValues: {
       shipperName: "Vali Produce",
-      shipperAddress: "4300 Pleasantdale Rd",
-      shipperCity: "Atlanta",
+      shipperAddress: "4950 S Royal Atlanta Dr",
+      shipperCity: "Tucker",
       shipperState: "GA",
-      shipperZip: "30340, USA",
+      shipperZip: "30084, Suite E, USA",
 
-      consigneeName: order.shippingAddress?.name || order.clientName || "",
+      consigneeName: order.store?.storeName || order.clientName || "",
       consigneeAddress: order.shippingAddress?.address || order.shippingAddress?.street || "",
       consigneeCity: order.shippingAddress?.city || "",
       consigneeState: order.shippingAddress?.state || order.shippingAddress?.country || "",
@@ -133,6 +133,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
     },
   });
 
+  console.log(order)
   const handleGenerateBOL = (data: BolFormValues) => {
 
     setBolGenerated(true);
@@ -190,7 +191,7 @@ const BillOfLadingForm: React.FC<BillOfLadingFormProps> = ({
   };
   const handleDownload = () => {
     const formData = form.getValues();
-
+console.log(formData, "test")
     const bolData: BillOfLadingData = {
       bolNumber: ` ${order.orderNumber}`,
 

@@ -29,7 +29,7 @@ import {
   Upload, AlertTriangle, TrendingUp, TrendingDown, DollarSign,
   MoreVertical, ArrowUpDown, Leaf, Snowflake, Sun, ChevronLeft, ChevronRight,
   Percent, Box, ImageIcon, Loader, XCircle, RotateCcw, Zap, MapPin,
-  Store, ListFilter, Tags, ChevronsLeft, ChevronsRight
+  Store, ListFilter, Tags, ChevronsLeft, ChevronsRight, Truck
 } from "lucide-react"
 import { getLowStockProducts, type Product, createReorder, getReorders, type Reorder } from "@/lib/data"
 import { getAllProductSummaryAPI } from "@/services2/operations/product"
@@ -420,31 +420,58 @@ const InventoryEnhanced = () => {
     }
   }
 
-  const handleExport = () => {
-    if (products.length === 0) {
-      toast({ title: "No Data", description: "No products to export" })
-      return
+  const handleExport = async () => {
+    try {
+      // Fetch ALL products for export (not just current page)
+      toast({ title: "Exporting...", description: "Fetching all products for export" })
+      
+      const queryParams = new URLSearchParams({
+        page: "1",
+        limit: "10000", // Large limit to get all products
+        ...(debouncedSearch && { search: debouncedSearch }),
+        ...(filters.category !== "all" && { categoryId: filters.category }),
+        ...(filters.startDate && { startDate: filters.startDate }),
+        ...(filters.endDate && { endDate: filters.endDate }),
+        ...(filters.stockLevel !== "all" && { stockLevel: filters.stockLevel }),
+      })
+
+      const response = await getAllProductSummaryAPI(`?${queryParams.toString()}`)
+      
+      const allExportProducts = (response?.products || response?.data || response || []).map((p: any) => ({
+        ...p,
+        id: p._id,
+        summary: p.summary || { totalPurchase: 0, totalSell: 0, totalRemaining: 0 },
+      }))
+
+      if (allExportProducts.length === 0) {
+        toast({ title: "No Data", description: "No products to export" })
+        return
+      }
+
+      const headers = ["Product Name", "Category", "Purchased", "Sold", "Remaining", "Price", "Value"]
+      const csvData = allExportProducts.map((p: any) => [
+        `"${(p.name || '').replace(/"/g, '""')}"`,
+        p.category?.categoryName || "N/A",
+        p.summary?.totalPurchase || 0,
+        p.summary?.totalSell || 0,
+        p.summary?.totalRemaining || 0,
+        p.price || 0,
+        ((p.price || 0) * (p.summary?.totalRemaining || 0)).toFixed(2)
+      ].join(','))
+      
+      const csvContent = [headers.join(','), ...csvData].join('\n')
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast({ title: "Exported", description: `${allExportProducts.length} products exported successfully` })
+    } catch (error) {
+      console.error("Export error:", error)
+      toast({ variant: "destructive", title: "Export Failed", description: "Failed to export products" })
     }
-    const headers = ["Product Name", "Category", "Purchased", "Sold", "Remaining", "Price", "Value"]
-    const csvData = products.map(p => [
-      `"${(p.name || '').replace(/"/g, '""')}"`,
-      p.category?.categoryName || "N/A",
-      p.summary?.totalPurchase || 0,
-      p.summary?.totalSell || 0,
-      p.summary?.totalRemaining || 0,
-      p.price || 0,
-      ((p.price || 0) * (p.summary?.totalRemaining || 0)).toFixed(2)
-    ].join(','))
-    
-    const csvContent = [headers.join(','), ...csvData].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-    toast({ title: "Exported", description: "Inventory data downloaded" })
   }
 
   const { shortcuts } = useInventoryShortcuts({
@@ -599,6 +626,12 @@ const InventoryEnhanced = () => {
                   <TableHead className="text-right">Purchased</TableHead>
                   <TableHead className="text-right">Sold</TableHead>
                   <TableHead className="text-right">Remaining</TableHead>
+                  <TableHead className="text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Truck className="h-4 w-4 text-purple-600" />
+                      Incoming
+                    </div>
+                  </TableHead>
                   <TableHead className="text-right">Price</TableHead>
                   <TableHead className="text-right">Margin</TableHead>
                   <TableHead className="text-right">Value</TableHead>
@@ -610,6 +643,7 @@ const InventoryEnhanced = () => {
                   const purchased = product.summary?.totalPurchase || 0
                   const sold = product.summary?.totalSell || 0
                   const remaining = product.summary?.totalRemaining || 0
+                  const incomingStock = product.summary?.incomingStock || 0
                   const value = (product.price || 0) * remaining
                   // Generate shortCode: use existing or create from index
 const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
@@ -651,6 +685,16 @@ const shortCode = product.shortCode || String(index + 1).padStart(3, '0');
                       <TableCell className="text-right font-medium">{purchased}</TableCell>
                       <TableCell className="text-right font-medium">{sold}</TableCell>
                       <TableCell className="text-right font-medium">{remaining}</TableCell>
+                      <TableCell className="text-center">
+                        {incomingStock > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="font-medium text-purple-600">{incomingStock}</span>
+                            <Truck className="h-3 w-3 text-purple-500" />
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{formatCurrency(product.price || 0)}</TableCell>
                       <TableCell className="text-right">
                         <MarginIndicator cost={product.cost || 0} price={product.price || 0} />

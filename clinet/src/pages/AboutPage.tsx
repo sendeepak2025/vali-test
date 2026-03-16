@@ -12,16 +12,17 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { NavigationHeader, MobileMenu } from '@/components/landing';
+import { NavigationHeader, MobileMenu, SocialMediaLinks, NewsletterSignup } from '@/components/landing';
 import { COMPANY_INFO } from '@/data/landingPageData';
 import { cn } from '@/lib/utils';
+import { NAV_LINKS } from "@/data/landingPageData";
 
 // Vegetable images for timeline decoration
 const TIMELINE_VEGGIES = [
   { id: 'carrot', src: '/hero/carrot.png', alt: 'Carrot', fallback: 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=80&h=80&fit=crop' },
-  { id: 'tomato', src: '/hero/tomato.png', alt: 'Tomato', fallback: 'https://images.unsplash.com/photo-1546470427-0d4db154ceb8?w=80&h=80&fit=crop' },
+  { id: 'tomato', src: '/hero/tomato.png', alt: 'Tomato', fallback: 'https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=80&h=80&fit=crop' },
   { id: 'apple', src: '/hero/apple.png', alt: 'Apple', fallback: 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=80&h=80&fit=crop' },
-  { id: 'pepper', src: '/hero/pepper.png', alt: 'Bell Pepper', fallback: 'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=80&h=80&fit=crop' },
+  { id: 'pepper', src: '/hero/pepper.png', alt: 'Bell Pepper', fallback: 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=80&h=80&fit=crop' },
   { id: 'broccoli', src: '/hero/broccoli.png', alt: 'Broccoli', fallback: 'https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=80&h=80&fit=crop' },
   { id: 'orange', src: '/hero/orange.png', alt: 'Orange', fallback: 'https://images.unsplash.com/photo-1547514701-42782101795e?w=80&h=80&fit=crop' },
 ];
@@ -155,7 +156,7 @@ const AboutPage: React.FC = () => {
       />
 
       {/* Spacer for fixed header */}
-      <div className="h-20" />
+      {/* <div className="h-20" /> */}
 
       {/* Hero Section */}
       <section className="bg-gradient-to-r from-green-700 to-green-600 text-white py-20">
@@ -340,7 +341,7 @@ const AboutPage: React.FC = () => {
             <Button size="lg" className="bg-yellow-500 hover:bg-yellow-600 text-black" asChild>
               <Link to="/shop">Browse Products</Link>
             </Button>
-            <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10" asChild>
+            <Button size="lg" variant="outline" className="border-white text-black hover:bg-white/10" asChild>
               <Link to="/contact">Contact Us</Link>
             </Button>
           </div>
@@ -348,9 +349,58 @@ const AboutPage: React.FC = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-green-900 text-white py-8 px-4">
-        <div className="max-w-7xl mx-auto text-center">
-          <p>© {new Date().getFullYear()} Vali Produce. All rights reserved.</p>
+      <footer className="bg-green-900 text-white py-12 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-xl font-bold mb-4">Vali Produce</h3>
+              <p className="mb-4">
+                Delivering fresh produce to businesses since {COMPANY_INFO.foundedYear}.
+              </p>
+              <p className="text-green-300 mb-4">{COMPANY_INFO.tagline}</p>
+              <SocialMediaLinks />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-4">Quick Links</h3>
+              <ul className="space-y-2">
+                {NAV_LINKS.map((link) => (
+                  <li key={link.href}>
+                    <Link
+                      to={link.href}
+                      className="text-green-300 hover:text-white transition-colors"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+                <li>
+                  <Link
+                    to="/auth"
+                    className="text-green-300 hover:text-white transition-colors"
+                  >
+                    Create Account
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-4">Contact Us</h3>
+              <p className="mb-2">{COMPANY_INFO.address.street}</p>
+              <p className="mb-2">
+                {COMPANY_INFO.address.city}, {COMPANY_INFO.address.state} {COMPANY_INFO.address.zipCode}
+              </p>
+              <p className="mb-2">{COMPANY_INFO.contact.email}</p>
+              <p>{COMPANY_INFO.contact.phone}</p>
+            </div>
+            <div>
+              <NewsletterSignup />
+            </div>
+          </div>
+          <div className="border-t border-green-800 mt-8 pt-8 text-center">
+            <p>
+              © {new Date().getFullYear()} Vali Produce. All rights reserved.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

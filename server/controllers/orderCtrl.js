@@ -1,5 +1,6 @@
 const orderModel = require("../models/orderModle");
 const purchaseModel = require("../models/purchaseModel");
+const IncomingStock = require("../models/incomingStockModel");
 const mongoose = require("mongoose");
 const authModel = require("../models/authModel"); // Ensure the correct path for your Auth model
 const vendorModel = require("../models/vendorModel"); // Ensure the correct path for your Auth model
@@ -9,6 +10,7 @@ const { exportInvoiceToPDFBackend } = require("../templates/exportInvoice");
 const Counter = require("../models/counterModel");
 const Product = require("../models/productModel");
 const PreOrderModel = require("../models/preOrderModel");
+const PriceListTemplate = require("../models/PriceListTemplate");
 const { validateOrderItems } = require("../utils/orderValidation");
 const { calculatePalletsNeeded } = require("../utils/palletCalculator");
 const notificationService = require("../services/notificationService");
@@ -16,14 +18,181 @@ const notificationService = require("../services/notificationService");
 // High-value order threshold for admin alerts (configurable)
 const HIGH_VALUE_ORDER_THRESHOLD = 5000;
 
+// ✅ Helper: Sum array by field
+const sumBy = (arr, field) => arr.reduce((sum, item) => sum + (item[field] || 0), 0);
+
+// ✅ Helper: Filter array by date range
+const filterByDate = (arr, from, to) => {
+  if (!arr || arr.length === 0) return [];
+  return arr.filter(item => {
+    const d = new Date(item.date);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+};
+
+// ✅ Calculate CURRENT WEEK STOCK (Monday to Sunday current week only)
+const calculateActualStock = (product) => {
+  const now = new Date();
+
+  // Get current week's Monday and Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
+
+  return calculateStockForDateRange(product, monday, sunday);
+};
+
+// ✅ Calculate STOCK for any date range
+const calculateStockForDateRange = (product, fromDate, toDate) => {
+  // Filter data for the specified date range
+  const stockPurchase = filterByDate(
+    product?.purchaseHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockSell = filterByDate(
+    product?.salesHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockUnitPurchase = filterByDate(
+    product?.lbPurchaseHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockUnitSell = filterByDate(
+    product?.lbSellHistory || [],
+    fromDate,
+    toDate
+  );
+
+  const stockTrash = filterByDate(
+    product?.quantityTrash || [],
+    fromDate,
+    toDate
+  );
+
+  // Trash calculation
+  const trashBox = stockTrash
+    .filter(t => t.type?.toLowerCase() === "box")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  const trashUnit = stockTrash
+    .filter(t => t.type?.toLowerCase() === "unit")
+    .reduce((sum, t) => sum + Number(t.quantity || 0), 0);
+
+  // Totals for the date range
+  const stockPurchaseTotal = sumBy(stockPurchase, "quantity");
+  const stockSellTotal = sumBy(stockSell, "quantity");
+
+  const stockUnitPurchaseTotal = sumBy(stockUnitPurchase, "weight");
+  const stockUnitSellTotal = sumBy(stockUnitSell, "weight");
+
+  // Manual add (only if within date range)
+  const manualBox = Number(product?.manuallyAddBox?.quantity || 0);
+  const manualUnit = Number(product?.manuallyAddUnit?.quantity || 0);
+
+  // CALCULATION FOR DATE RANGE (NEGATIVE ALLOWED)
+  const totalRemaining = stockPurchaseTotal - stockSellTotal - trashBox + manualBox;
+  const unitRemaining = stockUnitPurchaseTotal - stockUnitSellTotal - trashUnit + manualUnit;
+
+  return {
+    totalRemaining, // can be negative
+    unitRemaining,  // can be negative
+    trashBox,
+    trashUnit,
+    stockPurchaseTotal,
+    stockSellTotal,
+    stockUnitPurchaseTotal,
+    stockUnitSellTotal,
+    dateRange: {
+      from: fromDate.toISOString(),
+      to: toDate.toISOString()
+    },
+    isOverSold: totalRemaining < 0
+  };
+};
+
+
 /**
- * Get the correct price for a product based on store's price category
+ * Get the correct price for a product based on active price list and store's price category
  * @param {Object} product - Product document
  * @param {string} priceCategory - Store's price category (aPrice, bPrice, cPrice, restaurantPrice)
  * @param {string} pricingType - "box" or "unit"
+ * @param {Object} activePriceList - Active price list object (optional)
  * @returns {number} - The correct price
  */
-const getProductPriceForStore = (product, priceCategory, pricingType = "box") => {
+const getProductPriceForStore = (product, priceCategory, pricingType = "box", activePriceList = null) => {
+  // First check if we have an active price list
+  if (activePriceList && activePriceList.products && activePriceList.products.length > 0) {
+    // Find product in price list by matching ID or name
+    const priceListProduct = activePriceList.products.find(p => 
+      (p.id === product._id?.toString()) || 
+      (p._id === product._id?.toString()) || 
+      (p.id === product.id) || 
+      (p._id === product.id) ||
+      (p.name === product.name) // Also match by name as fallback
+    );
+    
+    if (priceListProduct) {
+      // Product found in price list, use price list pricing based on store's price category
+      if (pricingType === "unit") {
+        // For unit pricing, use the store's price category
+        switch (priceCategory) {
+          case "aPrice":
+            return priceListProduct.aPrice || priceListProduct.price || 0;
+          case "bPrice":
+            return priceListProduct.bPrice || priceListProduct.price || 0;
+          case "cPrice":
+            return priceListProduct.cPrice || priceListProduct.price || 0;
+          case "restaurantPrice":
+            return priceListProduct.restaurantPrice || priceListProduct.price || 0;
+          default:
+            return priceListProduct.price || 0;
+        }
+      } else {
+        // For box pricing, use pricePerBox or fallback to store's price category
+        if (priceListProduct.pricePerBox) {
+          return priceListProduct.pricePerBox;
+        } else {
+          // Fallback to store's price category for box pricing
+          switch (priceCategory) {
+            case "aPrice":
+              return priceListProduct.aPrice || 0;
+            case "bPrice":
+              return priceListProduct.bPrice || 0;
+            case "cPrice":
+              return priceListProduct.cPrice || 0;
+            case "restaurantPrice":
+              return priceListProduct.restaurantPrice || 0;
+            default:
+              return 0;
+          }
+        }
+      }
+    } else {
+      // Product not found in price list, return 0
+      return 0;
+    }
+  }
+  
+  // Fallback: if no price list, use original logic (product's direct price fields)
   if (pricingType === "unit") {
     return product.price || 0;
   }
@@ -116,7 +285,8 @@ const createOrderCtrl = async (req, res) => {
       orderType = "Regural",
       orderNumber,
       createdAt,
-      preOrder
+      preOrder,
+      sendEmail = false
       
     } = req.body;
 
@@ -152,30 +322,7 @@ const createOrderCtrl = async (req, res) => {
 
 
 
-// --- STEP 1: Check stock for all items using overall remaining ---
-const now = new Date();
-const day = now.getUTCDay(); // 0 (Sun) - 6 (Sat)
-
-// Monday and Sunday of current week (UTC)
-const monday = new Date(Date.UTC(
-  now.getUTCFullYear(),
-  now.getUTCMonth(),
-  now.getUTCDate() - ((day + 6) % 7),
-  0, 0, 0, 0
-));
-const sunday = new Date(Date.UTC(
-  monday.getUTCFullYear(),
-  monday.getUTCMonth(),
-  monday.getUTCDate() + 6,
-  23, 59, 59, 999
-));
-
-// UTC-safe range check
-const isWithinRange = (date) => {
-  const d = new Date(date);
-  return d >= monday && d <= sunday;
-};
-
+// --- STEP 1: Check stock using ACTUAL STOCK (01-01-2026 se ab tak) ---
 let insufficientStock = [];
 
 for (const item of items) {
@@ -188,31 +335,8 @@ for (const item of items) {
     continue;
   }
 
-  // --- Filter purchase/sell/trash based on current UTC week ---
-  const filteredPurchase = (product?.purchaseHistory || []).filter(p => isWithinRange(p.date));
-  const filteredSell = (product?.salesHistory || []).filter(s => isWithinRange(s.date));
-  const filteredUnitPurchase = (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date));
-  const filteredUnitSell = (product?.lbSellHistory || []).filter(s => isWithinRange(s.date));
-  const filteredTrash = (product?.quantityTrash || []).filter(t => isWithinRange(t.date));
-
-  // --- Calculate totals ---
-  const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-  const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-  const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-  const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
-
-  const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
-  const trashUnit = filteredTrash.filter(t => t.type === "unit").reduce((sum, t) => sum + t.quantity, 0);
-
-  // --- Weekly remaining stock (same as getAllProductsWithHistorySummary) ---
-  const totalRemaining = Math.max(
-    totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-    0
-  );
-  const unitRemaining = Math.max(
-    unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-    0
-  );
+  // ✅ Use same calculateActualStock function for consistent calculation
+  const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
   // --- Check if requested quantity exceeds remaining ---
   if ((pricingType === "box" && quantity > totalRemaining) || (pricingType === "unit" && quantity > unitRemaining)) {
@@ -222,7 +346,7 @@ for (const item of items) {
       available: pricingType === "box" ? totalRemaining : unitRemaining,
       requested: quantity,
       type: pricingType,
-      weekRange: `${monday.toISOString().split("T")[0]} to ${sunday.toISOString().split("T")[0]}`
+      stockBase: "Current Week Only"
     });
   }
 
@@ -394,86 +518,88 @@ if (insufficientStock.length > 0  ) {
 
     await newOrder.save();
 
-    // Send order notifications
-    try {
-      // Get store details for notification
-      const storeDetails = await authModel.findById(clientId.value);
-      
-      if (storeDetails) {
-        // Send order confirmation to store owner
-        await notificationService.createNotificationWithEmail(
-          storeDetails._id,
-          storeDetails.email,
-          "order_created",
-          "Order Confirmed",
-          `Your order #${newOrder.orderNumber} has been placed successfully. Total: $${newOrder.total.toFixed(2)}`,
-          "ORDER_CONFIRMATION",
-          {
-            ownerName: storeDetails.ownerName || storeDetails.storeName,
-            storeName: storeDetails.storeName,
-            orderNumber: newOrder.orderNumber,
-            total: newOrder.total.toFixed(2),
-            itemCount: items.length,
-            items: items,
-            orderDate: new Date().toLocaleDateString(),
-            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-          },
-          { 
-            orderId: newOrder._id, 
-            orderNumber: newOrder.orderNumber,
-            total: newOrder.total 
-          },
-          `/orders/edit/${newOrder._id}`
-        );
+    // Send order notifications - Only if sendEmail is true
+    if (sendEmail) {
+      try {
+        // Get store details for notification
+        const storeDetails = await authModel.findById(clientId.value);
         
-        console.log("📧 Order confirmation email sent to:", storeDetails.email);
+        if (storeDetails) {
+          // Send order confirmation to store owner
+          await notificationService.createNotificationWithEmail(
+            storeDetails._id,
+            storeDetails.email,
+            "order_created",
+            "Order Confirmed",
+            `Your order #${newOrder.orderNumber} has been placed successfully. Total: $${newOrder.total.toFixed(2)}`,
+            "ORDER_CONFIRMATION",
+            {
+              ownerName: storeDetails.ownerName || storeDetails.storeName,
+              storeName: storeDetails.storeName,
+              orderNumber: newOrder.orderNumber,
+              total: newOrder.total.toFixed(2),
+              itemCount: items.length,
+              items: items,
+              orderDate: new Date().toLocaleDateString(),
+              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+            },
+            { 
+              orderId: newOrder._id, 
+              orderNumber: newOrder.orderNumber,
+              total: newOrder.total 
+            },
+            `/orders/edit/${newOrder._id}`
+          );
+          
+          console.log("📧 Order confirmation email sent to:", storeDetails.email);
 
-        // Notify admins about new order (in-app only, no email)
-        await notificationService.notifyAdmins(
-          "order_created",
-          "New Order Received",
-          `${storeDetails.storeName} placed order #${newOrder.orderNumber} for $${newOrder.total.toFixed(2)}`,
-          {
-            orderId: newOrder._id,
-            orderNumber: newOrder.orderNumber,
-            storeName: storeDetails.storeName,
-            total: newOrder.total,
-          },
-          `/orders/edit/${newOrder._id}`,
-          false // No email for regular orders
-        );
-
-        // Check for high-value order alert
-        if (newOrder.total >= HIGH_VALUE_ORDER_THRESHOLD) {
+          // Notify admins about new order (in-app only, no email)
           await notificationService.notifyAdmins(
             "order_created",
-            "⚠️ High-Value Order Alert",
-            `High-value order #${newOrder.orderNumber} from ${storeDetails.storeName}: $${newOrder.total.toFixed(2)}`,
+            "New Order Received",
+            `${storeDetails.storeName} placed order #${newOrder.orderNumber} for $${newOrder.total.toFixed(2)}`,
             {
               orderId: newOrder._id,
               orderNumber: newOrder.orderNumber,
               storeName: storeDetails.storeName,
               total: newOrder.total,
-              isHighValue: true,
             },
             `/orders/edit/${newOrder._id}`,
-            true, // Send email for high-value orders
-            "ORDER_CONFIRMATION",
-            {
-              ownerName: "Admin",
-              storeName: storeDetails.storeName,
-              orderNumber: newOrder.orderNumber,
-              total: newOrder.total.toFixed(2),
-              itemCount: items.length,
-              orderDate: new Date().toLocaleDateString(),
-              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-            }
+            false // No email for regular orders
           );
+
+          // Check for high-value order alert
+          if (newOrder.total >= HIGH_VALUE_ORDER_THRESHOLD) {
+            await notificationService.notifyAdmins(
+              "order_created",
+              "⚠️ High-Value Order Alert",
+              `High-value order #${newOrder.orderNumber} from ${storeDetails.storeName}: $${newOrder.total.toFixed(2)}`,
+              {
+                orderId: newOrder._id,
+                orderNumber: newOrder.orderNumber,
+                storeName: storeDetails.storeName,
+                total: newOrder.total,
+                isHighValue: true,
+              },
+              `/orders/edit/${newOrder._id}`,
+              true, // Send email for high-value orders
+              "ORDER_CONFIRMATION",
+              {
+                ownerName: "Admin",
+                storeName: storeDetails.storeName,
+                orderNumber: newOrder.orderNumber,
+                total: newOrder.total.toFixed(2),
+                itemCount: items.length,
+                orderDate: new Date().toLocaleDateString(),
+                orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+              }
+            );
+          }
         }
+      } catch (notificationError) {
+        // Log notification error but don't fail order creation
+        console.error("Error sending order notifications:", notificationError);
       }
-    } catch (notificationError) {
-      // Log notification error but don't fail order creation
-      console.error("Error sending order notifications:", notificationError);
     }
 
     // Calculate pallet estimate for the order
@@ -528,7 +654,7 @@ const getAllOrderCtrl = async (req, res) => {
 
     // Step 1: filterStage applies BEFORE $lookup
     const filterStage = {
-      isDelete: { $ne: true }
+      
     };
 
     // Filter by store
@@ -829,10 +955,324 @@ const resetAndRebuildHistoryForSingleProduct = async (productId, from, to) => {
 
 
 
+// const updateOrderCtrl = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const updateFields = req.body;
+
+//     const existingOrder = await orderModel.findById(id);
+//     if (!existingOrder) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Order not found!" });
+//     }
+
+//     // Stock validation for updated items
+//     if (updateFields.items && Array.isArray(updateFields.items)) {
+//       // Get current week's Sunday (UTC) - same as calculateActualStock
+//       const now = new Date();
+//       const dayOfWeek = now.getUTCDay();
+//       const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+//       const sunday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysUntilSunday, 23, 59, 59, 999));
+
+//       // Build map of old quantities to calculate net change
+//       const oldItemsQuantityMap = {};
+//       existingOrder.items.forEach((item) => {
+//         const key = `${item.productId.toString()}_${item.pricingType}`;
+//         oldItemsQuantityMap[key] = item.quantity;
+//       });
+
+//       let insufficientStock = [];
+
+//       for (const item of updateFields.items) {
+//         const { productId, quantity, pricingType } = item;
+//         if (!productId || quantity <= 0) continue;
+
+//         const product = await Product.findById(productId).lean();
+//         if (!product) {
+//           insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
+//           continue;
+//         }
+
+//         // Calculate net additional quantity needed
+//         const key = `${productId}_${pricingType}`;
+//         const oldQuantity = oldItemsQuantityMap[key] || 0;
+//         const additionalQuantity = quantity - oldQuantity;
+
+//         // Only check stock if we're increasing quantity
+//         if (additionalQuantity > 0) {
+//           // Use same calculation as calculateActualStock (current week only)
+//           const { totalRemaining, unitRemaining } = calculateActualStock(product);
+
+//           // Check if additional quantity exceeds available stock
+//           if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
+//               (pricingType === "unit" && additionalQuantity > unitRemaining)) {
+//             insufficientStock.push({
+//               productId,
+//               name: product.name,
+//               available: pricingType === "box" ? totalRemaining : unitRemaining,
+//               requested: quantity,
+//               currentInOrder: oldQuantity,
+//               additionalNeeded: additionalQuantity,
+//               type: pricingType,
+//             });
+//           }
+//         }
+//       }
+
+//       if (insufficientStock.length > 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Insufficient stock for some items",
+//           insufficientStock,
+//         });
+//       }
+//     }
+
+//     // Track status change for notifications
+//     const oldStatus = existingOrder.status;
+//     const newStatus = updateFields.status;
+//     const statusChanged = newStatus && newStatus !== oldStatus;
+
+//     const oldItemsMap = {};
+//     existingOrder.items.forEach((item) => {
+
+//       oldItemsMap[item.productId.toString()] = {
+//         quantity: item.quantity,
+//         pricingType: item.pricingType,
+//       };
+//     });
+
+//     // Update order fields (excluding items)
+//     Object.keys(updateFields).forEach((key) => {
+//       if (key !== "items" && updateFields[key] !== undefined) {
+//         existingOrder[key] = updateFields[key];
+//       }
+//     });
+
+//     // If items are updated, process inventory changes
+//     if (updateFields.items && Array.isArray(updateFields.items)) {
+//       existingOrder.items = updateFields.items;
+
+//       for (const item of updateFields.items) {
+//         const { productId, quantity, pricingType } = item;
+//         // if (!productId || quantity <= 0) continue;
+
+
+//         // const product = await Product.findById(productId);
+//         // if (!product) continue;
+//         // const saleDate = existingOrder.createdAt || new Date();
+
+//         // // Remove old sales history for this date
+//         // const orderDateISO = new Date(existingOrder.createdAt).toISOString();
+
+//         // // Remove only matching entries (pricingType-wise)
+//         // product.salesHistory = product.salesHistory.filter(
+//         //   (p) =>
+//         //     !(
+//         //       new Date(p.date).toISOString() === orderDateISO &&
+//         //       oldItemsMap[product._id]?.pricingType === "box"
+//         //     )
+//         // );
+
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) =>
+//         //     !(
+//         //       new Date(p.date).toISOString() === orderDateISO &&
+//         //       p.lb === oldItemsMap[product._id]?.pricingType
+//         //     )
+//         // );
+
+//         // // Add updated sales history
+//         // if (pricingType === "unit") {
+//         //   product.salesHistory.push({
+//         //     date: saleDate,
+//         //     quantity: quantity,
+//         //   });
+
+//         //   product.lbSellHistory.push({
+//         //     date: saleDate,
+//         //     weight: quantity,
+//         //     lb: "unit",
+//         //   });
+//         // } else if (pricingType === "box") {
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+
+//         //   product.salesHistory.push({
+//         //     date: saleDate,
+//         //     quantity: quantity,
+//         //   });
+
+//         //   product.lbSellHistory.push({
+//         //     date: saleDate,
+//         //     weight: estimatedUnitsUsed,
+//         //     lb: "box",
+//         //   });
+//         // }
+
+//         // const old = oldItemsMap[productId.toString()] || {
+//         //   quantity: 0,
+//         //   pricingType,
+//         // };
+
+//         // // Reverse old impact
+//         // if (old.pricingType === "unit") {
+//         //   product.unitSell -= old.quantity;
+//         //   product.unitRemaining += old.quantity;
+//         // } else if (old.pricingType === "box") {
+//         //   product.totalSell -= old.quantity;
+//         //   product.remaining += old.quantity;
+
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   product.unitRemaining += avgUnitsPerBox * old.quantity;
+//         // }
+
+//         // // Apply new impact
+//         // if (pricingType === "unit") {
+//         //   product.unitSell += quantity;
+//         //   product.unitRemaining = Math.max(0, product.unitRemaining - quantity);
+//         // } else if (pricingType === "box") {
+//         //   product.totalSell += quantity;
+//         //   product.remaining = Math.max(0, product.remaining - quantity);
+
+//         //   const totalBoxes = product.totalPurchase || 1;
+//         //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//         //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+//         //   product.unitRemaining = Math.max(
+//         //     0,
+//         //     product.unitRemaining - estimatedUnitsUsed
+//         //   );
+//         // }
+
+//         // await product.save();
+
+
+//       }
+//     }
+
+//     await existingOrder.save();
+
+//     // Send order updated email notification - COMMENTED OUT (Email disabled for edit order)
+//     /*
+//     try {
+//       const storeDetails = await authModel.findById(existingOrder.store);
+      
+//       if (storeDetails) {
+//         await notificationService.createNotificationWithEmail(
+//           storeDetails._id,
+//           storeDetails.email,
+//           "order_updated",
+//           "Order Updated",
+//           `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
+//           "ORDER_UPDATED",
+//           {
+//             ownerName: storeDetails.ownerName || storeDetails.storeName,
+//             storeName: storeDetails.storeName,
+//             orderNumber: existingOrder.orderNumber,
+//             total: existingOrder.total.toFixed(2),
+//             itemCount: existingOrder.items.length,
+//             items: existingOrder.items,
+//             orderDate: new Date().toLocaleDateString(),
+//             orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
+//           },
+//           { 
+//             orderId: existingOrder._id, 
+//             orderNumber: existingOrder.orderNumber,
+//             total: existingOrder.total 
+//           },
+//           `/orders/edit/${existingOrder._id}`
+//         );
+        
+//         console.log("📧 Order update email sent to:", storeDetails.email);
+//       }
+//     } catch (notificationError) {
+//       console.error("Error sending order update notification:", notificationError);
+//     }
+
+//     // Send status change notification if status was updated
+//     if (statusChanged) {
+//       try {
+//         const storeDetails = await authModel.findById(existingOrder.store);
+        
+//         if (storeDetails) {
+//           await notificationService.createNotificationWithEmail(
+//             storeDetails._id,
+//             storeDetails.email,
+//             "order_status_changed",
+//             "Order Status Updated",
+//             `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
+//             "ORDER_STATUS_UPDATE",
+//             {
+//               ownerName: storeDetails.ownerName || storeDetails.storeName,
+//               storeName: storeDetails.storeName,
+//               orderNumber: existingOrder.orderNumber,
+//               oldStatus: oldStatus,
+//               newStatus: newStatus,
+//               total: existingOrder.total.toFixed(2),
+//             },
+//             { 
+//               orderId: existingOrder._id, 
+//               orderNumber: existingOrder.orderNumber,
+//               oldStatus,
+//               newStatus 
+//             },
+//             `/orders/edit/${existingOrder._id}`
+//           );
+//         }
+//       } catch (notificationError) {
+//         // Log notification error but don't fail order update
+//         console.error("Error sending order status notification:", notificationError);
+//       }
+//     }
+//     */
+
+//     for (const item of existingOrder.items) {
+//       try {
+//         if (!item.productId) {
+//           console.warn("⚠️ Skipping item without productId:", item);
+//           continue;
+//         }
+
+//         console.log(`🔁 Rebuilding product history for: ${item.productId}`);
+//         const result = await resetAndRebuildHistoryForSingleProduct(item.productId);
+
+//         if (result.success) {
+//           console.log(`✅ Success: ${result.message}`);
+//         } else {
+//           console.error(`❌ Failed to rebuild for product ${item.productId}:`, result.error);
+//         }
+//       } catch (err) {
+//         console.error(`🔥 Error processing item ${item.productId}:`, err.message);
+//       }
+//     }
+
+
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Order updated successfully",
+//       updatedOrder: existingOrder,
+//     });
+//   } catch (error) {
+//     console.error("Error updating order:", error);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal Server Error while updating order",
+//     });
+//   }
+// };
+
+
+
+// UPDATE 08 Jan 2026
 const updateOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
     const updateFields = req.body;
+    const { sendEmail = false } = req.body;
 
     const existingOrder = await orderModel.findById(id);
     if (!existingOrder) {
@@ -843,24 +1283,20 @@ const updateOrderCtrl = async (req, res) => {
 
     // Stock validation for updated items
     if (updateFields.items && Array.isArray(updateFields.items)) {
-      // Get current week range (Monday to Sunday) in UTC
-      const now = new Date();
-      const dayOfWeek = now.getUTCDay();
-      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-      const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday, 0, 0, 0, 0));
-      const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
-
-      const isWithinRange = (date) => {
-        const d = new Date(date);
-        return d >= monday && d <= sunday;
-      };
-
       // Build map of old quantities to calculate net change
       const oldItemsQuantityMap = {};
       existingOrder.items.forEach((item) => {
-        const key = `${item.productId.toString()}_${item.pricingType}`;
-        oldItemsQuantityMap[key] = item.quantity;
+        if (item.productId) {
+          // Use just productId as key (convert to string for consistency)
+          const key = item.productId.toString();
+          oldItemsQuantityMap[key] = {
+            quantity: item.quantity || 0,
+            pricingType: item.pricingType
+          };
+        }
       });
+
+      console.log("📦 Old items map:", oldItemsQuantityMap);
 
       let insufficientStock = [];
 
@@ -868,52 +1304,36 @@ const updateOrderCtrl = async (req, res) => {
         const { productId, quantity, pricingType } = item;
         if (!productId || quantity <= 0) continue;
 
-        const product = await Product.findById(productId).lean();
-        if (!product) {
-          insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
-          continue;
-        }
-
-        // Calculate net additional quantity needed
-        const key = `${productId}_${pricingType}`;
-        const oldQuantity = oldItemsQuantityMap[key] || 0;
+        const productIdStr = productId.toString();
+        const oldItem = oldItemsQuantityMap[productIdStr];
+        const oldQuantity = oldItem?.quantity || 0;
         const additionalQuantity = quantity - oldQuantity;
+
+        console.log(`🔍 ${productIdStr}: old=${oldQuantity}, new=${quantity}, diff=${additionalQuantity}`);
 
         // Only check stock if we're increasing quantity
         if (additionalQuantity > 0) {
-          const filteredPurchase = (product?.purchaseHistory || []).filter(p => isWithinRange(p.date));
-          const filteredSell = (product?.salesHistory || []).filter(s => isWithinRange(s.date));
-          const filteredUnitPurchase = (product?.lbPurchaseHistory || []).filter(p => isWithinRange(p.date));
-          const filteredUnitSell = (product?.lbSellHistory || []).filter(s => isWithinRange(s.date));
-          const filteredTrash = (product?.quantityTrash || []).filter(t => isWithinRange(t.date));
+          const product = await Product.findById(productId).lean();
+          if (!product) {
+            insufficientStock.push({ productId, name: "Unknown", message: "Product not found" });
+            continue;
+          }
 
-          const totalPurchase = filteredPurchase.reduce((sum, p) => sum + p.quantity, 0);
-          const totalSell = filteredSell.reduce((sum, s) => sum + s.quantity, 0);
-          const unitPurchase = filteredUnitPurchase.reduce((sum, p) => sum + p.weight, 0);
-          const unitSell = filteredUnitSell.reduce((sum, s) => sum + s.weight, 0);
+          // Use calculateActualStock for consistent calculation
+          const { totalRemaining, unitRemaining } = calculateActualStock(product);
 
-          const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + t.quantity, 0);
-          const trashUnit = filteredTrash.filter(t => t.type === "unit").reduce((sum, t) => sum + t.quantity, 0);
+          console.log(`📊 ${product.name}: available=${pricingType === "box" ? totalRemaining : unitRemaining}, needed=${additionalQuantity}`);
 
-          const totalRemaining = Math.max(
-            totalPurchase - totalSell - trashBox + (product?.manuallyAddBox?.quantity || 0),
-            0
-          );
-          const unitRemaining = Math.max(
-            unitPurchase - unitSell - trashUnit + (product?.manuallyAddUnit?.quantity || 0),
-            0
-          );
-
-          // Check if additional quantity exceeds available stock
+          // Check if ADDITIONAL quantity exceeds available stock
           if ((pricingType === "box" && additionalQuantity > totalRemaining) || 
               (pricingType === "unit" && additionalQuantity > unitRemaining)) {
             insufficientStock.push({
               productId,
               name: product.name,
               available: pricingType === "box" ? totalRemaining : unitRemaining,
-              requested: quantity,
+              requested: additionalQuantity, // ✅ Show only additional needed, not total
               currentInOrder: oldQuantity,
-              additionalNeeded: additionalQuantity,
+              newQuantity: quantity,
               type: pricingType,
             });
           }
@@ -954,145 +1374,104 @@ const updateOrderCtrl = async (req, res) => {
     if (updateFields.items && Array.isArray(updateFields.items)) {
       existingOrder.items = updateFields.items;
 
+      // ✅ OPTIMIZED: Calculate difference and update stock using bulkWrite
+      const bulkOps = [];
+      const saleDate = existingOrder.createdAt || new Date(); // ✅ Order ki original date
+
       for (const item of updateFields.items) {
         const { productId, quantity, pricingType } = item;
-        // if (!productId || quantity <= 0) continue;
+        if (!productId) continue;
 
+        const oldItem = oldItemsMap[productId.toString()];
+        const oldQty = oldItem?.quantity || 0;
+        const diff = quantity - oldQty; // Positive = increased, Negative = decreased
 
-        // const product = await Product.findById(productId);
-        // if (!product) continue;
-        // const saleDate = existingOrder.createdAt || new Date();
+        // Skip if no change
+        if (diff === 0) continue;
 
-        // // Remove old sales history for this date
-        // const orderDateISO = new Date(existingOrder.createdAt).toISOString();
+        if (pricingType === "unit") {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: new mongoose.Types.ObjectId(productId) },
+              update: {
+                $inc: {
+                  unitSell: diff,
+                  unitRemaining: -diff
+                },
+                $push: {
+                  lbSellHistory: { date: saleDate, weight: diff, lb: "unit" } // ✅ Always add (positive or negative)
+                }
+              }
+            }
+          });
+        } else if (pricingType === "box") {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: new mongoose.Types.ObjectId(productId) },
+              update: {
+                $inc: {
+                  totalSell: diff,
+                  remaining: -diff
+                },
+                $push: {
+                  salesHistory: { date: saleDate, quantity: diff } // ✅ Always add (positive or negative)
+                }
+              }
+            }
+          });
+        }
+      }
 
-        // // Remove only matching entries (pricingType-wise)
-        // product.salesHistory = product.salesHistory.filter(
-        //   (p) =>
-        //     !(
-        //       new Date(p.date).toISOString() === orderDateISO &&
-        //       oldItemsMap[product._id]?.pricingType === "box"
-        //     )
-        // );
+      // Handle removed items (items in old order but not in new)
+      const newItemIds = new Set(updateFields.items.map(i => i.productId?.toString()).filter(Boolean));
+      for (const [productId, oldItem] of Object.entries(oldItemsMap)) {
+        if (!newItemIds.has(productId)) {
+          // Item was removed - restore stock with order's original date
+          if (oldItem.pricingType === "unit") {
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: new mongoose.Types.ObjectId(productId) },
+                update: {
+                  $inc: {
+                    unitSell: -oldItem.quantity,
+                    unitRemaining: oldItem.quantity
+                  },
+                  $push: {
+                    lbSellHistory: { date: saleDate, weight: -oldItem.quantity, lb: "unit" }
+                  }
+                }
+              }
+            });
+          } else if (oldItem.pricingType === "box") {
+            bulkOps.push({
+              updateOne: {
+                filter: { _id: new mongoose.Types.ObjectId(productId) },
+                update: {
+                  $inc: {
+                    totalSell: -oldItem.quantity,
+                    remaining: oldItem.quantity
+                  },
+                  $push: {
+                    salesHistory: { date: saleDate, quantity: -oldItem.quantity }
+                  }
+                }
+              }
+            });
+          }
+        }
+      }
 
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) =>
-        //     !(
-        //       new Date(p.date).toISOString() === orderDateISO &&
-        //       p.lb === oldItemsMap[product._id]?.pricingType
-        //     )
-        // );
-
-        // // Add updated sales history
-        // if (pricingType === "unit") {
-        //   product.salesHistory.push({
-        //     date: saleDate,
-        //     quantity: quantity,
-        //   });
-
-        //   product.lbSellHistory.push({
-        //     date: saleDate,
-        //     weight: quantity,
-        //     lb: "unit",
-        //   });
-        // } else if (pricingType === "box") {
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-
-        //   product.salesHistory.push({
-        //     date: saleDate,
-        //     quantity: quantity,
-        //   });
-
-        //   product.lbSellHistory.push({
-        //     date: saleDate,
-        //     weight: estimatedUnitsUsed,
-        //     lb: "box",
-        //   });
-        // }
-
-        // const old = oldItemsMap[productId.toString()] || {
-        //   quantity: 0,
-        //   pricingType,
-        // };
-
-        // // Reverse old impact
-        // if (old.pricingType === "unit") {
-        //   product.unitSell -= old.quantity;
-        //   product.unitRemaining += old.quantity;
-        // } else if (old.pricingType === "box") {
-        //   product.totalSell -= old.quantity;
-        //   product.remaining += old.quantity;
-
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   product.unitRemaining += avgUnitsPerBox * old.quantity;
-        // }
-
-        // // Apply new impact
-        // if (pricingType === "unit") {
-        //   product.unitSell += quantity;
-        //   product.unitRemaining = Math.max(0, product.unitRemaining - quantity);
-        // } else if (pricingType === "box") {
-        //   product.totalSell += quantity;
-        //   product.remaining = Math.max(0, product.remaining - quantity);
-
-        //   const totalBoxes = product.totalPurchase || 1;
-        //   const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-        //   const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-        //   product.unitRemaining = Math.max(
-        //     0,
-        //     product.unitRemaining - estimatedUnitsUsed
-        //   );
-        // }
-
-        // await product.save();
-
-
+      // Execute all updates in single operation
+      if (bulkOps.length > 0) {
+        await Product.bulkWrite(bulkOps);
+        console.log(`✅ Stock updated for ${bulkOps.length} products (difference-based)`);
       }
     }
 
     await existingOrder.save();
 
-    // Send order updated email notification
-    try {
-      const storeDetails = await authModel.findById(existingOrder.store);
-      
-      if (storeDetails) {
-        await notificationService.createNotificationWithEmail(
-          storeDetails._id,
-          storeDetails.email,
-          "order_updated",
-          "Order Updated",
-          `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
-          "ORDER_UPDATED",
-          {
-            ownerName: storeDetails.ownerName || storeDetails.storeName,
-            storeName: storeDetails.storeName,
-            orderNumber: existingOrder.orderNumber,
-            total: existingOrder.total.toFixed(2),
-            itemCount: existingOrder.items.length,
-            items: existingOrder.items,
-            orderDate: new Date().toLocaleDateString(),
-            orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
-          },
-          { 
-            orderId: existingOrder._id, 
-            orderNumber: existingOrder.orderNumber,
-            total: existingOrder.total 
-          },
-          `/orders/edit/${existingOrder._id}`
-        );
-        
-        console.log("📧 Order update email sent to:", storeDetails.email);
-      }
-    } catch (notificationError) {
-      console.error("Error sending order update notification:", notificationError);
-    }
-
-    // Send status change notification if status was updated
-    if (statusChanged) {
+    // Send order updated email notification - Only if sendEmail is true
+    if (sendEmail) {
       try {
         const storeDetails = await authModel.findById(existingOrder.store);
         
@@ -1100,54 +1479,75 @@ const updateOrderCtrl = async (req, res) => {
           await notificationService.createNotificationWithEmail(
             storeDetails._id,
             storeDetails.email,
-            "order_status_changed",
-            "Order Status Updated",
-            `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
-            "ORDER_STATUS_UPDATE",
+            "order_updated",
+            "Order Updated",
+            `Your order #${existingOrder.orderNumber} has been updated. Total: $${existingOrder.total.toFixed(2)}`,
+            "ORDER_UPDATED",
             {
               ownerName: storeDetails.ownerName || storeDetails.storeName,
               storeName: storeDetails.storeName,
               orderNumber: existingOrder.orderNumber,
-              oldStatus: oldStatus,
-              newStatus: newStatus,
               total: existingOrder.total.toFixed(2),
+              itemCount: existingOrder.items.length,
+              items: existingOrder.items,
+              orderDate: new Date().toLocaleDateString(),
+              orderUrl: `${process.env.CLIENT_URL}/store/dashboard`,
             },
             { 
               orderId: existingOrder._id, 
               orderNumber: existingOrder.orderNumber,
-              oldStatus,
-              newStatus 
+              total: existingOrder.total 
             },
             `/orders/edit/${existingOrder._id}`
           );
+          
+          console.log("📧 Order update email sent to:", storeDetails.email);
         }
       } catch (notificationError) {
-        // Log notification error but don't fail order update
-        console.error("Error sending order status notification:", notificationError);
+        console.error("Error sending order update notification:", notificationError);
+      }
+
+      // Send status change notification if status was updated
+      if (statusChanged) {
+        try {
+          const storeDetails = await authModel.findById(existingOrder.store);
+          
+          if (storeDetails) {
+            await notificationService.createNotificationWithEmail(
+              storeDetails._id,
+              storeDetails.email,
+              "order_status_changed",
+              "Order Status Updated",
+              `Your order #${existingOrder.orderNumber} status has been updated to: ${newStatus}`,
+              "ORDER_STATUS_UPDATE",
+              {
+                ownerName: storeDetails.ownerName || storeDetails.storeName,
+                storeName: storeDetails.storeName,
+                orderNumber: existingOrder.orderNumber,
+                oldStatus: oldStatus,
+                newStatus: newStatus,
+                total: existingOrder.total.toFixed(2),
+              },
+              { 
+                orderId: existingOrder._id, 
+                orderNumber: existingOrder.orderNumber,
+                oldStatus,
+                newStatus 
+              },
+              `/orders/edit/${existingOrder._id}`
+            );
+          }
+        } catch (notificationError) {
+          // Log notification error but don't fail order update
+          console.error("Error sending order status notification:", notificationError);
+        }
       }
     }
 
-    for (const item of existingOrder.items) {
-      try {
-        if (!item.productId) {
-          console.warn("⚠️ Skipping item without productId:", item);
-          continue;
-        }
-
-        console.log(`🔁 Rebuilding product history for: ${item.productId}`);
-        const result = await resetAndRebuildHistoryForSingleProduct(item.productId);
-
-        if (result.success) {
-          console.log(`✅ Success: ${result.message}`);
-        } else {
-          console.error(`❌ Failed to rebuild for product ${item.productId}:`, result.error);
-        }
-      } catch (err) {
-        console.error(`🔥 Error processing item ${item.productId}:`, err.message);
-      }
-    }
-
-
+    // ✅ REMOVED: Full history rebuild was causing massive slowdown
+    // Each product was scanning 100-800+ orders - extremely slow!
+    // Stock is already tracked via salesHistory/lbSellHistory arrays
+    // No need to rebuild on every update
 
     return res.status(200).json({
       success: true,
@@ -1558,6 +1958,120 @@ const markOrderAsUnpaid = async (req, res) => {
   }
 };
 
+// const deleteOrderCtrl = async (req, res) => {
+//   const { id } = req.params;
+//   const { reason } = req.body;
+
+//   if (!reason) {
+//     return res
+//       .status(400)
+//       .json({ success: false, message: "Reason is required" });
+//   }
+
+//   try {
+//     const order = await orderModel.findById(id);
+//     if (!order) {
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "Order not found" });
+//     }
+
+//     const amount = order.total ?? 0;
+
+//     // Soft delete flags
+//     order.isDelete = true;
+//     order.deleted = { reason, amount };
+//     order.total = 0;
+
+//     // Loop through each item and reverse its effect
+//     for (const item of order.items) {
+//       const { productId, quantity, pricingType } = item;
+//       if (!productId || quantity <= 0) continue;
+
+//       const product = await Product.findById(productId);
+//       if (!product) continue;
+
+//       const saleDate = order.createdAt;
+//       const totalBoxes = product.totalPurchase || 1;
+//       const avgUnitsPerBox = product.unitPurchase / totalBoxes;
+//       const estimatedUnitsUsed = avgUnitsPerBox * quantity;
+
+//       if (pricingType === "unit") {
+//         product.unitSell -= quantity;
+//         product.unitRemaining += quantity;
+
+//         // Remove unit lbSellHistory
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "unit" && p.weight === quantity)
+//         // );
+
+//         product.lbSellHistory.push({
+//           date: Date.now(),
+//           weight: -Math.abs(quantity),
+//           lb: "unit",
+//         });
+
+//         // Remove estimated box lbSellHistory
+//         // product.lbSellHistory = product.lbSellHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "box" && p.weight === estimatedUnitsUsed)
+//         // );
+//       }
+
+//       if (pricingType === "box") {
+//         product.totalSell -= quantity;
+//         product.remaining += quantity;
+//         product.unitRemaining += estimatedUnitsUsed;
+
+//         // Remove box sales history
+//         // product.salesHistory = product.salesHistory.filter(
+//         //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.quantity === quantity)
+//         // );
+//         product.salesHistory.push({
+//           date: new Date(),
+//           quantity: -Math.abs(quantity), // ensure negative value
+//         });
+//         product.lbSellHistory.push({
+//           date: Date.now(),
+//           weight: -Math.abs(estimatedUnitsUsed),
+//           lb: "box",
+//         });
+//       }
+
+//       await product.save();
+//     }
+
+//     // Zero out order items and preserve deleted info
+//     order.items = order.items.map((item) => {
+//       const qty = item.quantity ?? 0;
+//       const price = item.unitPrice || item.price || 0;
+//       const total = item.total ?? qty * price;
+
+//       return {
+//         ...item,
+//         deletedQuantity: qty,
+//         deletedTotal: total,
+//         quantity: 0,
+//         total: 0,
+//       };
+//     });
+
+//     await order.save();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Order soft-deleted successfully",
+//       deletedOrder: order,
+//     });
+//   } catch (err) {
+//     console.error("Soft delete error:", err);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// };
+
+
+
+// update 08 jan 2026
+
 const deleteOrderCtrl = async (req, res) => {
   const { id } = req.params;
   const { reason } = req.body;
@@ -1583,61 +2097,58 @@ const deleteOrderCtrl = async (req, res) => {
     order.deleted = { reason, amount };
     order.total = 0;
 
-    // Loop through each item and reverse its effect
+    // ✅ OPTIMIZED: Restore stock using bulkWrite (single DB operation)
+    const bulkOps = [];
+    const orderDate = order.createdAt; // ✅ Use order's original date
+
     for (const item of order.items) {
       const { productId, quantity, pricingType } = item;
       if (!productId || quantity <= 0) continue;
 
-      const product = await Product.findById(productId);
-      if (!product) continue;
-
-      const saleDate = order.createdAt;
-      const totalBoxes = product.totalPurchase || 1;
-      const avgUnitsPerBox = product.unitPurchase / totalBoxes;
-      const estimatedUnitsUsed = avgUnitsPerBox * quantity;
-
       if (pricingType === "unit") {
-        product.unitSell -= quantity;
-        product.unitRemaining += quantity;
-
-        // Remove unit lbSellHistory
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "unit" && p.weight === quantity)
-        // );
-
-        product.lbSellHistory.push({
-          date: Date.now(),
-          weight: -Math.abs(quantity),
-          lb: "unit",
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(productId) },
+            update: {
+              $inc: {
+                unitSell: -quantity,
+                unitRemaining: quantity
+              },
+              $push: {
+                lbSellHistory: {
+                  date: orderDate, // ✅ Order ki original date
+                  weight: -Math.abs(quantity),
+                  lb: "unit"
+                }
+              }
+            }
+          }
         });
-
-        // Remove estimated box lbSellHistory
-        // product.lbSellHistory = product.lbSellHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.lb === "box" && p.weight === estimatedUnitsUsed)
-        // );
-      }
-
-      if (pricingType === "box") {
-        product.totalSell -= quantity;
-        product.remaining += quantity;
-        product.unitRemaining += estimatedUnitsUsed;
-
-        // Remove box sales history
-        // product.salesHistory = product.salesHistory.filter(
-        //   (p) => !(p.date.toISOString() === saleDate.toISOString() && p.quantity === quantity)
-        // );
-        product.salesHistory.push({
-          date: new Date(),
-          quantity: -Math.abs(quantity), // ensure negative value
-        });
-        product.lbSellHistory.push({
-          date: Date.now(),
-          weight: -Math.abs(estimatedUnitsUsed),
-          lb: "box",
+      } else if (pricingType === "box") {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(productId) },
+            update: {
+              $inc: {
+                totalSell: -quantity,
+                remaining: quantity
+              },
+              $push: {
+                salesHistory: {
+                  date: orderDate, // ✅ Order ki original date
+                  quantity: -Math.abs(quantity)
+                }
+              }
+            }
+          }
         });
       }
+    }
 
-      await product.save();
+    // Execute all stock restores in single operation
+    if (bulkOps.length > 0) {
+      await Product.bulkWrite(bulkOps);
+      console.log(`✅ Stock restored for ${bulkOps.length} products`);
     }
 
     // Zero out order items and preserve deleted info
@@ -2100,13 +2611,16 @@ const updateShippingController = async (req, res) => {
 
     await order.save();
 
+    // Populate store details before sending response
+    const populatedOrder = await orderModel.findById(orderId).populate("store", "storeName ownerName email phone address city state zipCode");
+
     return res.status(200).json({
       success: true,
       message: "Order total recalculated and shipping updated.",
       itemTotal,
       shippingCost: calculatedShippingCost,
       total: newTotal,
-      updatedOrder: order,
+      updatedOrder: populatedOrder,
     });
   } catch (error) {
     console.error("Error updating shipping cost:", error);
@@ -2338,7 +2852,7 @@ const invoiceMailCtrl = async (req, res) => {
 
     Best regards,
 
-    Nada Saiyed
+    Ishika Yadav
     Sales Manager
     Vali Produce LLC, Atlanta, GA
     501-559-0123
@@ -2570,14 +3084,16 @@ if (!order) {
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
         shippingAddress: {
           name: store.storeName || store.name,
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
         orderType: "Regural",
         
@@ -3093,11 +3609,10 @@ const getEnhancedDashboardData = async (req, res) => {
 // Get Order Matrix Data - Store wise product orders with previous purchase history
 const getOrderMatrixDataCtrl = async (req, res) => {
   try {
-    const { weekOffset = 0, page = 1, limit = 50, search = "" } = req.query;
+    const { weekOffset = 0, page = 1, limit = 25, search = "", statusFilter = "all" } = req.query;
     const offset = parseInt(weekOffset) || 0;
     const currentPage = parseInt(page) || 1;
-    const pageLimit = Math.min(parseInt(limit) || 50, 100); // Max 100 products per page
-    const skip = (currentPage - 1) * pageLimit;
+    const pageLimit = Math.min(parseInt(limit) || 25, 100); // Max 100 products per page
 
     // Calculate week range for the TARGET week (based on offset)
     const now = new Date();
@@ -3111,71 +3626,124 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     const prevSunday = new Date(sunday);
     prevSunday.setDate(prevSunday.getDate() - 7);
 
-    console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
+    // console.log(`Matrix fetch - Week offset: ${offset}, Target: ${monday.toISOString()} to ${sunday.toISOString()}`);
 
-    // Get all orders for TARGET week
-    const currentWeekOrders = await orderModel.find({
-      createdAt: { $gte: monday, $lte: sunday },
-      isDelete: { $ne: true }
-    }).populate("store", "storeName ownerName city state").lean();
-
-    // Get all orders for PREVIOUS week (relative to target)
-    const previousWeekOrders = await orderModel.find({
-      createdAt: { $gte: prevMonday, $lte: prevSunday },
-      isDelete: { $ne: true }
-    }).lean();
-
-    // Get PreOrders for the TARGET week
-    // Priority: expectedDeliveryDate within target week, OR createdAt within target week if no expectedDeliveryDate
-    const preOrders = await PreOrderModel.find({
-      $or: [
-        // PreOrders with expectedDeliveryDate in target week
-        { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
-        // PreOrders created in target week without expectedDeliveryDate
-        { 
-          createdAt: { $gte: monday, $lte: sunday },
-          expectedDeliveryDate: { $exists: false }
-        },
-        // PreOrders created in target week with null expectedDeliveryDate
-        { 
-          createdAt: { $gte: monday, $lte: sunday },
-          expectedDeliveryDate: null
-        }
-      ],
-      confirmed: { $ne: true },
-      isDelete: { $ne: true },
-      status: "pending"
-    }).populate("store", "storeName ownerName city state").lean();
-    
-    console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
-
-    // Build product query with search
+    // Build product query with search (needed for parallel execution)
     const productQuery = {};
     if (search) {
       productQuery.name = { $regex: search, $options: "i" };
     }
 
-    // Get total count for pagination
-    const totalProducts = await Product.countDocuments(productQuery);
+    // For "short", "ok", or "remaining" filter, we need ALL products first to calculate stock, then filter and paginate
+    // For "all" filter, we can use normal pagination
+    const needsFullProductList = statusFilter === "short" || statusFilter === "ok" || statusFilter === "remaining";
+
+    // ✅ OPTIMIZED: Run all independent queries in parallel using Promise.all
+    const [
+      currentWeekOrders,
+      previousWeekOrders,
+      preOrders,
+      incomingStockData,
+      allProducts,
+      stores
+    ] = await Promise.all([
+      // Get all orders for TARGET week (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).populate("store", "storeName ownerName city state").lean(),
+
+      // Get all orders for PREVIOUS week (relative to target) (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: prevMonday, $lte: prevSunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+
+      // Get PreOrders for the TARGET week
+      PreOrderModel.find({
+        $or: [
+          { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: { $exists: false } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: null }
+        ],
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).populate("store", "storeName ownerName city state").lean(),
+
+      // Get Incoming Stock for TARGET week
+      IncomingStock.find({
+        weekStart: monday,
+        weekEnd: sunday,
+        status: { $in: ["draft", "linked"] }
+      }).populate("vendor", "name").lean(),
+
+      // For short/ok filter: Get ALL products first, then filter and paginate
+      // For all filter: Get paginated products directly
+      needsFullProductList 
+        ? Product.find(productQuery).sort({ name: 1 }).lean()
+        : Product.find(productQuery).sort({ name: 1 }).skip((currentPage - 1) * pageLimit).limit(pageLimit).lean(),
+
+      // Get all stores
+      authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean()
+    ]);
+
+    // Get total count for pagination (only needed for "all" filter)
+    let totalProducts = needsFullProductList ? allProducts.length : await Product.countDocuments(productQuery);
+    
+    // For "all" filter, use the fetched products directly
+    let products = allProducts;
+    
+    // console.log(`Matrix - Found ${preOrders.length} PreOrders for target week`);
+    // console.log(`Matrix - Found ${incomingStockData.length} Incoming Stock entries for target week`);
+
     const totalPages = Math.ceil(totalProducts / pageLimit);
 
-    // Get paginated products
-    const products = await Product.find(productQuery)
-      .sort({ name: 1 })
-      .skip(skip)
-      .limit(pageLimit)
-      .lean();
+    // Group incoming stock by product
+    // Only count "draft" items for incoming display (linked items are already in purchase orders)
+    const incomingByProduct = {};
 
-    // Get all stores - include priceCategory for pricing
-    const stores = await authModel.find({ role: "store" }).select("storeName ownerName city state approvalStatus priceCategory").lean();
+    incomingStockData.forEach(item => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+
+      if (!incomingByProduct[productId]) {
+        incomingByProduct[productId] = {
+          totalIncoming: 0,
+          items: [],
+          allLinked: true
+        };
+      }
+
+      // Only add draft items to the incoming total (linked items are already processed)
+      if (item.status === "draft") {
+        incomingByProduct[productId].totalIncoming += item.quantity || 0;
+        incomingByProduct[productId].allLinked = false;
+      }
+      
+      // Still track all items for reference
+      incomingByProduct[productId].items.push({
+        _id: item._id,
+        quantity: item.quantity,
+        vendor: item.vendor,
+        unitPrice: item.unitPrice,
+        status: item.status,
+        isLinked: item.status === "linked" || item.status === "received"
+      });
+    });
 
     // Build matrix data
     const matrixData = {};
 
     // Initialize matrix with paginated products
     products.forEach(product => {
-      matrixData[product._id.toString()] = {
-        productId: product._id.toString(),
+      const productId = product._id.toString();
+      const incomingData = incomingByProduct[productId] || { totalIncoming: 0, items: [], allLinked: true };
+      
+      matrixData[productId] = {
+        productId: productId,
         productName: product.name,
         image: product.image,
         pricePerBox: product.pricePerBox || 0,
@@ -3187,8 +3755,15 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         preOrderTotal: 0,
         orderTotal: 0,
         pendingReqTotal: 0,
-        totalStock: 0,
-        totalPurchase: 0
+        totalStock: product.remaining || 0,  // Use live Product.remaining
+        totalPurchase: 0,
+        // NEW: Incoming stock fields
+        incomingStock: incomingData.totalIncoming,
+        incomingItems: incomingData.items,
+        incomingAllLinked: incomingData.allLinked,
+        // Final will be calculated after all data is filled
+        finalStock: 0,
+        isShort: false
       };
     });
 
@@ -3298,40 +3873,102 @@ const getOrderMatrixDataCtrl = async (req, res) => {
       });
     });
 
-    // Calculate stock for each product (week-wise based on TARGET week)
-    const isWithinRange = (date) => {
-      const d = new Date(date);
-      return d >= monday && d <= sunday;
-    };
+    // Calculate stock for each product using current week data only
+    // Stock is calculated from Monday to Sunday of current week
+
+    // Track shortage summary
+    let totalShortProducts = 0;
+    let totalShortQuantity = 0;
 
     for (const productId in matrixData) {
       const product = products.find(p => p._id.toString() === productId);
       if (!product) continue;
 
-      const filteredPurchase = (product.purchaseHistory || []).filter(p => isWithinRange(p.date));
-      const filteredSell = (product.salesHistory || []).filter(s => isWithinRange(s.date));
-      const filteredTrash = (product.quantityTrash || []).filter(t => isWithinRange(t.date));
-
-      const totalPurchase = filteredPurchase.reduce((sum, p) => sum + (p.quantity || 0), 0);
-      const totalSell = filteredSell.reduce((sum, s) => sum + (s.quantity || 0), 0);
-      const trashBox = filteredTrash.filter(t => t.type === "box").reduce((sum, t) => sum + (t.quantity || 0), 0);
-      const manuallyAddBox = product.manuallyAddBox?.quantity || 0;
-
-      // Calculate week-wise remaining stock
-      // Stock = Purchase - Sell - Trash + ManuallyAdded (for the target week)
-      const totalRemaining = Math.max(totalPurchase - totalSell - trashBox + manuallyAddBox, 0);
-
-      matrixData[productId].totalStock = totalRemaining;
-      matrixData[productId].totalPurchase = totalPurchase;
+      // ✅ Use same calculateActualStock function for consistent calculation
+      const actualStock = calculateActualStock(product);
+      const currentStock = actualStock.totalRemaining;
       
-      // Debug log for stock calculation
-      if (totalPurchase > 0 || totalSell > 0) {
-        console.log(`Stock calc for ${product.name}: Purchase=${totalPurchase}, Sell=${totalSell}, Trash=${trashBox}, Manual=${manuallyAddBox}, Remaining=${totalRemaining}`);
+      // Get incoming stock for this product
+      const incomingStock = matrixData[productId].incomingStock || 0;
+      
+      // Get total preorder demand (PreOrders are NOT yet converted to orders, so subtract them)
+      const preOrderTotal = matrixData[productId].preOrderTotal || 0;
+
+      // Calculate FINAL: Stock + Incoming - PreOrders
+      // NOTE: Orders are already subtracted in calculateActualStock (salesHistory), so don't subtract again
+      const finalStock = currentStock + incomingStock - preOrderTotal;
+      const isShort = finalStock < 0;
+
+      matrixData[productId].totalStock = currentStock;
+      matrixData[productId].totalPurchase = actualStock.totalRemaining + actualStock.trashBox; // Approximate
+      matrixData[productId].finalStock = finalStock;
+      matrixData[productId].isShort = isShort;
+      matrixData[productId].shortageQty = isShort ? Math.abs(finalStock) : 0;
+      matrixData[productId].stockCalculationBase = "Current Week Only";
+
+      if (isShort) {
+        totalShortProducts++;
+        totalShortQuantity += Math.abs(finalStock);
       }
+      
+      // // Debug log for stock calculation
+      // if (currentStock > 0 || incomingStock > 0 || preOrderTotal > 0) {
+      //   console.log(`Stock calc for ${product.name}: Current=${currentStock}, Incoming=${incomingStock}, PreOrder=${preOrderTotal}, Final=${finalStock}, Short=${isShort}`);
+      // }
     }
 
     // Convert to array format
-    const matrixArray = Object.values(matrixData);
+    let matrixArray = Object.values(matrixData);
+
+    // Apply status filter (SHORT, OK, or REMAINING) BEFORE pagination
+    if (statusFilter === "short") {
+      matrixArray = matrixArray.filter(row => row.isShort === true);
+    } else if (statusFilter === "ok") {
+      matrixArray = matrixArray.filter(row => row.isShort === false);
+    } else if (statusFilter === "remaining") {
+      // Filter products where finalStock > 0 (FIN column > 0, not including 0)
+      matrixArray = matrixArray.filter(row => {
+        const finalStock = row.finalStock || 0;
+        return finalStock > 0; // Strictly greater than 0, excludes 0
+      });
+    }
+
+    // For short/ok filter: Update totalProducts and apply pagination AFTER filtering
+    let finalTotalProducts = matrixArray.length;
+    let finalTotalPages = Math.ceil(finalTotalProducts / pageLimit);
+    
+    // Apply pagination to filtered results (for short/ok filter)
+    if (needsFullProductList) {
+      const skip = (currentPage - 1) * pageLimit;
+      matrixArray = matrixArray.slice(skip, skip + pageLimit);
+    }
+
+    // Calculate hasUnlinkedIncoming ONLY for products in current page
+    let hasUnlinkedIncoming = false;
+    const unlinkedIncomingItems = [];
+    
+    matrixArray.forEach(row => {
+      // Only check products that have incoming stock > 0 and are not all linked
+      if (row.incomingStock > 0 && row.incomingAllLinked === false) {
+        hasUnlinkedIncoming = true;
+        // Get draft items from incomingItems
+        const draftItems = (row.incomingItems || []).filter(i => i.status === "draft");
+        draftItems.forEach(item => {
+          unlinkedIncomingItems.push({
+            _id: item._id,
+            productId: row.productId,
+            productName: row.productName,
+            quantity: item.quantity
+          });
+        });
+      }
+    });
+
+    // Check if confirm is allowed
+    const canConfirm = !hasUnlinkedIncoming;
+    const confirmBlockReason = hasUnlinkedIncoming 
+      ? `${unlinkedIncomingItems.length} incoming stock item(s) not linked to vendor` 
+      : null;
     
     res.status(200).json({
       success: true,
@@ -3352,11 +3989,24 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         weekOffset: offset,
         pagination: {
           currentPage,
-          totalPages,
-          totalProducts,
+          totalPages: needsFullProductList ? finalTotalPages : Math.ceil(totalProducts / pageLimit),
+          totalProducts: needsFullProductList ? finalTotalProducts : totalProducts,
           limit: pageLimit,
-          hasNextPage: currentPage < totalPages,
+          hasNextPage: currentPage < (needsFullProductList ? finalTotalPages : Math.ceil(totalProducts / pageLimit)),
           hasPrevPage: currentPage > 1
+        },
+        // NEW: Incoming stock & confirm validation
+        incomingStockCount: incomingStockData.length,
+        hasUnlinkedIncoming: hasUnlinkedIncoming,
+        unlinkedIncomingCount: unlinkedIncomingItems.length,
+        unlinkedIncomingItems: unlinkedIncomingItems,
+        canConfirm: canConfirm,
+        confirmBlockReason: confirmBlockReason,
+        // Shortage summary
+        shortageInfo: {
+          hasShortage: totalShortProducts > 0,
+          shortProductCount: totalShortProducts,
+          totalShortQuantity: totalShortQuantity
         }
       }
     });
@@ -3366,6 +4016,196 @@ const getOrderMatrixDataCtrl = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error fetching order matrix data",
+      error: error.message
+    });
+  }
+};
+
+// Export function for current week stock calculation
+
+const calculateActualStockForExport = (product) => {
+  const now = new Date();
+  
+  // Get current week's Monday and Sunday (UTC)
+  const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(), 
+    now.getUTCMonth(), 
+    now.getUTCDate() - ((dayOfWeek + 6) % 7), 
+    0, 0, 0, 0
+  ));
+  
+  const sunday = new Date(Date.UTC(
+    monday.getUTCFullYear(), 
+    monday.getUTCMonth(), 
+    monday.getUTCDate() + 6, 
+    23, 59, 59, 999
+  ));
+
+  const stockData = calculateStockForDateRange(product, monday, sunday);
+  return stockData.totalRemaining; // Allow negative values for accurate export
+};
+
+// Export Order Matrix Data - All products without pagination for CSV download
+const exportOrderMatrixDataCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0 } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the TARGET week (based on offset)
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // Previous week for comparison
+    const prevMonday = new Date(monday);
+    prevMonday.setDate(prevMonday.getDate() - 7);
+    const prevSunday = new Date(sunday);
+    prevSunday.setDate(prevSunday.getDate() - 7);
+
+    // Run all queries in parallel
+    const [
+      currentWeekOrders,
+      previousWeekOrders,
+      preOrders,
+      incomingStockData,
+      products,
+      stores
+    ] = await Promise.all([
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+      orderModel.find({
+        createdAt: { $gte: prevMonday, $lte: prevSunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"
+      }).lean(),
+      PreOrderModel.find({
+        $or: [
+          { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: { $exists: false } },
+          { createdAt: { $gte: monday, $lte: sunday }, expectedDeliveryDate: null }
+        ],
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).lean(),
+      IncomingStock.find({
+        weekStart: monday,
+        weekEnd: sunday,
+        status: { $in: ["draft", "linked"] }
+      }).lean(),
+      Product.find({}).sort({ name: 1 }).lean(),
+      authModel.find({ role: "store" }).select("storeName ownerName city state").lean()
+    ]);
+
+    // Group incoming stock by product
+    const incomingByProduct = {};
+    incomingStockData.forEach(item => {
+      const productId = item.product?.toString();
+      if (!productId) return;
+      if (!incomingByProduct[productId]) {
+        incomingByProduct[productId] = { totalIncoming: 0 };
+      }
+      incomingByProduct[productId].totalIncoming += item.quantity || 0;
+    });
+
+    // Build matrix data
+    const matrixData = {};
+    products.forEach(product => {
+      const productId = product._id.toString();
+      const incomingData = incomingByProduct[productId] || { totalIncoming: 0 };
+      
+      // Calculate actual stock from Jan 5th, 2026 to current week Sunday
+      const currentStock = calculateActualStockForExport(product);
+      
+      matrixData[productId] = {
+        productId,
+        productName: product.name,
+        storeOrders: {},
+        preOrderTotal: 0,
+        orderTotal: 0,
+        totalStock: currentStock,
+        incomingStock: incomingData.totalIncoming
+      };
+    });
+
+    // Fill current week orders
+    currentWeekOrders.forEach(order => {
+      const storeId = order.store?.toString();
+      if (!storeId) return;
+      order.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].currentQty += item.quantity || 0;
+        matrixData[productId].orderTotal += item.quantity || 0;
+      });
+    });
+
+    // Fill previous week orders
+    previousWeekOrders.forEach(order => {
+      const storeId = order.store?.toString();
+      if (!storeId) return;
+      order.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].previousQty += item.quantity || 0;
+      });
+    });
+
+    // Fill preorders
+    preOrders.forEach(preOrder => {
+      const storeId = preOrder.store?.toString();
+      if (!storeId) return;
+      preOrder.items.forEach(item => {
+        const productId = item.productId?.toString();
+        if (!productId || !matrixData[productId]) return;
+        if (!matrixData[productId].storeOrders[storeId]) {
+          matrixData[productId].storeOrders[storeId] = { currentQty: 0, previousQty: 0, preOrderQty: 0 };
+        }
+        matrixData[productId].storeOrders[storeId].preOrderQty += item.quantity || 0;
+        matrixData[productId].preOrderTotal += item.quantity || 0;
+      });
+    });
+
+    // Calculate final stock for each product
+    for (const productId in matrixData) {
+      const row = matrixData[productId];
+      row.finalStock = (row.totalStock || 0) + (row.incomingStock || 0) - (row.preOrderTotal || 0);
+      row.isShort = row.finalStock < 0;
+    }
+
+    const matrixArray = Object.values(matrixData);
+
+    res.status(200).json({
+      success: true,
+      message: "Order matrix export data fetched successfully",
+      data: {
+        matrix: matrixArray,
+        stores: stores,
+        weekRange: {
+          start: monday.toISOString(),
+          end: sunday.toISOString(),
+          label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        },
+        totalProducts: matrixArray.length
+      }
+    });
+
+  } catch (error) {
+    console.error("Error exporting order matrix data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error exporting order matrix data",
       error: error.message
     });
   }
@@ -3476,9 +4316,18 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
       });
     }
 
+    // Fetch active price list for pricing
+    let activePriceList = null;
+    try {
+      activePriceList = await PriceListTemplate.findOne({ status: "active" }).sort({ createdAt: -1 });
+      console.log(`Active price list found: ${activePriceList ? activePriceList.name : 'None'}`);
+    } catch (error) {
+      console.error("Error fetching active price list:", error);
+    }
+
     // Create new item object with proper price calculation
-    const calculatedPrice = getProductPriceForStore(product, store.priceCategory, "box");
-    console.log(`Calculated price for ${product.name}: ${calculatedPrice} (priceCategory: ${store.priceCategory}, pricePerBox: ${product.pricePerBox}, aPrice: ${product.aPrice})`);
+    const calculatedPrice = getProductPriceForStore(product, store.priceCategory, "box", activePriceList);
+    console.log(`Calculated price for ${product.name}: ${calculatedPrice} (priceCategory: ${store.priceCategory}, activePriceList: ${activePriceList ? activePriceList.name : 'None'})`);
     
     const newItem = {
       productId: product._id.toString(),
@@ -3537,19 +4386,22 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
         store: storeId,
         status: "Processing",
         preOrder: preOrderId, // Link to PreOrder
+        priceListId: activePriceList ? activePriceList._id : null, // Save the active price list ID
         shippingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
         billingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
         total: (newItem.unitPrice * requestedQty),
         orderType: "Regural",
@@ -3714,6 +4566,10 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
     const store = await authModel.findById(storeId);
     if (!store) return res.status(404).json({ success: false, message: "Store not found" });
 
+    // Ensure store has a priceCategory, default to 'aPrice' if not set
+    const storePriceCategory = store.priceCategory || 'aPrice';
+    console.log(`Store ${store.storeName} - priceCategory: ${storePriceCategory}`);
+
     // Find existing PreOrder for this store for the target week
     // Check by expectedDeliveryDate first, then by createdAt
     let preOrder = await PreOrderModel.findOne({
@@ -3735,9 +4591,19 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
 
     console.log(`Found existing PreOrder: ${preOrder ? preOrder._id : 'None'}`);
 
+    // Fetch active price list for pricing
+    let activePriceList = null;
+    try {
+      activePriceList = await PriceListTemplate.findOne({ status: "active" }).sort({ createdAt: -1 });
+      console.log(`Active price list found: ${activePriceList ? activePriceList.name : 'None'}`);
+    } catch (error) {
+      console.error("Error fetching active price list:", error);
+    }
+
     // Create new item object with proper price calculation
-    const calculatedPreOrderPrice = getProductPriceForStore(product, store.priceCategory, "box");
-    console.log(`PreOrder - Calculated price for ${product.name}: ${calculatedPreOrderPrice}`);
+    const calculatedPreOrderPrice = getProductPriceForStore(product, storePriceCategory, "box", activePriceList);
+    console.log(`PreOrder - Product: ${product.name}, Store: ${store.storeName}, PriceCategory: ${storePriceCategory}`);
+    console.log(`PreOrder - Calculated price: ${calculatedPreOrderPrice}, activePriceList: ${activePriceList ? activePriceList.name : 'None'}`);
     
     const newItem = {
       productId: product._id.toString(),
@@ -3776,32 +4642,40 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
 
     // Create new PreOrder if doesn't exist
     if (!preOrder) {
+      const calculatedTotal = newItem.unitPrice * requestedQty;
+      console.log(`Creating new PreOrder - unitPrice: ${newItem.unitPrice}, quantity: ${requestedQty}, total: ${calculatedTotal}`);
+      
       const newPreOrder = new PreOrderModel({
         preOrderNumber: await getNextPreOrderNumber(),
         items: [newItem],
         store: storeId,
         status: "pending",
         orderType: "PreOrder",
+        priceListId: activePriceList ? activePriceList._id : null, // Save the active price list ID
         shippingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
         billingAddress: {
           name: store.storeName || store.name || "",
           phone: store.phone || "",
           address: store.address || "",
           city: store.city || "",
-          country: "USA",
+          country: store.state || "",
+          postalCode: store.zipCode || "",
         },
-        total: (newItem.unitPrice * requestedQty),
+        total: calculatedTotal,
         shippinCost: store.shippingCost || 0,
         expectedDeliveryDate: sunday, // Expected delivery by end of target week
       });
 
       await newPreOrder.save();
+      
+      console.log(`PreOrder created successfully - ID: ${newPreOrder._id}, Total: ${newPreOrder.total}`);
 
       return res.status(201).json({
         success: true,
@@ -3842,8 +4716,14 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
       });
     } else {
       // Add new item to existing preorder
+      const itemTotal = newItem.unitPrice * requestedQty;
+      console.log(`Adding new item to existing PreOrder - unitPrice: ${newItem.unitPrice}, quantity: ${requestedQty}, itemTotal: ${itemTotal}`);
+      console.log(`PreOrder before: total=${preOrder.total}, items count=${preOrder.items.length}`);
+      
       preOrder.items.push(newItem);
-      preOrder.total = preOrder.total + (newItem.unitPrice * requestedQty);
+      preOrder.total = preOrder.total + itemTotal;
+      
+      console.log(`PreOrder after: total=${preOrder.total}, items count=${preOrder.items.length}`);
       
       preOrder.markModified("items");
       await preOrder.save();
@@ -3913,13 +4793,26 @@ const confirmPreOrdersCtrl = async (req, res) => {
     // Find all pending PreOrders for the target week
     const preOrders = await PreOrderModel.find(query).populate("store", "storeName ownerName");
 
-    if (preOrders.length === 0) {
+    // Additional validation: Filter out already confirmed preorders
+    const unconfirmedPreOrders = preOrders.filter(preOrder => !preOrder.confirmed);
+    
+    if (unconfirmedPreOrders.length !== preOrders.length) {
+      const alreadyConfirmedCount = preOrders.length - unconfirmedPreOrders.length;
+      console.log(`Warning: ${alreadyConfirmedCount} preorder(s) were already confirmed and skipped`);
+    }
+
+    if (unconfirmedPreOrders.length === 0) {
+      const message = preOrders.length > 0 
+        ? `All ${preOrders.length} preorder(s) for this week are already confirmed`
+        : "No pending PreOrders found for this week";
+      
       return res.status(200).json({
         success: true,
-        message: "No pending PreOrders found for this week",
+        message,
         confirmedCount: 0,
         preOrders: [],
-        createdOrders: []
+        createdOrders: [],
+        alreadyConfirmedCount: preOrders.length
       });
     }
 
@@ -3930,9 +4823,22 @@ const confirmPreOrdersCtrl = async (req, res) => {
     const confirmedPreOrders = [];
     const createdOrders = [];
     const errors = [];
+    const skippedAlreadyConfirmed = [];
 
-    for (const preOrder of preOrders) {
+    for (const preOrder of unconfirmedPreOrders) {
       try {
+        // Double-check confirmation status before processing
+        const currentPreOrder = await PreOrderModel.findById(preOrder._id);
+        if (currentPreOrder.confirmed) {
+          skippedAlreadyConfirmed.push({
+            _id: preOrder._id,
+            preOrderNumber: preOrder.preOrderNumber,
+            store: preOrder.store?.storeName || "Unknown",
+            reason: "Already confirmed"
+          });
+          continue;
+        }
+
         // Create fake req/res to call confirmOrderCtrl
         let responseData = null;
         let responseStatus = 200;
@@ -3992,14 +4898,66 @@ const confirmPreOrdersCtrl = async (req, res) => {
       }
     }
 
-    console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}`);
+    console.log(`Confirmed ${confirmedPreOrders.length} PreOrders, Created ${createdOrders.length} Orders, Errors: ${errors.length}, Skipped: ${skippedAlreadyConfirmed.length}`);
+
+    // Create Work Order for shortage tracking
+    let workOrder = null;
+    if (createdOrders.length > 0) {
+      try {
+        const { createWorkOrderCtrl } = require("./workOrderCtrl");
+        
+        // Create fake req/res to call createWorkOrderCtrl
+        let workOrderResponse = null;
+        const fakeReq = {
+          body: {
+            weekOffset: offset,
+            confirmedPreOrderIds: confirmedPreOrders.map(p => p._id),
+            confirmedOrderIds: createdOrders.map(o => o._id),
+          },
+          user: req.user
+        };
+        const fakeRes = {
+          status: function(code) { return this; },
+          json: function(data) { workOrderResponse = data; return this; }
+        };
+
+        await createWorkOrderCtrl(fakeReq, fakeRes);
+        
+        if (workOrderResponse?.success) {
+          workOrder = {
+            _id: workOrderResponse.data._id,
+            workOrderNumber: workOrderResponse.data.workOrderNumber,
+            hasShortage: workOrderResponse.data.hasShortage,
+            shortProductCount: workOrderResponse.data.shortProductCount,
+            totalShortageQuantity: workOrderResponse.data.totalShortageQuantity,
+          };
+          console.log(`Work Order created: ${workOrder.workOrderNumber}`);
+        }
+      } catch (woError) {
+        console.error("Error creating work order:", woError);
+        // Don't fail the whole operation if work order creation fails
+      }
+    }
+
+    const totalProcessed = confirmedPreOrders.length + errors.length + skippedAlreadyConfirmed.length;
+    let message = `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`;
+    
+    if (skippedAlreadyConfirmed.length > 0) {
+      message += `, ${skippedAlreadyConfirmed.length} already confirmed`;
+    }
+    
+    if (errors.length > 0) {
+      message += `, ${errors.length} failed`;
+    }
 
     return res.status(200).json({
       success: true,
-      message: `${confirmedPreOrders.length} PreOrder(s) confirmed and ${createdOrders.length} Order(s) created`,
+      message,
       confirmedCount: confirmedPreOrders.length,
       preOrders: confirmedPreOrders,
       createdOrders: createdOrders,
+      workOrder: workOrder,
+      skippedAlreadyConfirmed: skippedAlreadyConfirmed.length > 0 ? skippedAlreadyConfirmed : undefined,
       errors: errors.length > 0 ? errors : undefined,
       weekRange: {
         start: monday.toISOString(),
@@ -4030,6 +4988,7 @@ const getPendingPreOrdersForReviewCtrl = async (req, res) => {
     const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
 
     // Find all pending PreOrders for the target week
+    // Sort by createdAt descending (latest first)
     const preOrders = await PreOrderModel.find({
       $or: [
         { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
@@ -4045,7 +5004,9 @@ const getPendingPreOrdersForReviewCtrl = async (req, res) => {
       confirmed: { $ne: true },
       isDelete: { $ne: true },
       status: "pending"
-    }).populate("store", "storeName ownerName city state");
+    })
+    .populate("store", "storeName ownerName city state")
+    .sort({ createdAt: -1 }); // Latest first
 
     // Flatten items from all PreOrders for easier review
     const flattenedItems = [];
@@ -4422,6 +5383,139 @@ const getRegionalOrderTrends = async (req, res) => {
   }
 };
 
+// Get Order Matrix Overall Statistics - Overall counts without pagination
+const getOrderMatrixStatsCtrl = async (req, res) => {
+  try {
+    const { weekOffset = 0 } = req.query;
+    const offset = parseInt(weekOffset) || 0;
+
+    // Calculate week range for the TARGET week (based on offset)
+    const now = new Date();
+    const day = now.getUTCDay();
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((day + 6) % 7) + (offset * 7), 0, 0, 0, 0));
+    const sunday = new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 6, 23, 59, 59, 999));
+
+    // ✅ Run all queries in parallel for better performance
+    const [
+      currentWeekOrders,
+      preOrders,
+      allStores
+    ] = await Promise.all([
+      // Get all orders for TARGET week (only Regular orders)
+      orderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },
+        isDelete: { $ne: true },
+        orderType: "Regural"  // This is the correct spelling used in the system
+      }).populate("store", "storeName").lean(),
+
+      // Get PreOrders for the TARGET week - MORE SPECIFIC QUERY
+      PreOrderModel.find({
+        createdAt: { $gte: monday, $lte: sunday },  // Only preorders created this week
+        confirmed: { $ne: true },
+        isDelete: { $ne: true },
+        status: "pending"
+      }).populate("store", "storeName").lean(),
+
+      // Get all stores
+      authModel.find({ role: "store" }).select("storeName").lean()
+    ]);
+
+    // Calculate active stores (stores that placed orders OR preorders in current week)
+    const activeStoresSet = new Set();
+    
+    // Add stores from orders
+    currentWeekOrders.forEach(order => {
+      const storeId = order.store?._id?.toString() || order.store?.toString();
+      if (storeId) {
+        activeStoresSet.add(storeId);
+      }
+    });
+    
+    // Add stores from preorders
+    preOrders.forEach(preOrder => {
+      const storeId = preOrder.store?._id?.toString() || preOrder.store?.toString();
+      if (storeId) {
+        activeStoresSet.add(storeId);
+      }
+    });
+
+    // Calculate total orders count (sum of all order item quantities)
+    let totalOrderQuantity = 0;
+    let totalOrdersCount = currentWeekOrders.length; // Number of actual orders
+    currentWeekOrders.forEach(order => {
+      order.items?.forEach(item => {
+        totalOrderQuantity += item.quantity || 0;
+      });
+    });
+
+    // Calculate total preorders count (sum of all preorder item quantities)
+    let totalPreOrderQuantity = 0;
+    let totalPreOrdersCount = preOrders.length; // Number of actual preorders
+    preOrders.forEach(preOrder => {
+      preOrder.items?.forEach(item => {
+        totalPreOrderQuantity += item.quantity || 0;
+      });
+    });
+
+    // Calculate products that have orders or preorders in current week
+    const productsWithActivitySet = new Set();
+    
+    // Add products from orders
+    currentWeekOrders.forEach(order => {
+      order.items?.forEach(item => {
+        if (item.productId) {
+          productsWithActivitySet.add(item.productId.toString());
+        }
+      });
+    });
+    
+    // Add products from preorders
+    preOrders.forEach(preOrder => {
+      preOrder.items?.forEach(item => {
+        if (item.productId) {
+          productsWithActivitySet.add(item.productId.toString());
+        }
+      });
+    });
+
+    // Debug logging
+    console.log(`📊 Order Matrix Stats Debug:
+    - Week: ${monday.toISOString().split('T')[0]} to ${sunday.toISOString().split('T')[0]}
+    - Orders: ${totalOrdersCount} orders with ${totalOrderQuantity} total quantity
+    - PreOrders: ${totalPreOrdersCount} preorders with ${totalPreOrderQuantity} total quantity
+    - Active stores: ${activeStoresSet.size}
+    - Products with activity: ${productsWithActivitySet.size}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Order matrix statistics fetched successfully",
+      data: {
+        totalStores: allStores.length,
+        activeStores: activeStoresSet.size,
+        totalProducts: productsWithActivitySet.size, // Products with activity in current week
+        totalOrders: totalOrderQuantity, // Total quantity of all order items
+        totalOrdersCount: totalOrdersCount, // Number of actual orders
+        totalPreOrders: totalPreOrderQuantity, // Total quantity of all preorder items  
+        totalPreOrdersCount: totalPreOrdersCount, // Number of actual preorders
+        weekRange: {
+          start: monday.toISOString(),
+          end: sunday.toISOString(),
+          label: `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        },
+        weekOffset: offset
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching order matrix statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching order matrix statistics",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createOrderCtrl,
   getAllOrderCtrl,
@@ -4444,6 +5538,8 @@ module.exports = {
   assignProductToStore,
   getUserLatestOrdersCtrl,
   getOrderMatrixDataCtrl,
+  getOrderMatrixStatsCtrl,
+  exportOrderMatrixDataCtrl,
   updateOrderMatrixItemCtrl,
   updatePreOrderMatrixItemCtrl,
   confirmPreOrdersCtrl,

@@ -447,6 +447,17 @@ const [preOrderNum, setPreOrderNum] = useState("");
 
 const orderRes = await createPreOrderAPI(order, token)
 
+// Check if order creation was successful
+if (!orderRes || !orderRes.preOrderNumber) {
+  toast({
+    title: "Error",
+    description: "Internal server error. Please try again later.",
+    variant: "destructive",
+  })
+  setIsSubmitting(false)
+  return
+}
+
 setPreOrderNum(orderRes.preOrderNumber)
     if(nextWeek){
       navigate("/")

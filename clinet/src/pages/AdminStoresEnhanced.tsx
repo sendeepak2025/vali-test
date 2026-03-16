@@ -33,6 +33,7 @@ import StoreRegistration from "./StoreRegistration"
 import { StatementFilterPopup } from "@/components/admin/StatementPopup"
 import { AccountStatement, StoreCreditInfo, AdjustmentsManager } from "@/components/accounting"
 import { RecordPaymentModal } from "@/components/payments"
+import ExportStoresModal from "@/components/admin/ExportStoresModal"
 
 interface StoreWithStats {
   _id: string
@@ -160,6 +161,7 @@ const AdminStoresEnhanced = () => {
   const [debouncedSearch, setDebouncedSearch] = useState("")
   const [filterState, setFilterState] = useState("all")
   const [filterPaymentStatus, setFilterPaymentStatus] = useState("all")
+  const [filterPriceCategory, setFilterPriceCategory] = useState("all")
   const [activeTab, setActiveTab] = useState("overview")
   
   // Modal states
@@ -190,6 +192,9 @@ const AdminStoresEnhanced = () => {
   const [addChequeOpen, setAddChequeOpen] = useState(false)
   const [chequeStatusOpen, setChequeStatusOpen] = useState(false)
   const [selectedCheque, setSelectedCheque] = useState<any>(null)
+  
+  // Export modal state
+  const [exportModalOpen, setExportModalOpen] = useState(false)
   
   // Edit Store Form
   const [editFormData, setEditFormData] = useState({
@@ -295,7 +300,8 @@ const AdminStoresEnhanced = () => {
         limit: ITEMS_PER_PAGE,
         search: debouncedSearch,
         state: filterState === "all" ? "" : filterState,
-        paymentStatus: filterPaymentStatus === "all" ? "" : filterPaymentStatus
+        paymentStatus: filterPaymentStatus === "all" ? "" : filterPaymentStatus,
+        priceCategory: filterPriceCategory === "all" ? "" : filterPriceCategory
       }
       
       const response = await getAllStoresAnalyticsAPI(params)
@@ -323,7 +329,7 @@ const AdminStoresEnhanced = () => {
     } finally {
       setLoading(false)
     }
-  }, [debouncedSearch, filterState, filterPaymentStatus, toast])
+  }, [debouncedSearch, filterState, filterPaymentStatus, filterPriceCategory, toast])
 
   // Initial load
   useEffect(() => {
@@ -333,7 +339,7 @@ const AdminStoresEnhanced = () => {
   // Refetch when filters change
   useEffect(() => {
     fetchData(1)
-  }, [debouncedSearch, filterState, filterPaymentStatus])
+  }, [debouncedSearch, filterState, filterPaymentStatus, filterPriceCategory])
 
   // Page change handler
   const handlePageChange = (newPage: number) => {
@@ -553,26 +559,6 @@ const AdminStoresEnhanced = () => {
     }
   }
 
-  // Export to CSV
-  const exportToCSV = () => {
-    const headers = ["Store Name", "Owner", "Email", "Phone", "City", "State", "Total Orders", "Total Spent", "Balance Due", "Payment Status"]
-    const rows = stores.map(s => [
-      s.storeName, s.ownerName, s.email, s.phone, s.city, s.state,
-      s.totalOrders, s.totalSpent.toFixed(2), s.balanceDue.toFixed(2),
-      s.paymentStatus
-    ])
-    
-    const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n")
-    const blob = new Blob([csvContent], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `stores-export-${format(new Date(), "yyyy-MM-dd")}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast({ title: "Exported", description: "Store data exported to CSV" })
-  }
-
   // Badge helpers
   const getPaymentStatusBadge = (status: string) => {
     if (status === "good_standing") return <Badge className="bg-green-100 text-green-700">Good Standing</Badge>
@@ -707,7 +693,7 @@ const AdminStoresEnhanced = () => {
                 <Button variant="outline" size="sm" onClick={() => fetchData(pagination.page)} disabled={loading}>
                   <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
                 </Button>
-                <Button variant="outline" size="sm" onClick={exportToCSV}>
+                <Button variant="outline" size="sm" onClick={() => setExportModalOpen(true)}>
                   <Download className="h-4 w-4 mr-1" /> Export
                 </Button>
                 <Button size="sm" onClick={() => setAddStoreOpen(true)}>
@@ -865,6 +851,17 @@ const AdminStoresEnhanced = () => {
                       <option value="good_standing">Good Standing</option>
                       <option value="warning">Warning</option>
                       <option value="overdue">Overdue</option>
+                    </select>
+                    <select
+                      value={filterPriceCategory}
+                      onChange={(e) => setFilterPriceCategory(e.target.value)}
+                      className="border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="all">All Price Categories</option>
+                      <option value="restaurantPrice">Restaurant Price</option>
+                      <option value="aPrice">Price List A</option>
+                      <option value="bPrice">Price List B</option>
+                      <option value="cPrice">Price List C</option>
                     </select>
                   </div>
                 </CardContent>
@@ -1970,7 +1967,13 @@ const AdminStoresEnhanced = () => {
           <DialogHeader>
             <DialogTitle>Add New Store</DialogTitle>
           </DialogHeader>
-          <StoreRegistration />
+          <StoreRegistration 
+            isAdminCreating={true}
+            onSuccess={() => {
+              setAddStoreOpen(false);
+              fetchData();
+            }} 
+          />
         </DialogContent>
       </Dialog>
 
@@ -2059,6 +2062,20 @@ const AdminStoresEnhanced = () => {
           vendor={true}
         />
       )}
+
+      {/* Export Stores Modal */}
+      <ExportStoresModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        summary={{
+          totalStores: summary.totalStores,
+          overdueStores: summary.overdueStores,
+          warningStores: summary.warningStores,
+          goodStandingStores: summary.goodStandingStores,
+          activeStores: summary.activeStores,
+          inactiveStores: summary.totalStores - summary.activeStores
+        }}
+      />
     </div>
   )
 }

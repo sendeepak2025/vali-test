@@ -6,6 +6,24 @@ import { setLoading } from "../../redux/authSlice";
 const { GET_CATEGORIES, CREATE_CATEGORY, UPDATE_CATEGORY, DELETE_CATEGORY } = category;
 
 /**
+ * 📥 Get all categories (simple version without dispatch)
+ */
+export const fetchCategoriesAPI = async () => {
+    try {
+        const response = await apiConnector("GET", GET_CATEGORIES)
+
+        if (!response?.data?.success) {
+            throw new Error(response?.data?.message || "Something went wrong!");
+        }
+
+        return response?.data?.categories || [];
+    } catch (error) {
+        console.error("CATEGORY API ERROR:", error);
+        return [];
+    }
+};
+
+/**
  * 📥 Get all categories
  */
 export const getAllCategoriesAPI = () => {

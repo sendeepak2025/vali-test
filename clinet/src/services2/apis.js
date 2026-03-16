@@ -1,7 +1,7 @@
 
 // const BASE_URL = "http://localhost:8080/api/v1"
 // const BASE_URL = "https://api.valiproduce.shop/api/v1"
-const BASE_URL = import.meta.env.VITE_APP_BASE_URL;
+const  BASE_URL = import.meta.env.VITE_APP_BASE_URL;
 
 export const endpoints = {
   LOGIN_API: BASE_URL + "/auth/login",
@@ -15,6 +15,7 @@ export const endpoints = {
   CREATE_MEMBER_API: BASE_URL + "/auth/member",
   GET_ALL_MEMBER_API: BASE_URL + "/auth/all-members",
   GET_ALL_STORES_API: BASE_URL + "/auth/all-stores",
+  SEARCH_STORES_API: BASE_URL + "/auth/stores/search",
   UPDATE_MEMBER_PERMISSION_API: BASE_URL + "/auth/update",
   UPDATE_STORE: BASE_URL + "/auth/update-store",
   FETCH_MY_PROFILE_API : BASE_URL + "/auth/fetchMyProfile",
@@ -30,6 +31,7 @@ export const endpoints = {
   // Store Analytics
   GET_STORE_ANALYTICS_API: BASE_URL + "/auth/store-analytics",
   GET_ALL_STORES_ANALYTICS_API: BASE_URL + "/auth/stores-analytics",
+  EXPORT_STORES_DATA_API: BASE_URL + "/auth/stores-export",
   GET_PAGINATED_PAYMENT_STORES_API: BASE_URL + "/auth/stores-payment-status",
   GET_STORE_ORDERS_PAGINATED_API: BASE_URL + "/auth/store",
   // Store Communication & Payment
@@ -58,7 +60,10 @@ export const product = {
   GET_ALL_PRODUCT: BASE_URL + "/product/getAll",
   GET_ALL_PRODUCT_SUMMARY: BASE_URL + "/product/getAllSummary",
   SEARCH_PRODUCTS: BASE_URL + "/product/getAllSummary",
+  SEARCH_PRODUCTS_ORDER: BASE_URL + "/product/search",
+  EXPORT_PRODUCTS_EXCEL: BASE_URL + "/product/export-excel",
   GET_PRODUCT: BASE_URL + "/product/get",
+  GET_PRODUCT_PURCHASE_HISTORY: BASE_URL + "/product/purchase-history", // append /:productId
   UPDATE_PRODUCT: BASE_URL + "/product/update",
   GET_PRODUCT_ORDER: BASE_URL + "/product/get-order",
   DELETE_PRODUCT: BASE_URL + "/product/delete",
@@ -115,6 +120,8 @@ export const order = {
 
   // Order Matrix APIs
   GET_ORDER_MATRIX: BASE_URL + "/order/matrix",
+  GET_ORDER_MATRIX_STATS: BASE_URL + "/order/matrix/stats",
+  EXPORT_ORDER_MATRIX: BASE_URL + "/order/matrix/export",
   UPDATE_ORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/update",
   UPDATE_PREORDER_MATRIX_ITEM: BASE_URL + "/order/matrix/preorder",
   
@@ -126,6 +133,29 @@ export const order = {
   GET_REGIONAL_ORDER_TRENDS: BASE_URL + "/order/regional-trends",
 
 }
+
+// Incoming Stock APIs
+export const incomingStockEndpoints = {
+  GET_INCOMING_STOCK: BASE_URL + "/incoming-stock",
+  GET_UNLINKED_INCOMING: BASE_URL + "/incoming-stock/unlinked",
+  ADD_INCOMING_STOCK: BASE_URL + "/incoming-stock/add",
+  LINK_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id/link
+  BULK_LINK_INCOMING: BASE_URL + "/incoming-stock/bulk-link",
+  RECEIVE_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id/receive
+  DELETE_INCOMING_STOCK: BASE_URL + "/incoming-stock", // append /:id
+}
+
+// Work Order APIs
+export const workOrderEndpoints = {
+  CREATE_WORK_ORDER: BASE_URL + "/work-orders/create",
+  GET_WORK_ORDER: BASE_URL + "/work-orders", // append /:id
+  GET_WORK_ORDER_BY_WEEK: BASE_URL + "/work-orders",
+  GET_ALL_WORK_ORDERS: BASE_URL + "/work-orders/list/all",
+  GET_SHORTAGES_SUMMARY: BASE_URL + "/work-orders/shortages/summary",
+  UPDATE_PICKING_STATUS: BASE_URL + "/work-orders", // append /:id/picking
+  RESOLVE_SHORTAGE: BASE_URL + "/work-orders", // append /:id/resolve-shortage
+}
+
 export const crm = {
   CREATE_CONTACT_CRM: BASE_URL + "/crm/create",
   GET_ALL_CONTACT_CRM: BASE_URL + "/crm/getAll",

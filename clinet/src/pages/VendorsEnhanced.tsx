@@ -38,7 +38,7 @@ import { getAllInvoicesAPI, createInvoiceAPI, approveInvoiceAPI, disputeInvoiceA
 import { getAllVendorCreditMemosAPI, createVendorCreditMemoAPI, approveVendorCreditMemoAPI, applyVendorCreditMemoAPI, voidVendorCreditMemoAPI } from "@/services2/operations/vendorCreditMemo"
 import { getAllVendorPaymentsAPI, createVendorPaymentAPI, updateCheckStatusAPI, voidVendorPaymentAPI, getVendorPaymentAPI, updateVendorPaymentAPI } from "@/services2/operations/vendorPayment"
 import { getAllVendorDisputesAPI, createVendorDisputeAPI, updateDisputeStatusAPI, addDisputeCommunicationAPI, resolveVendorDisputeAPI, escalateVendorDisputeAPI } from "@/services2/operations/vendorDispute"
-import { getAllPurchaseOrdersAPI } from "@/services2/operations/purchaseOrder"
+import { getAllPurchaseOrdersAPI, deletePurchaseOrderAPI } from "@/services2/operations/purchaseOrder"
 import { vendorWithOrderDetails } from "@/services2/operations/auth"
 import { getVendorDashboardAPI, getAgingReportAPI, getVendorStatementAPI, getVendorPerformanceAPI, getVendorComparisonAPI } from "@/services2/operations/vendorReports"
 import { PaymentStatusPopup } from "@/components/orders/PaymentUpdateModel"
@@ -130,7 +130,9 @@ const VendorManagementContent = () => {
   const [poLoading, setPoLoading] = useState(false)
   const [poSummary, setPoSummary] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize] = useState(50)
+  const [pageSize] = useState(25)
+  const [totalPOPages, setTotalPOPages] = useState(1)
+  const [totalPOCount, setTotalPOCount] = useState(0)
 
   // Payment Modal state
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -299,6 +301,11 @@ const VendorManagementContent = () => {
   const [paymentDetailsModalOpen, setPaymentDetailsModalOpen] = useState(false)
   const [selectedPaymentDetails, setSelectedPaymentDetails] = useState<any>(null)
   const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false)
+
+  // Delete Purchase Order Modal state
+  const [deletePoModalOpen, setDeletePoModalOpen] = useState(false)
+  const [selectedPoForDelete, setSelectedPoForDelete] = useState<string>("")
+  const [deletePoLoading, setDeletePoLoading] = useState(false)
 
   // Reports state
   const [activeReportTab, setActiveReportTab] = useState("aging")
@@ -544,6 +551,8 @@ const VendorManagementContent = () => {
         }))
         setPurchaseOrders(transformed)
         setPoSummary(res.summary)
+        setTotalPOPages(res.totalPages || 1)
+        setTotalPOCount(res.totalOrders || 0)
       }
     } catch (error) {
       console.error("Error fetching purchase orders:", error)
@@ -612,6 +621,11 @@ const VendorManagementContent = () => {
     }, 500)
     return () => clearTimeout(timer)
   }, [invoiceSearch, invoiceStatusFilter, invoiceVendorFilter])
+
+  // Reset page when PO filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [poSearch, poPaymentFilter, startDate, endDate])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -744,6 +758,30 @@ const VendorManagementContent = () => {
   const handlePayment = (order: any) => {
     setSelectedOrder(order)
     setPaymentModalOpen(true)
+  }
+
+  const handleDeletePurchaseOrder = (orderId: string) => {
+    setSelectedPoForDelete(orderId)
+    setDeletePoModalOpen(true)
+  }
+
+  const confirmDeletePurchaseOrder = async () => {
+    if (!selectedPoForDelete) return
+    
+    setDeletePoLoading(true)
+    try {
+      const result = await deletePurchaseOrderAPI(selectedPoForDelete, token)
+      if (result) {
+        toast({ title: "Success", description: "Purchase order deleted successfully" })
+        setDeletePoModalOpen(false)
+        setSelectedPoForDelete("")
+        fetchPurchaseOrders()
+      }
+    } catch (error) {
+      console.error("Error deleting purchase order:", error)
+    } finally {
+      setDeletePoLoading(false)
+    }
   }
 
   const handleResetDates = () => {
@@ -2007,7 +2045,7 @@ const VendorManagementContent = () => {
           </TabsTrigger>
           <TabsTrigger value="purchases" className="flex items-center gap-2">
             <Package className="h-4 w-4" />
-            Purchase Orders ({purchaseOrders.length})
+            Purchase Orders ({totalPOCount})
           </TabsTrigger>
           <TabsTrigger value="invoices" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
@@ -2586,6 +2624,13 @@ const VendorManagementContent = () => {
                                 <CreditCard className="h-4 w-4 mr-2" />
                                 Record Payment
                               </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleDeletePurchaseOrder(po._id)}
+                                className="text-red-600 focus:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Order
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -2594,6 +2639,59 @@ const VendorManagementContent = () => {
                   )}
                 </TableBody>
               </Table>
+              
+              {/* Pagination Controls */}
+              {totalPOCount > 0 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * pageSize) + 1}–{Math.min(currentPage * pageSize, totalPOCount)} of {totalPOCount} orders
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1 || poLoading}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, totalPOPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (totalPOPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPOPages - 2) {
+                          pageNum = totalPOPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            className="w-8 h-8 p-0"
+                            onClick={() => setCurrentPage(pageNum)}
+                            disabled={poLoading}
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPOPages, prev + 1))}
+                      disabled={currentPage === totalPOPages || poLoading}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -3886,6 +3984,40 @@ const VendorManagementContent = () => {
           purchase={true}
         />
       )}
+
+      {/* Delete Purchase Order Confirmation Modal */}
+      <Dialog open={deletePoModalOpen} onOpenChange={setDeletePoModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Do you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeletePoModalOpen(false)
+                setSelectedPoForDelete("")
+              }}
+              disabled={deletePoLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeletePurchaseOrder}
+              disabled={deletePoLoading}
+            >
+              {deletePoLoading ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Vendor Details Modal */}
       <UserDetailsModal

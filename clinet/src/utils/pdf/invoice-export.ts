@@ -108,7 +108,8 @@ export const exportInvoiceToPDF = (
     } else {
       doc.setTextColor(colors.primary[0], colors.primary[1], colors.primary[2]);
     }
-    doc.text("INVOICE", MARGIN, yStart + 4);
+    doc.text(isPreOrder ? "PREORDER" : "INVOICE", MARGIN, yStart + 4);
+
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
@@ -149,8 +150,8 @@ export const exportInvoiceToPDF = (
       } else {
         doc.setTextColor(120, 120, 120);
       }
-      doc.text("4300 Pleasantdale Rd", PAGE_WIDTH - MARGIN, yStart + 10, { align: "right" });
-      doc.text("Atlanta, GA 30340, USA", PAGE_WIDTH - MARGIN, yStart + 15, { align: "right" });
+      doc.text("4950 S Royal Atlanta Dr", PAGE_WIDTH - MARGIN, yStart + 10, { align: "right" });
+      doc.text("Tucker, GA 30084, Suite E, USA", PAGE_WIDTH - MARGIN, yStart + 15, { align: "right" });
       doc.text("order@valiproduce.shop", PAGE_WIDTH - MARGIN, yStart + 20, { align: "right" });
     }
   };
@@ -172,7 +173,7 @@ export const exportInvoiceToPDF = (
   doc.text("SOLD TO", billX, billY);
   doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
-  doc.text(order?.billingAddress?.name || "N/A", billX, billY + 6);
+  doc.text(order?.store?.storeName || order?.clientName || "N/A", billX, billY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -188,7 +189,7 @@ export const exportInvoiceToPDF = (
   doc.text("SHIP TO", shipX, shipY);
   doc.setFontSize(9);
   doc.setTextColor(50, 50, 50);
-  doc.text(order?.shippingAddress?.name || "N/A", shipX, shipY + 6);
+  doc.text(order?.store?.storeName || order?.clientName || "N/A", shipX, shipY + 6);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
@@ -211,7 +212,7 @@ export const exportInvoiceToPDF = (
     startY: yPos,
     head: [tableHeaders],
     body: tableRows,
-    margin: { left: MARGIN, right: MARGIN },
+    margin: { left: MARGIN, right: MARGIN, top: HEADER_HEIGHT + 10 },
     headStyles: {
       fillColor: [colors.primary[0], colors.primary[1], colors.primary[2]],
       textColor: invoiceTemplate === "minimal" ? [50, 50, 50] : [255, 255, 255],
@@ -241,7 +242,10 @@ export const exportInvoiceToPDF = (
     },
     tableWidth: CONTENT_WIDTH,
     didDrawPage: (data) => {
-      if (data.pageNumber > 1) drawHeader(doc, false);
+      // Draw header on all pages after the first
+      if (data.pageNumber > 1) {
+        drawHeader(doc, false);
+      }
     },
   });
 
@@ -371,9 +375,16 @@ export const exportInvoiceToPDF = (
     else doc.setTextColor(120, 120, 120);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`Payment due by ${dueDate} • Fresh Produce Wholesale`, PAGE_WIDTH / 2, thankYouY + 6, { align: "center" });
+    // doc.text(`Payment due by ${dueDate} • Fresh Produce Wholesale`, PAGE_WIDTH / 2, thankYouY + 6, { align: "center" });
   }
 
-  doc.save(`Invoice-${order.id}-${order?.billingAddress?.name || 'Customer'}.pdf`);
-  return doc;
+const fileType = isPreOrder ? "PreOrder" : "Invoice";
+
+const customerName = (order?.store?.storeName || order?.clientName || "Customer")
+  .trim()                 // start/end ke extra spaces hatao
+  .replace(/\s+/g, " ");  // multiple spaces → single space
+
+doc.save(`${fileType}-${order.id}-${customerName}.pdf`);
+return doc;
+
 };

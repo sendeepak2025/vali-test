@@ -23,7 +23,6 @@ import {
   ShoppingBag, Wallet, Building2, Star, Filter, MoreVertical, AlertTriangle
 } from "lucide-react"
 import { getAllOrderAPI, getUserLatestOrdersAPI, getStatement } from "@/services2/operations/order"
-import { getAllProductAPI } from "@/services2/operations/product"
 import { format } from "date-fns"
 import StorePreOrders from "./StorePreOrders"
 import StoreProfileUpdate from "@/components/store/StoreProfileUpdate"
@@ -41,65 +40,125 @@ const StoreDashboardEnhanced = () => {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
   const [orders, setOrders] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])
+  const [recentOrders, setRecentOrders] = useState<any[]>([])
   const [statement, setStatement] = useState<any>(null)
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
   const [orderDetailOpen, setOrderDetailOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
+  const [ordersLoading, setOrdersLoading] = useState(false)
+  const [ordersLoaded, setOrdersLoaded] = useState(false)
+  
+  // Stats from statement or calculated
+  const [stats, setStats] = useState({
+    totalOrders: 0,
+    pendingOrders: 0,
+    completedOrders: 0,
+    inTransitOrders: 0,
+    totalSpent: 0,
+    totalPaid: 0,
+    balanceDue: 0
+  })
+  
  const dispatch = useDispatch();
 
   const handleLogout = () => {
     dispatch(logout(navigate));
   };
-  // Fetch data
+  
+  // Initial load - only fetch essential data for overview
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
       if (!user?._id) return
       setLoading(true)
       try {
-        // Fetch orders for this store - API already filters by store
-        const ordersRes = await getAllOrderAPI(token)
+        // Fetch recent orders (only 10 for overview) and statement in parallel
+        const [latestOrdersRes, statementRes] = await Promise.all([
+          getUserLatestOrdersAPI(user._id, 10),
+          getStatement(user._id, token).catch(() => null)
+        ])
         
-        // Use the orders directly from API response since it's already filtered
-        const storeOrders = ordersRes?.orders || []
-        setOrders(storeOrders)
-
-        // Fetch products
-        const productsRes = await getAllProductAPI()
-        setProducts(productsRes || [])
-
-        // Fetch statement
-        try {
-          const statementRes = await getStatement(user._id, token)
-          setStatement(statementRes)
-        } catch (e) {
-          // Statement not available
+        // Set recent orders
+        const latestOrders = latestOrdersRes?.orders || []
+        setRecentOrders(latestOrders)
+        
+        // Set statement
+        setStatement(statementRes)
+        
+        // Calculate stats from statement or recent orders
+        if (statementRes) {
+          setStats({
+            totalOrders: statementRes.totalOrders || latestOrders.length,
+            pendingOrders: latestOrders.filter((o: any) => o.status === "pending").length,
+            completedOrders: latestOrders.filter((o: any) => o.status === "delivered" || o.status === "completed").length,
+            inTransitOrders: latestOrders.filter((o: any) => o.status === "processing" || o.status === "shipped").length,
+            totalSpent: statementRes.totalAmount || 0,
+            totalPaid: statementRes.totalPaid || 0,
+            balanceDue: statementRes.balanceDue || 0
+          })
+        } else {
+          // Calculate from recent orders if no statement
+          const totalSpent = latestOrders.reduce((sum: number, o: any) => sum + (o.total || 0), 0)
+          const totalPaid = latestOrders.filter((o: any) => o.paymentStatus === "paid").reduce((sum: number, o: any) => sum + (o.total || 0), 0)
+          setStats({
+            totalOrders: latestOrders.length,
+            pendingOrders: latestOrders.filter((o: any) => o.status === "pending").length,
+            completedOrders: latestOrders.filter((o: any) => o.status === "delivered" || o.status === "completed").length,
+            inTransitOrders: latestOrders.filter((o: any) => o.status === "processing" || o.status === "shipped").length,
+            totalSpent,
+            totalPaid,
+            balanceDue: totalSpent - totalPaid
+          })
         }
       } catch (error) {
-        console.error("Error fetching data:", error)
+        console.error("Error fetching initial data:", error)
         toast({ variant: "destructive", title: "Error", description: "Failed to load data" })
       } finally {
         setLoading(false)
       }
     }
-    fetchData()
+    fetchInitialData()
   }, [user, token])
+  
+  // Lazy load full orders only when Orders tab is clicked
+  const loadAllOrders = async () => {
+    if (ordersLoaded || ordersLoading) return
+    setOrdersLoading(true)
+    try {
+      const ordersRes = await getAllOrderAPI(token)
+      const storeOrders = ordersRes?.orders || []
+      setOrders(storeOrders)
+      setOrdersLoaded(true)
+      
+      // Update stats with accurate data
+      const totalSpent = storeOrders.reduce((sum: number, o: any) => sum + (o.total || 0), 0)
+      const totalPaid = storeOrders.filter((o: any) => o.paymentStatus === "paid").reduce((sum: number, o: any) => sum + (o.total || 0), 0)
+      setStats(prev => ({
+        ...prev,
+        totalOrders: storeOrders.length,
+        pendingOrders: storeOrders.filter((o: any) => o.status === "pending").length,
+        completedOrders: storeOrders.filter((o: any) => o.status === "delivered" || o.status === "completed").length,
+        inTransitOrders: storeOrders.filter((o: any) => o.status === "processing" || o.status === "shipped").length,
+        totalSpent,
+        totalPaid,
+        balanceDue: totalSpent - totalPaid
+      }))
+    } catch (error) {
+      console.error("Error fetching all orders:", error)
+    } finally {
+      setOrdersLoading(false)
+    }
+  }
+  
+  // Load orders when switching to orders or payments tab
+  useEffect(() => {
+    if ((activeTab === "orders" || activeTab === "payments") && !ordersLoaded) {
+      loadAllOrders()
+    }
+  }, [activeTab])
 
-  // Calculate stats
-  const totalOrders = orders.length
-  const pendingOrders = orders.filter(o => o.status === "pending").length
-  const completedOrders = orders.filter(o => o.status === "delivered" || o.status === "completed").length
-  const totalSpent = orders.reduce((sum, o) => sum + (o.total || 0), 0)
-  const totalPaid = orders.filter(o => o.paymentStatus === "paid").reduce((sum, o) => sum + (o.total || 0), 0)
-  const balanceDue = totalSpent - totalPaid
-
-  // Recent orders (last 5)
-  const recentOrders = [...orders].sort((a, b) => {
-    const dateA = new Date(a.createdAt || a.updatedAt || Date.now())
-    const dateB = new Date(b.createdAt || b.updatedAt || Date.now())
-    return dateB.getTime() - dateA.getTime()
-  }).slice(0, 5)
+  // Use stats from state
+  const { totalOrders, pendingOrders, completedOrders, inTransitOrders, totalSpent, totalPaid, balanceDue } = stats
 
   // Filter orders
   const filteredOrders = orders.filter(order => {
@@ -409,7 +468,7 @@ const StoreDashboardEnhanced = () => {
               <Card className="bg-blue-50 border-blue-200">
                 <CardContent className="p-4 text-center">
                   <Truck className="h-8 w-8 mx-auto text-blue-600 mb-2" />
-                  <p className="text-2xl font-bold text-blue-700">{orders.filter(o => o.status === "processing" || o.status === "shipped").length}</p>
+                  <p className="text-2xl font-bold text-blue-700">{inTransitOrders}</p>
                   <p className="text-sm text-blue-600">In Transit</p>
                 </CardContent>
               </Card>
@@ -422,9 +481,9 @@ const StoreDashboardEnhanced = () => {
               </Card>
               <Card className="bg-purple-50 border-purple-200">
                 <CardContent className="p-4 text-center">
-                  <Star className="h-8 w-8 mx-auto text-purple-600 mb-2" />
-                  <p className="text-2xl font-bold text-purple-700">{products.length}</p>
-                  <p className="text-sm text-purple-600">Products Available</p>
+                  <ShoppingBag className="h-8 w-8 mx-auto text-purple-600 mb-2" />
+                  <p className="text-2xl font-bold text-purple-700">{totalOrders}</p>
+                  <p className="text-sm text-purple-600">Total Orders</p>
                 </CardContent>
               </Card>
             </div>
@@ -432,6 +491,12 @@ const StoreDashboardEnhanced = () => {
 
           {/* Orders Tab */}
           <TabsContent value="orders" className="space-y-4">
+            {ordersLoading && !ordersLoaded ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Loading orders...</span>
+              </div>
+            ) : (
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -492,6 +557,7 @@ const StoreDashboardEnhanced = () => {
                 )}
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* Products Tab */}
@@ -506,34 +572,13 @@ const StoreDashboardEnhanced = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {products.slice(0, 12).map((product) => (
-                    <Card key={product._id} className="overflow-hidden">
-                      <div className="h-32 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                        {product.image ? (
-                          <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <Package className="h-12 w-12 text-gray-400" />
-                        )}
-                      </div>
-                      <CardContent className="p-3">
-                        <h3 className="font-medium truncate">{product.name}</h3>
-                        <p className="text-sm text-gray-500">{product.category?.name || "General"}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="font-bold text-blue-600">{formatCurrency(product.pricePerBox || product.price || 0)}</span>
-                          <Badge variant="outline">{product.unit || "box"}</Badge>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                <div className="text-center py-8 text-gray-500">
+                  <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>Browse products in the order page</p>
+                  <Button className="mt-4" onClick={() => navigate("/store/mobile")}>
+                    <ShoppingCart className="h-4 w-4 mr-2" /> Go to Order Page
+                  </Button>
                 </div>
-                {products.length > 12 && (
-                  <div className="text-center mt-6">
-                    <Button variant="outline" onClick={() => navigate("/store/mobile")}>
-                      View All {products.length} Products
-                    </Button>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -576,6 +621,13 @@ const StoreDashboardEnhanced = () => {
               </Card>
             </div>
 
+            {ordersLoading && !ordersLoaded ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600">Loading payment history...</span>
+              </div>
+            ) : (
+            <>
             <Card>
               <CardHeader>
                 <CardTitle>Payment History</CardTitle>
@@ -632,6 +684,8 @@ const StoreDashboardEnhanced = () => {
                   </div>
                 </CardContent>
               </Card>
+            )}
+            </>
             )}
           </TabsContent>
 

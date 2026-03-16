@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/table";
 import { 
   CheckCircle, AlertTriangle, XCircle, ArrowLeft, 
-  ImagePlus, FileVideo, DollarSign, TrendingUp, Scale, Package, Thermometer
+  ImagePlus, FileVideo, DollarSign, TrendingUp, Scale, Package, Thermometer, Trash2
 } from 'lucide-react';
 import { 
   Tooltip,
@@ -44,7 +44,7 @@ import { VendorPurchase, PurchaseItem } from '@/types/vendor';
 import { useToast } from '@/hooks/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import MediaUploader from '@/components/shared/MediaUploader';
-import {getSinglePurchaseOrderAPI , updatePurchaseOrderQualityAPI} from "@/services2/operations/purchaseOrder"
+import {getSinglePurchaseOrderAPI , updatePurchaseOrderQualityAPI, deletePurchaseOrderAPI} from "@/services2/operations/purchaseOrder"
 import { useSelector } from 'react-redux';
 import { RootState } from '@/redux/store';
 
@@ -121,6 +121,10 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
   // Credit memo suggestion state
   const [creditMemoSuggestion, setCreditMemoSuggestion] = useState<CreditMemoSuggestion | null>(null);
   const [showCreditMemoModal, setShowCreditMemoModal] = useState(false);
+  
+  // Delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     const fetchPurchaseData = async () => {
@@ -258,6 +262,34 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
     const updatedItems = [...items];
     updatedItems[index].rejectionReason = reason;
     setItems(updatedItems);
+  };
+
+  // Handle approve all items
+  const handleApproveAll = () => {
+    const updatedItems = items.map(item => ({
+      ...item,
+      qualityStatus: 'approved' as const
+    }));
+    setItems(updatedItems);
+    toast({
+      title: "All Items Approved",
+      description: `${items.length} items have been approved`,
+      variant: "default"
+    });
+  };
+
+  // Handle reject all items
+  const handleRejectAll = () => {
+    const updatedItems = items.map(item => ({
+      ...item,
+      qualityStatus: 'rejected' as const
+    }));
+    setItems(updatedItems);
+    toast({
+      title: "All Items Rejected",
+      description: `${items.length} items have been rejected`,
+      variant: "destructive"
+    });
   };
 
   // Handle actual weight change and calculate variance
@@ -465,6 +497,31 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
         ? 'rejected'
         : 'partially-approved';
   };
+
+  // Handle delete purchase order
+  const handleDeletePurchaseOrder = () => {
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeletePurchaseOrder = async () => {
+    setDeleteLoading(true);
+    try {
+      const result = await deletePurchaseOrderAPI(purchaseId, token);
+      if (result) {
+        toast({
+          title: "Purchase Order Deleted",
+          description: "The purchase order has been successfully deleted",
+          variant: "default"
+        });
+        navigate('/vendors');
+      }
+    } catch (error) {
+      console.error("Error deleting purchase order:", error);
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteModal(false);
+    }
+  };
   
   // Handle creating credit memo from suggestion
   const handleCreateCreditMemo = () => {
@@ -527,8 +584,7 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
     <div className="container mx-auto py-6 space-y-6">
       <PageHeader
         title="Quality Control Assessment"
-        description={`Purchase #${purchase.id} from ${purchase.vendorName}`}
-     
+        description={`Purchase ${purchase.purchaseOrderNumber || purchaseId} from ${purchase.vendorName}`}
       />
 
       <Card>
@@ -546,7 +602,26 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
       </Card>
 
       <div className="space-y-6">
-        <h2 className="text-xl font-semibold">Items Quality Assessment</h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-semibold">Items Quality Assessment</h2>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleApproveAll}
+              variant="default"
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Approve All
+            </Button>
+            <Button
+              onClick={handleRejectAll}
+              variant="destructive"
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Reject All
+            </Button>
+          </div>
+        </div>
         
         {items.map((item, index) => (
           <Card key={item.productId} className="mb-4">
@@ -554,13 +629,15 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
               <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
                 {/* Column 1: Product Info */}
                 <div className="md:col-span-2 space-y-2">
-                  <h3 className="font-medium">{item.productName}</h3>
+                  <h3 className="font-medium text-lg">{item.productName} - Quantity({item.quantity})</h3>
                   <p className="text-sm text-muted-foreground">
-                    Quantity: {item.quantity} {item.unit}
+                    Unit: {item.unit}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Lb/Total: {String(item?.lb) } / {String(item?.totalWeight)}
-                  </p>
+                  {item.lb && item.totalWeight && (
+                    <p className="text-sm text-muted-foreground">
+                      Lb/Total: {String(item.lb)} / {String(item.totalWeight)}
+                    </p>
+                  )}
                   
                   <div className="flex items-center gap-2 mt-3">
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -780,7 +857,16 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
           </Card>
         ))}
         
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <Button 
+            size="lg" 
+            variant="destructive"
+            onClick={handleDeletePurchaseOrder} 
+            disabled={loading}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Purchase Order
+          </Button>
           <Button size="lg" onClick={handleSubmit} disabled={loading}>
             {loading ? 'Processing...' : 'Complete Quality Assessment'}
           </Button>
@@ -858,6 +944,37 @@ const QualityControlForm: React.FC<QualityControlFormProps> = ({ purchaseId }) =
             <Button onClick={handleCreateCreditMemo} className="bg-orange-600 hover:bg-orange-700">
               <DollarSign className="h-4 w-4 mr-2" />
               Create Credit Memo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Purchase Order Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Purchase Order
+            </DialogTitle>
+            <DialogDescription>
+              Do you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeletePurchaseOrder}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

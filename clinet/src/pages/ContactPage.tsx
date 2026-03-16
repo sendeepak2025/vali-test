@@ -15,9 +15,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { NavigationHeader, MobileMenu } from '@/components/landing';
+import { NavigationHeader, MobileMenu, NewsletterSignup, SocialMediaLinks } from '@/components/landing';
 import { COMPANY_INFO } from '@/data/landingPageData';
 import { validateContactForm, ContactFormData } from '@/utils/validation';
+import { NAV_LINKS } from "@/data/landingPageData";
 
 const ContactPage: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -53,16 +54,30 @@ const ContactPage: React.FC = () => {
     setErrors({});
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      setStatus('success');
-      setFormData({ name: '', email: '', phone: '', message: '' });
-      
-      // Reset after 5 seconds
-      setTimeout(() => setStatus('idle'), 5000);
+      const response = await fetch(`${import.meta.env.VITE_APP_BASE_URL}/email/contact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setStatus('success');
+        setFormData({ name: '', email: '', phone: '', message: '' });
+        
+        // Reset after 5 seconds
+        setTimeout(() => setStatus('idle'), 5000);
+      } else {
+        throw new Error(data.message || 'Failed to send message');
+      }
     } catch (error) {
+      console.error('Contact form error:', error);
       setStatus('error');
+      setErrors({ submit: 'Failed to send message. Please try again.' });
+      setTimeout(() => setStatus('idle'), 3000);
     }
   };
 
@@ -78,7 +93,7 @@ const ContactPage: React.FC = () => {
       />
 
       {/* Spacer for fixed header */}
-      <div className="h-20" />
+      {/* <div className="h-20" /> */}
 
       {/* Hero Section */}
       <section className="bg-gradient-to-r from-green-700 to-green-600 text-white py-16">
@@ -95,7 +110,7 @@ const ContactPage: React.FC = () => {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             {/* Contact Form */}
-            <Card className="border-none shadow-lg">
+            <Card className="border-none shadow-lg h-fit">
               <CardContent className="p-8">
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">Send Us a Message</h2>
                 
@@ -172,6 +187,12 @@ const ContactPage: React.FC = () => {
                         <p className="text-red-500 text-sm mt-1">{errors.message}</p>
                       )}
                     </div>
+
+                    {errors.submit && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+                        {errors.submit}
+                      </div>
+                    )}
 
                     <Button
                       type="submit"
@@ -273,30 +294,81 @@ const ContactPage: React.FC = () => {
                 </CardContent>
               </Card>
 
+
+
               {/* Map */}
               <Card className="border-none shadow-lg overflow-hidden">
-                <div className="h-64 bg-gray-200">
-                  <iframe
-                    title="Vali Produce Location"
-                    src={`https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3314.5!2d${COMPANY_INFO.mapCoordinates.lng}!3d${COMPANY_INFO.mapCoordinates.lat}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMzPCsDUyJzU2LjMiTiA4NMKwMTcnMDEuNyJX!5e0!3m2!1sen!2sus!4v1234567890`}
-                    width="100%"
-                    height="100%"
-                    style={{ border: 0 }}
-                    allowFullScreen
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
-                </div>
-              </Card>
+  <div className="h-64 w-full">
+    <iframe
+      title="Vali Produce Location"
+      src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3311.176690457081!2d-84.2485007!3d33.851700!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2s4950%20S%20Royal%20Atlanta%20Dr%2C%20Tucker%2C%20GA%2030084%2C%20USA!5e0!3m2!1sen!2sin!4v1767465296253!5m2!1sen!2sin"
+      className="w-full h-full"
+      style={{ border: 0 }}
+      allowFullScreen
+      loading="lazy"
+      referrerPolicy="no-referrer-when-downgrade"
+    />
+  </div>
+</Card>
+
             </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-green-900 text-white py-8 px-4 mt-auto">
-        <div className="max-w-7xl mx-auto text-center">
-          <p>© {new Date().getFullYear()} Vali Produce. All rights reserved.</p>
+      <footer className="bg-green-900 text-white py-12 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-xl font-bold mb-4">Vali Produce</h3>
+              <p className="mb-4">
+                Delivering fresh produce to businesses since {COMPANY_INFO.foundedYear}.
+              </p>
+              <p className="text-green-300 mb-4">{COMPANY_INFO.tagline}</p>
+              <SocialMediaLinks />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-4">Quick Links</h3>
+              <ul className="space-y-2">
+                {NAV_LINKS.map((link) => (
+                  <li key={link.href}>
+                    <Link
+                      to={link.href}
+                      className="text-green-300 hover:text-white transition-colors"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+                <li>
+                  <Link
+                    to="/auth"
+                    className="text-green-300 hover:text-white transition-colors"
+                  >
+                    Create Account
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-xl font-bold mb-4">Contact Us</h3>
+              <p className="mb-2">{COMPANY_INFO.address.street}</p>
+              <p className="mb-2">
+                {COMPANY_INFO.address.city}, {COMPANY_INFO.address.state} {COMPANY_INFO.address.zipCode}
+              </p>
+              <p className="mb-2">{COMPANY_INFO.contact.email}</p>
+              <p>{COMPANY_INFO.contact.phone}</p>
+            </div>
+            <div>
+              <NewsletterSignup />
+            </div>
+          </div>
+          <div className="border-t border-green-800 mt-8 pt-8 text-center">
+            <p>
+              © {new Date().getFullYear()} Vali Produce. All rights reserved.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

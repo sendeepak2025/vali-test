@@ -67,7 +67,7 @@ export const exportPurchaseReportToPDF = (
     doc.text('Vali Produce', MARGIN, yPos);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text('4300 Pleasantdale Rd, Atlanta, GA 30340, United States', MARGIN, yPos + 5);
+    doc.text('4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E, United States', MARGIN, yPos + 5);
     doc.text('contact@freshproduce.co', MARGIN, yPos + 10);
     yPos += 20;
   }
@@ -234,7 +234,7 @@ export const exportSalesReportToPDF = (
     doc.text('Vali Produce', MARGIN, yPos);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
-    doc.text('4300 Pleasantdale Rd, Atlanta, GA 30340, United States', MARGIN, yPos + 5);
+    doc.text('4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E, United States', MARGIN, yPos + 5);
     doc.text('order@freshproduce.co', MARGIN, yPos + 10);
     yPos += 20;
   }
