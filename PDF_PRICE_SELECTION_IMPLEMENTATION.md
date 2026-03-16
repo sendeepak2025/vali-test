@@ -10,7 +10,7 @@ Added price selection functionality to the PriceListEnhanced component so users 
 #### New State Variables
 ```typescript
 const [pdfPriceModalOpen, setPdfPriceModalOpen] = useState(false)
-const [selectedPdfTemplate, setSelectedPdfTemplate] = useState<any>(null)
+const [selectedPdfTemplate, setSelectedPdfTemplate] = useState<any>(null) 
 const [selectedPriceType, setSelectedPriceType] = useState("all")
 ```
 
