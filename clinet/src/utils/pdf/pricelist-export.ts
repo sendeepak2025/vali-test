@@ -16,11 +16,9 @@ declare module "jspdf" {
 
 export const exportPriceListToPDF = (
   template: PriceListTemplate,
-  priceType: string = "all"
+  price: string
 ) => {
   const doc = new jsPDF();
-  console.log("Template:", template);
-  console.log("Price type selected:", priceType);
 
   const totalProducts = template.products.length;
   const isLargeDataset = totalProducts > 100;
@@ -36,8 +34,9 @@ export const exportPriceListToPDF = (
   const pageHeight = doc.internal.pageSize.getHeight();
 
   const columnGap = isLargeDataset ? 3 : 4;
-  const fullPageWidth = pageWidth - MARGIN * 2; // Use full page width instead of splitting into columns
+  const columnWidth = (pageWidth - MARGIN * 2 - columnGap) / 2;
   const leftColumnX = MARGIN;
+  const rightColumnX = leftColumnX + columnWidth + columnGap;
   const startY = 22;
   const HEADER_HEIGHT = 20;
   const FOOTER_HEIGHT = 10;
@@ -87,7 +86,7 @@ export const exportPriceListToPDF = (
   };
 
   const formatCurrencyValue = (val: number | undefined) =>
-    `${(val ?? 0)?.toFixed(2)}`;
+    `$${(val ?? 0)?.toFixed(2)}`;
 
   const productsByCategory: Record<string, PriceListProduct[]> = {};
   template.products.forEach((product) => {
@@ -143,7 +142,6 @@ export const exportPriceListToPDF = (
 
   const SINGLE_ROW_HEIGHT = (() => {
     const tempDoc = new jsPDF();
-    const sampleRow = Array(columnsConfig.columnCount).fill("SAMPLE");
     autoTable(tempDoc, {
       startY: 0,
       body: [["SAMPLE", "$0.00", ""]],
@@ -171,7 +169,7 @@ export const exportPriceListToPDF = (
       styles: { cellPadding: ROW_PADDING },
       didDrawPage: () => {},
     });
-    return tempDoc.lastAutoTable?.finalY ?? 8;
+    return tempDoc.lastAutoTable?.finalY ?? 6;
   })();
 
   const measureProductHeight = () => SINGLE_ROW_HEIGHT;
@@ -203,24 +201,23 @@ export const exportPriceListToPDF = (
           },
         },
       ]);
-      
-      // Add column headers
-      bodyData.push(
-        columnsConfig.columns.map(col => ({
-          content: col,
-          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 240, 240], fontSize: TABLE_FONT_SIZE - 1 },
-        }))
-      );
     }
 
-    // Generate product rows based on price type
+    // Helper function to get correct price based on price type
+    const getPrice = (product: PriceListProduct): number => {
+      if (price === "base") return Number(product.pricePerBox || product.price) || 0;
+      if (price === "aPrice") return Number(product.aPrice) || 0;
+      if (price === "bPrice") return Number(product.bPrice) || 0;
+      if (price === "cPrice") return Number(product.cPrice) || 0;
+      if (price === "restaurant") return Number(product.restaurantPrice) || 0;
+      return 0;
+    };
+
     bodyData.push(
       ...products.map((product) => [
         { content: product.name.toUpperCase(), styles: { fontStyle: "bold" } },
         {
-          content: `${formatCurrencyValue(
-            product[price as keyof PriceListProduct] as number
-          )}`,
+          content: formatCurrencyValue(getPrice(product)),
           styles: { fontStyle: "bold", halign: "center" },
         },
         { content: "", styles: { fontStyle: "bold", halign: "center" } },
@@ -235,9 +232,9 @@ export const exportPriceListToPDF = (
       margin: {
         top: HEADER_HEIGHT + 2,
         left: x,
-        right: MARGIN,
+        right: pageWidth - x - columnWidth,
       },
-      tableWidth: fullPageWidth,
+      tableWidth: columnWidth,
       styles: {
         fontSize: TABLE_FONT_SIZE,
         cellPadding: ROW_PADDING,

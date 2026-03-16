@@ -367,7 +367,7 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
   // Download PDF with price selection
   const [pdfPriceModalOpen, setPdfPriceModalOpen] = useState(false)
   const [selectedPdfTemplate, setSelectedPdfTemplate] = useState<any>(null)
-  const [selectedPriceType, setSelectedPriceType] = useState("all")
+  const [selectedPriceType, setSelectedPriceType] = useState("base")
 
   const openPdfPriceModal = (template: any) => {
     setSelectedPdfTemplate(template)
@@ -2974,21 +2974,6 @@ const baseUrl = `${import.meta.env.VITE_APP_CLIENT_URL}/store/mobile`;
 
           <div className="space-y-4">
             <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  id="all-prices"
-                  name="priceType"
-                  value="all"
-                  checked={selectedPriceType === "all"}
-                  onChange={(e) => setSelectedPriceType(e.target.value)}
-                  className="w-4 h-4 text-blue-600"
-                />
-                <label htmlFor="all-prices" className="text-sm font-medium">
-                  All Prices (Base, A, B, C, Restaurant)
-                </label>
-              </div>
-
               <div className="flex items-center space-x-2">
                 <input
                   type="radio"

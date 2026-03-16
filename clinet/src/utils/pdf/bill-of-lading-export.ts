@@ -150,10 +150,12 @@ export const exportBillOfLadingToPDF = (
   yPos += 18;
 
   // ===== TABLE SECTION (Fixed Right Edge) =====
-  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "REC"]];
+  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "WEIGHT", "CLASS", "REC"]];
   const tableRows = order.items.map(item => [
     item.quantity.toString(),
     item.productName || item.name || "Produce Item",
+    `${item.quantity * 2} lbs`, 
+    "50",
     data.hazardousMaterials ? "X" : ""
   ]);
 
@@ -209,7 +211,7 @@ export const exportBillOfLadingToPDF = (
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(150, 150, 150);
-  doc.text("Vali Produce | 4950 S Royal Atlanta Dr, Tucker, GA 30084, Suite E | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
+  doc.text("Vali Produce | 4300 Pleasantdale Rd, Atlanta, GA 30340 | Computer Generated", PAGE_WIDTH / 2, PAGE_HEIGHT - 10, { align: "center" });
 
   // ===== PAGE NUMBERS (Dynamic - Correct Loop) =====
   const totalPages = doc.getNumberOfPages();
@@ -252,6 +254,6 @@ export const exportBillOfLadingToPDF = (
       }, 500);
     };
   } else {
-    doc.save(`BOL_${data.bolNumber}_${data.consigneeName}.pdf`);
+    doc.save(`BOL_${data.bolNumber}.pdf`);
   }
 };
