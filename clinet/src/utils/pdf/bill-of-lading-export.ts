@@ -76,7 +76,7 @@ export const exportBillOfLadingToPDF = (
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7);
   doc.text(data.shipperAddress, shipperStartX, 17);
-  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}, USA`, shipperStartX, 22);
+  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`, shipperStartX, 22);
 
   // Header Text (Center)
   doc.setTextColor(255, 255, 255);
