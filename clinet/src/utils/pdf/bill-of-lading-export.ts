@@ -254,6 +254,12 @@ export const exportBillOfLadingToPDF = (
       }, 500);
     };
   } else {
-    doc.save(`BOL_${data.bolNumber}.pdf`);
+    // Clean store name for filename (remove special characters)
+    const cleanStoreName = data.consigneeName
+      .replace(/[^a-zA-Z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+    
+    doc.save(`BOL_${cleanStoreName}_${data.bolNumber}.pdf`);
   }
-};
+}; 
