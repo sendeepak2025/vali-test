@@ -4,7 +4,7 @@ import { useSelector } from "react-redux";
 import Navbar from "@/components/layout/Navbar";
 import Sidebar from "@/components/layout/Sidebar";
 import { RootState } from "@/redux/store";
-import { getAllPreOrderAPI, getSinglePreOrderAPI, confirmPreOrderAPI } from "@/services2/operations/preOrder";
+import { getAllPreOrderAPI, getSinglePreOrderAPI, confirmPreOrderAPI, softDeletePreOrderAPI, restorePreOrderAPI } from "@/services2/operations/preOrder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Loader2, Eye, CheckCircle, Download, ExternalLink } from "lucide-react";
+import { Search, Loader2, Eye, CheckCircle, Download, ExternalLink, Trash2, RotateCcw } from "lucide-react";
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
 import { exportPreOrderToPDF } from "@/utils/pdf/preorder-export";
@@ -27,14 +27,19 @@ const PreOrder = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
   const [confirmedOrders, setConfirmedOrders] = useState<any[]>([]);
+  const [deletedOrders, setDeletedOrders] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [confirmedSearch, setConfirmedSearch] = useState("");
+  const [deletedSearch, setDeletedSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [confirmedCurrentPage, setConfirmedCurrentPage] = useState(1);
+  const [deletedCurrentPage, setDeletedCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [confirmedTotalPages, setConfirmedTotalPages] = useState(1);
+  const [deletedTotalPages, setDeletedTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [confirmedLoading, setConfirmedLoading] = useState(false);
+  const [deletedLoading, setDeletedLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("pending");
   
   // Modal states
@@ -53,13 +58,14 @@ const PreOrder = () => {
   try {
     const queryParams = new URLSearchParams();
     queryParams.append("page", page.toString());
+    queryParams.append("isDeleted", "false");
     if (searchQuery) queryParams.append("search", searchQuery);
 
     const data = await getAllPreOrderAPI(token, queryParams.toString());
 
-    // Only unconfirmed orders
+    // Only unconfirmed orders that are not deleted
     const unConfirmedOrders = data.preOrders.filter(
-      (order) => order.confirmed === false
+      (order) => order.confirmed === false && !order.isDeleted
     );
 
     setOrders(unConfirmedOrders);
@@ -78,13 +84,14 @@ const PreOrder = () => {
     try {
       const queryParams = new URLSearchParams();
       queryParams.append("page", page.toString());
+      queryParams.append("isDeleted", "false");
       if (searchQuery) queryParams.append("search", searchQuery);
 
       const data = await getAllPreOrderAPI(token, queryParams.toString());
 
-      // Only confirmed orders
+      // Only confirmed orders that are not deleted
       const confirmedOrdersList = data.preOrders.filter(
-        (order) => order.confirmed === true
+        (order) => order.confirmed === true && !order.isDeleted
       );
 
       setConfirmedOrders(confirmedOrdersList);
@@ -97,14 +104,42 @@ const PreOrder = () => {
     }
   };
 
+  // Fetch deleted orders
+  const fetchDeletedOrders = async (page = 1, searchQuery = "") => {
+    setDeletedLoading(true);
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append("page", page.toString());
+      queryParams.append("isDeleted", "true");
+      if (searchQuery) queryParams.append("search", searchQuery);
+
+      const data = await getAllPreOrderAPI(token, queryParams.toString());
+
+      // Only deleted orders
+      const deletedOrdersList = data.preOrders.filter(
+        (order) => order.isDeleted === true
+      );
+
+      setDeletedOrders(deletedOrdersList);
+      setDeletedCurrentPage(data.currentPage);
+      setDeletedTotalPages(data.totalPages);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDeletedLoading(false);
+    }
+  };
+
 
   useEffect(() => {
     if (activeTab === "pending") {
       fetchOrders(currentPage);
-    } else {
+    } else if (activeTab === "confirmed") {
       fetchConfirmedOrders(confirmedCurrentPage);
+    } else if (activeTab === "deleted") {
+      fetchDeletedOrders(deletedCurrentPage);
     }
-  }, [currentPage, confirmedCurrentPage, activeTab, token]);
+  }, [currentPage, confirmedCurrentPage, deletedCurrentPage, activeTab, token]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -116,6 +151,12 @@ const PreOrder = () => {
     e.preventDefault();
     setConfirmedCurrentPage(1);
     fetchConfirmedOrders(1, confirmedSearch);
+  };
+
+  const handleDeletedSearch = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setDeletedCurrentPage(1);
+    fetchDeletedOrders(1, deletedSearch);
   };
 
   const handleViewOrder = async (orderId: string) => {
@@ -167,6 +208,58 @@ const PreOrder = () => {
     }
   };
 
+  const handleSoftDelete = async (orderId: string) => {
+    const result = await Swal.fire({
+      title: "Delete PreOrder?",
+      text: "This PreOrder will be moved to deleted tab and auto-deleted after 7 days",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, Delete!",
+      cancelButtonText: "Cancel",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const response = await softDeletePreOrderAPI(orderId, token);
+        if (response) {
+          if (activeTab === "pending") {
+            fetchOrders(currentPage, search);
+          } else if (activeTab === "confirmed") {
+            fetchConfirmedOrders(confirmedCurrentPage, confirmedSearch);
+          }
+        }
+      } catch (error) {
+        console.error("Error deleting order:", error);
+      }
+    }
+  };
+
+  const handleRestore = async (orderId: string) => {
+    const result = await Swal.fire({
+      title: "Restore PreOrder?",
+      text: "This PreOrder will be restored to its original state",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonColor: "#16a34a",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, Restore!",
+      cancelButtonText: "Cancel",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const response = await restorePreOrderAPI(orderId, token);
+        if (response) {
+          fetchDeletedOrders(deletedCurrentPage, deletedSearch);
+        }
+      } catch (error) {
+        console.error("Error restoring order:", error);
+      }
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusColors: Record<string, string> = {
       pending: "bg-yellow-100 text-yellow-800 border-yellow-300",
@@ -204,12 +297,15 @@ const PreOrder = () => {
               </div>
 
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-6">
+                <TabsList className="grid w-full grid-cols-3 mb-6">
                   <TabsTrigger value="pending" className="data-[state=active]:bg-orange-600 data-[state=active]:text-white">
                     Pending PreOrders
                   </TabsTrigger>
                   <TabsTrigger value="confirmed" className="data-[state=active]:bg-green-600 data-[state=active]:text-white">
                     Confirmed PreOrders
+                  </TabsTrigger>
+                  <TabsTrigger value="deleted" className="data-[state=active]:bg-red-600 data-[state=active]:text-white">
+                    Deleted PreOrders
                   </TabsTrigger>
                 </TabsList>
 
@@ -345,6 +441,14 @@ const PreOrder = () => {
                                   onClick={() => navigate(`/admin/pre-order/${order._id}`)}
                                 >
                                   Update
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-red-600 text-red-600 hover:bg-red-50"
+                                  onClick={() => handleSoftDelete(order._id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
                             </td>
@@ -494,15 +598,25 @@ const PreOrder = () => {
                                   )}
                                 </td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
-                                    onClick={() => handleViewOrder(order._id)}
-                                  >
-                                    <Eye className="h-4 w-4 mr-1" />
-                                    View
-                                  </Button>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                                      onClick={() => handleViewOrder(order._id)}
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      View
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-red-600 text-red-600 hover:bg-red-50"
+                                      onClick={() => handleSoftDelete(order._id)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </td>
                               </tr>
                             ))
@@ -536,6 +650,161 @@ const PreOrder = () => {
                         size="sm"
                         disabled={confirmedCurrentPage === confirmedTotalPages}
                         onClick={() => setConfirmedCurrentPage((prev) => prev + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Deleted PreOrders Tab */}
+                <TabsContent value="deleted">
+                  <div className="flex justify-between items-center mb-4">
+                    <form onSubmit={handleDeletedSearch} className="flex gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder="Search by Order Number or Store Name"
+                          className="pl-10 w-80"
+                          value={deletedSearch}
+                          onChange={(e) => setDeletedSearch(e.target.value)}
+                        />
+                      </div>
+                      <Button type="submit" variant="outline">
+                        Search
+                      </Button>
+                    </form>
+                  </div>
+
+                  {deletedLoading ? (
+                    <div className="flex justify-center items-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-red-600" />
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              #
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              PreOrder Number
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Store Name
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Date
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Deleted At
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Total
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {deletedOrders.length > 0 ? (
+                            deletedOrders.map((order, idx) => (
+                              <tr
+                                key={order._id}
+                                className="hover:bg-gray-50 transition-colors bg-red-50"
+                              >
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  {(deletedCurrentPage - 1) * 10 + idx + 1}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {order.preOrderNumber}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                                  {order.store?.storeName || "N/A"}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {order.createdAt
+                                    ? new Date(order.createdAt).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "2-digit",
+                                        year: "numeric",
+                                      })
+                                    : "N/A"}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                  {order.deletedAt
+                                    ? new Date(order.deletedAt).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "2-digit",
+                                        year: "numeric",
+                                      })
+                                    : "N/A"}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                                  ${Number(order.total).toFixed(2)}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                  {getStatusBadge(order.status)}
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                                      onClick={() => handleViewOrder(order._id)}
+                                    >
+                                      <Eye className="h-4 w-4 mr-1" />
+                                      View
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      className="bg-green-600 hover:bg-green-700"
+                                      onClick={() => handleRestore(order._id)}
+                                    >
+                                      <RotateCcw className="h-4 w-4 mr-1" />
+                                      Restore
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                                No deleted preorders found.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {deletedTotalPages > 1 && (
+                    <div className="flex justify-center items-center mt-6 gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={deletedCurrentPage === 1}
+                        onClick={() => setDeletedCurrentPage((prev) => prev - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <span className="px-4 py-2 text-sm text-gray-700">
+                        Page {deletedCurrentPage} of {deletedTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={deletedCurrentPage === deletedTotalPages}
+                        onClick={() => setDeletedCurrentPage((prev) => prev + 1)}
                       >
                         Next
                       </Button>

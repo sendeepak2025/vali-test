@@ -3,7 +3,7 @@ import {  preOrder,  } from "../apis";
 import { toast } from 'react-toastify';
 
 
-const { CREATE_PRE_ORDER, GET_ALL_PRE_ORDER,GET_SINGLE_PRE_ORDER,UPDATE_PRE_ORDER, CONFIRM_PRE_ORDER
+const { CREATE_PRE_ORDER, GET_ALL_PRE_ORDER,GET_SINGLE_PRE_ORDER,UPDATE_PRE_ORDER, CONFIRM_PRE_ORDER, SOFT_DELETE_PRE_ORDER, RESTORE_PRE_ORDER
 } = preOrder
 
 
@@ -253,6 +253,51 @@ export const confirmPreOrderAPI = async ( token,id) => {
         return null;
     } finally {
 
+        toast.dismiss(toastId);
+    }
+};
+
+
+export const softDeletePreOrderAPI = async (id, token) => {
+    const toastId = toast.loading("Deleting pre-order...");
+    try {
+        const response = await apiConnector("PUT", `${SOFT_DELETE_PRE_ORDER}/${id}`, {}, {
+            Authorization: `Bearer ${token}`,
+        });
+
+        if (!response?.data?.success) {
+            throw new Error(response?.data?.message || "Something went wrong!");
+        }
+
+        toast.success(response?.data?.message || "PreOrder deleted successfully!");
+        return response?.data;
+    } catch (error) {
+        console.error("SOFT_DELETE_PRE_ORDER API ERROR:", error);
+        toast.error(error?.response?.data?.message || "Failed to delete pre-order!");
+        return null;
+    } finally {
+        toast.dismiss(toastId);
+    }
+};
+
+export const restorePreOrderAPI = async (id, token) => {
+    const toastId = toast.loading("Restoring pre-order...");
+    try {
+        const response = await apiConnector("PUT", `${RESTORE_PRE_ORDER}/${id}`, {}, {
+            Authorization: `Bearer ${token}`,
+        });
+
+        if (!response?.data?.success) {
+            throw new Error(response?.data?.message || "Something went wrong!");
+        }
+
+        toast.success(response?.data?.message || "PreOrder restored successfully!");
+        return response?.data;
+    } catch (error) {
+        console.error("RESTORE_PRE_ORDER API ERROR:", error);
+        toast.error(error?.response?.data?.message || "Failed to restore pre-order!");
+        return null;
+    } finally {
         toast.dismiss(toastId);
     }
 };

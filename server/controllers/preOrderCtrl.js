@@ -138,11 +138,14 @@ const getAllPreOrdersCtrl = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
+    const isDeleted = req.query.isDeleted === "true";
 
     const searchRegex = new RegExp(search, "i");
 
     // Build filter based on user role
-    let filter = {};
+    let filter = {
+      isDeleted: isDeleted // Filter by deleted status
+    };
     
     if (user.role === "store") {
       // Store users can only see their own preorders
@@ -646,4 +649,102 @@ const confirmOrderCtrl = async (req, res) => {
   }
 };
 
-module.exports = {createPreOrderCtrl, getAllPreOrdersCtrl, getSinglePreOrderCtrl, updatePreOrderCtrl, confirmOrderCtrl}
+// Soft Delete PreOrder
+const softDeletePreOrderCtrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "PreOrder ID is required"
+      });
+    }
+
+    const preOrder = await PreOrder.findById(id);
+
+    if (!preOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "PreOrder not found"
+      });
+    }
+
+    // Check if already deleted
+    if (preOrder.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "PreOrder is already deleted"
+      });
+    }
+
+    // Soft delete
+    preOrder.isDeleted = true;
+    preOrder.deletedAt = new Date();
+    await preOrder.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "PreOrder deleted successfully. It will be permanently deleted after 7 days.",
+      preOrder
+    });
+  } catch (error) {
+    console.error("Soft Delete PreOrder Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while deleting PreOrder",
+      error: error.message
+    });
+  }
+};
+
+// Restore PreOrder
+const restorePreOrderCtrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "PreOrder ID is required"
+      });
+    }
+
+    const preOrder = await PreOrder.findById(id);
+
+    if (!preOrder) {
+      return res.status(404).json({
+        success: false,
+        message: "PreOrder not found"
+      });
+    }
+
+    // Check if not deleted
+    if (!preOrder.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "PreOrder is not deleted"
+      });
+    }
+
+    // Restore
+    preOrder.isDeleted = false;
+    preOrder.deletedAt = null;
+    await preOrder.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "PreOrder restored successfully",
+      preOrder
+    });
+  } catch (error) {
+    console.error("Restore PreOrder Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while restoring PreOrder",
+      error: error.message
+    });
+  }
+};
+
+module.exports = {createPreOrderCtrl, getAllPreOrdersCtrl, getSinglePreOrderCtrl, updatePreOrderCtrl, confirmOrderCtrl, softDeletePreOrderCtrl, restorePreOrderCtrl}

@@ -271,6 +271,8 @@ export const preOrder = {
   GET_SINGLE_PRE_ORDER: BASE_URL + "/pre-order/get",
   UPDATE_PRE_ORDER: BASE_URL + "/pre-order/update",
   CONFIRM_PRE_ORDER: BASE_URL + "/pre-order/confirm-order",
+  SOFT_DELETE_PRE_ORDER: BASE_URL + "/pre-order/soft-delete",
+  RESTORE_PRE_ORDER: BASE_URL + "/pre-order/restore",
 }
 
 // Store Inventory Management

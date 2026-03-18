@@ -115,6 +115,15 @@ const preOrderSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     deleted: {
       reason: { type: String },
       amount: { type: Number },

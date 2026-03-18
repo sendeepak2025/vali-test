@@ -8,11 +8,15 @@ const dotenv = require("dotenv");
 const connectDB = require("./config/db");
 const bodyParser = require("body-parser");
 const Order = require("./models/orderModle")
+const autoDeletePreOrders = require("./cron/autoDeletePreOrders");
 
 dotenv.config();
 
 const PORT = process.env.PORT || 8080
 connectDB();
+
+// Initialize cron jobs
+autoDeletePreOrders();
 
 
 app.use(express.json({ limit: "500mb" }));

@@ -3661,7 +3661,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         orderType: "Regural"
       }).lean(),
 
-      // Get PreOrders for the TARGET week
+      // Get PreOrders for the TARGET week (exclude deleted)
       PreOrderModel.find({
         $or: [
           { expectedDeliveryDate: { $gte: monday, $lte: sunday } },
@@ -3670,6 +3670,7 @@ const getOrderMatrixDataCtrl = async (req, res) => {
         ],
         confirmed: { $ne: true },
         isDelete: { $ne: true },
+        isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
         status: "pending"
       }).populate("store", "storeName ownerName city state").lean(),
 
@@ -4091,6 +4092,7 @@ const exportOrderMatrixDataCtrl = async (req, res) => {
         ],
         confirmed: { $ne: true },
         isDelete: { $ne: true },
+        isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
         status: "pending"
       }).lean(),
       IncomingStock.find({
@@ -4253,6 +4255,7 @@ const updateOrderMatrixItemCtrl = async (req, res) => {
       ],
       confirmed: { $ne: true },
       isDelete: { $ne: true },
+      isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
       status: "pending",
       "items.productId": productId
     });
@@ -4586,6 +4589,7 @@ const updatePreOrderMatrixItemCtrl = async (req, res) => {
         }
       ],
       isDelete: { $ne: true },
+      isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
       confirmed: { $ne: true }
     }).sort({ createdAt: -1 });
 
@@ -4764,6 +4768,7 @@ const confirmPreOrdersCtrl = async (req, res) => {
     let query = {
       confirmed: { $ne: true },
       isDelete: { $ne: true },
+      isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
       status: "pending"
     };
 
@@ -5003,6 +5008,7 @@ const getPendingPreOrdersForReviewCtrl = async (req, res) => {
       ],
       confirmed: { $ne: true },
       isDelete: { $ne: true },
+      isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
       status: "pending"
     })
     .populate("store", "storeName ownerName city state")
@@ -5413,6 +5419,7 @@ const getOrderMatrixStatsCtrl = async (req, res) => {
         createdAt: { $gte: monday, $lte: sunday },  // Only preorders created this week
         confirmed: { $ne: true },
         isDelete: { $ne: true },
+        isDeleted: { $ne: true }, // Exclude soft-deleted PreOrders
         status: "pending"
       }).populate("store", "storeName").lean(),
 
