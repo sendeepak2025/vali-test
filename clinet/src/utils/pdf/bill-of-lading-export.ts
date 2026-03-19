@@ -150,13 +150,10 @@ export const exportBillOfLadingToPDF = (
   yPos += 18;
 
   // ===== TABLE SECTION (Fixed Right Edge) =====
-  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES", "WEIGHT", "CLASS", "REC"]];
+  const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES"]];
   const tableRows = order.items.map(item => [
     item.quantity.toString(),
-    item.productName || item.name || "Produce Item",
-    `${item.quantity * 2} lbs`, 
-    "50",
-    data.hazardousMaterials ? "X" : ""
+    item.productName || item.name || "Produce Item"
   ]);
 
   autoTable(doc, {
@@ -169,14 +166,13 @@ export const exportBillOfLadingToPDF = (
     styles: { fontSize: 9, cellPadding: 4, halign: 'center', overflow: 'linebreak', fontStyle: 'bold' },
     headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
     columnStyles: {
+      0: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
       1: { halign: 'left', cellWidth: 'auto', fontStyle: 'bold' },
     },
     bodyStyles: { fontStyle: 'bold' },
     foot: [[
         data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString(),
-        "TOTALS",
-        `${order.items.reduce((a, b) => a + (b.quantity * 2), 0)} lbs`,
-        "", ""
+        "TOTALS"
     ]],
     footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' }
   });
