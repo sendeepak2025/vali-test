@@ -143,23 +143,31 @@ const getAllPreOrdersCtrl = async (req, res) => {
     const searchRegex = new RegExp(search, "i");
 
     // Build filter based on user role
+    // Note: Check both 'isDelete' and 'isDeleted' for backward compatibility
     let filter = {
-      isDeleted: isDeleted // Filter by deleted status
+      $and: [
+        {
+          $or: [
+            { isDelete: isDeleted },
+            { isDeleted: isDeleted }
+          ]
+        }
+      ]
     };
     
     if (user.role === "store") {
       // Store users can only see their own preorders
-      filter.store = new mongoose.Types.ObjectId(userId);
+      filter.$and.push({ store: new mongoose.Types.ObjectId(userId) });
     } else if (user.role === "admin" || user.role === "member") {
       // Admin/member can see all preorders, or filter by storeId if provided
       const storeId = req.query.storeId;
       if (storeId && mongoose.Types.ObjectId.isValid(storeId)) {
-        filter.store = new mongoose.Types.ObjectId(storeId);
+        filter.$and.push({ store: new mongoose.Types.ObjectId(storeId) });
       }
     }
     
     // Add search filter - search by preOrderNumber or store name
-    if (search) {
+    if (search && search.trim() !== "") {
       // First get stores matching the search term
       const matchingStores = await User.find({
         $or: [
@@ -171,15 +179,18 @@ const getAllPreOrdersCtrl = async (req, res) => {
       const storeIds = matchingStores.map(store => store._id);
       
       // Search by preOrderNumber OR matching store IDs
-      filter.$or = [
-        { preOrderNumber: searchRegex },
-        { store: { $in: storeIds } }
-      ];
+      filter.$and.push({
+        $or: [
+          { preOrderNumber: searchRegex },
+          { store: { $in: storeIds } }
+        ]
+      });
     }
     
-    console.log("PreOrder filter:", filter, "userId:", userId, "role:", user.role);
+    console.log("PreOrder filter:", JSON.stringify(filter, null, 2), "userId:", userId, "role:", user.role);
 
     const total = await PreOrder.countDocuments(filter);
+    console.log("Total preOrders found:", total);
 
     const preOrders = await PreOrder.find(filter)
       .sort({ createdAt: -1 })
@@ -190,6 +201,15 @@ const getAllPreOrdersCtrl = async (req, res) => {
         path: "orderId",
         select: "orderNumber status total createdAt _id"
       });
+
+    console.log("PreOrders returned:", preOrders.length);
+    console.log("PreOrders data:", preOrders.map(p => ({
+      id: p._id,
+      preOrderNumber: p.preOrderNumber,
+      confirmed: p.confirmed,
+      isDeleted: p.isDeleted,
+      store: p.store?.storeName
+    })));
 
     return res.status(200).json({
       success: true,
@@ -671,15 +691,16 @@ const softDeletePreOrderCtrl = async (req, res) => {
     }
 
     // Check if already deleted
-    if (preOrder.isDeleted) {
+    if (preOrder.isDeleted || preOrder.isDelete) {
       return res.status(400).json({
         success: false,
         message: "PreOrder is already deleted"
       });
     }
 
-    // Soft delete
+    // Soft delete - update both fields for backward compatibility
     preOrder.isDeleted = true;
+    preOrder.isDelete = true;
     preOrder.deletedAt = new Date();
     await preOrder.save();
 
@@ -720,15 +741,16 @@ const restorePreOrderCtrl = async (req, res) => {
     }
 
     // Check if not deleted
-    if (!preOrder.isDeleted) {
+    if (!preOrder.isDeleted && !preOrder.isDelete) {
       return res.status(400).json({
         success: false,
         message: "PreOrder is not deleted"
       });
     }
 
-    // Restore
+    // Restore - update both fields for backward compatibility
     preOrder.isDeleted = false;
+    preOrder.isDelete = false;
     preOrder.deletedAt = null;
     await preOrder.save();
 
