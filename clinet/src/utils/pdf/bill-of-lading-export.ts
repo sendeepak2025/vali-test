@@ -50,50 +50,50 @@ export const exportBillOfLadingToPDF = (
 
   // ===== HEADER SECTION (More Compact) =====
   doc.setFillColor(5, 150, 105); 
-  doc.rect(0, 0, PAGE_WIDTH, 30, "F");
+  doc.rect(0, 0, PAGE_WIDTH, 22, "F");
 
   // Logo (Left side)
   try {
     const logoUrl = "/logg.png";
-    doc.addImage(logoUrl, "PNG", MARGIN, 4, 18, 18, undefined, 'FAST');
+    doc.addImage(logoUrl, "PNG", MARGIN, 2.5, 14, 14, undefined, 'FAST');
   } catch (e) {
-    doc.setFontSize(10);
+    doc.setFontSize(8);
     doc.setTextColor(255, 255, 255);
-    doc.text("VALI", MARGIN, 13);
+    doc.text("VALI", MARGIN, 10);
   }
 
   // FROM: SHIPPER (Next to logo - White text on green background)
-  const shipperStartX = MARGIN + 23;
+  const shipperStartX = MARGIN + 19;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(7);
+  doc.setFontSize(6);
   doc.setTextColor(255, 255, 255);
-  doc.text("FROM: SHIPPER", shipperStartX, 7);
-  
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.text(data.shipperName, shipperStartX, 12);
+  doc.text("FROM: SHIPPER", shipperStartX, 5);
   
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7);
-  doc.text(data.shipperAddress, shipperStartX, 17);
-  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`, shipperStartX, 22);
+  doc.text(data.shipperName, shipperStartX, 9);
+  
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(6);
+  doc.text(data.shipperAddress, shipperStartX, 12.5);
+  doc.text(`${data.shipperCity}, ${data.shipperState} ${data.shipperZip}`, shipperStartX, 16);
 
   // Header Text (Center)
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("BILL OF LADING", PAGE_WIDTH / 2, 10, { align: "center" });
+  doc.setFontSize(14);
+  doc.text("BILL OF LADING", PAGE_WIDTH / 2, 7, { align: "center" });
 
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.text(`B/L NUMBER: ${data.bolNumber}`, PAGE_WIDTH / 2, 17, { align: "center" });
-  
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
-  doc.text("ORIGINAL - NON NEGOTIABLE", PAGE_WIDTH / 2, 22, { align: "center" });
+  doc.text(`B/L NUMBER: ${data.bolNumber}`, PAGE_WIDTH / 2, 12, { align: "center" });
+  
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "bold");
+  doc.text("ORIGINAL - NON NEGOTIABLE", PAGE_WIDTH / 2, 16, { align: "center" });
 
   // Page number position (top right corner) - Will be updated dynamically later
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setTextColor(255, 255, 255);
   // Placeholder - will be replaced in the page number loop at the end
   
@@ -103,20 +103,20 @@ export const exportBillOfLadingToPDF = (
     month: 'long', 
     day: 'numeric' 
   });
-  doc.setFontSize(7);
+  doc.setFontSize(6);
   doc.setFont("helvetica", "bold");
-  doc.text(`Effective Date: ${effectiveDate}`, PAGE_WIDTH - MARGIN, 12, { align: "right" });
+  doc.text(`Effective Date: ${effectiveDate}`, PAGE_WIDTH - MARGIN, 9, { align: "right" });
 
-  yPos = 33;
+  yPos = 24;
 
   // ===== CONSIGNEE INFO (Single Line - Bold and bigger font) =====
   const infoStartY = yPos;
 
   // TO: CONSIGNEE label with details immediately after
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setTextColor(5, 150, 105);
-  doc.text("TO: CONSIGNEE", MARGIN, infoStartY + 4);
+  doc.text("TO: CONSIGNEE", MARGIN, infoStartY + 2.5);
   
   // All info in ONE single line - BOLD and bigger font (9pt)
   doc.setFont("helvetica", "bold");
@@ -128,26 +128,26 @@ export const exportBillOfLadingToPDF = (
   const singleLineText = `${data.consigneeName}  ${data.consigneeAddress}  ${data.consigneeCity}, ${data.consigneeState} ${data.consigneeZip}+${phoneText}`;
   
   // Start text right after "TO: CONSIGNEE" label - BOLD
-  doc.text(singleLineText, MARGIN + 35, infoStartY + 4);
+  doc.text(singleLineText, MARGIN + 35, infoStartY + 2.5);
 
-  yPos += 10;
+  yPos += 5;
 
   // ===== CARRIER INFO (Full Width Fix) =====
   doc.setFillColor(248, 250, 252);
-  doc.rect(MARGIN, yPos, CONTENT_WIDTH, 12, "F");
+  doc.rect(MARGIN, yPos, CONTENT_WIDTH, 7, "F");
   
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(100, 100, 100);
-  doc.text("CARRIER:", MARGIN + 5, yPos + 7.5);
-  doc.text("SERVICE LEVEL:", MARGIN + (CONTENT_WIDTH / 2), yPos + 7.5);
+  doc.text("CARRIER:", MARGIN + 5, yPos + 4.5);
+  doc.text("SERVICE LEVEL:", MARGIN + (CONTENT_WIDTH / 2), yPos + 4.5);
 
   doc.setFont("helvetica", "bold");
   doc.setTextColor(20, 20, 20);
-  doc.text(data.carrierName.toUpperCase(), MARGIN + 25, yPos + 7.5);
-  doc.text(data.serviceLevel.toUpperCase(), MARGIN + (CONTENT_WIDTH / 2) + 28, yPos + 7.5);
+  doc.text(data.carrierName.toUpperCase(), MARGIN + 25, yPos + 4.5);
+  doc.text(data.serviceLevel.toUpperCase(), MARGIN + (CONTENT_WIDTH / 2) + 28, yPos + 4.5);
 
-  yPos += 18;
+  yPos += 9;
 
   // ===== TABLE SECTION (Fixed Right Edge) =====
   const tableHeaders = [["QTY/PCS", "DESCRIPTION OF ARTICLES"]];
@@ -163,8 +163,8 @@ export const exportBillOfLadingToPDF = (
     theme: 'striped',
     margin: { left: MARGIN, right: MARGIN }, // Force alignment
     tableWidth: CONTENT_WIDTH, // Force full width
-    styles: { fontSize: 9, cellPadding: 4, halign: 'center', overflow: 'linebreak', fontStyle: 'bold' },
-    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' },
+    styles: { fontSize: 8, cellPadding: 1, halign: 'center', overflow: 'linebreak', fontStyle: 'bold', lineWidth: 0 },
+    headStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold', fontSize: 8, cellPadding: 1.5 },
     columnStyles: {
       0: { halign: 'center', cellWidth: 30, fontStyle: 'bold' },
       1: { halign: 'left', cellWidth: 'auto', fontStyle: 'bold' },
@@ -174,10 +174,10 @@ export const exportBillOfLadingToPDF = (
         data.totalQuantity || order.items.reduce((a, b) => a + b.quantity, 0).toString(),
         "TOTALS"
     ]],
-    footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold' }
+    footStyles: { fillColor: [5, 150, 105], textColor: 255, fontStyle: 'bold', fontSize: 8, cellPadding: 1.5 }
   });
 
-  yPos = (doc as any).lastAutoTable.finalY + 20;
+  yPos = (doc as any).lastAutoTable.finalY + 6;
 
   // ===== SIGNATURES (Balanced) =====
   if (yPos + 30 > PAGE_HEIGHT - 25) {
