@@ -2,6 +2,7 @@ const VendorPayment = require('../models/vendorPaymentModel');
 const Invoice = require('../models/invoiceModel');
 const Vendor = require('../models/vendorModel');
 const VendorCreditMemo = require('../models/vendorCreditMemoModel');
+const PurchaseOrder = require('../models/purchaseModel');
 const mongoose = require('mongoose');
 
 // Helper function to calculate early payment discount
@@ -43,18 +44,17 @@ const createVendorPayment = async (req, res) => {
   try {
     const {
       vendorId,
-      invoicePayments,
+      purchaseOrderId,
+      amount,
       method,
       checkNumber,
       transactionId,
       bankReference,
       paymentDate,
       appliedCredits,
-      applyEarlyPaymentDiscount,
       notes
     } = req.body;
 
-    // Validate vendor
     const vendor = await Vendor.findById(vendorId);
     if (!vendor) {
       await session.abortTransaction();
@@ -64,72 +64,62 @@ const createVendorPayment = async (req, res) => {
       });
     }
 
-    // Validate and fetch invoices
-    if (!invoicePayments || invoicePayments.length === 0) {
+    if (!purchaseOrderId) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: 'At least one invoice payment is required'
+        message: 'Purchase order is required'
       });
     }
 
-    const invoiceIds = invoicePayments.map(ip => ip.invoiceId);
-    const invoices = await Invoice.find({
-      _id: { $in: invoiceIds },
+    if (!amount || amount <= 0) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Valid payment amount is required'
+      });
+    }
+
+    // Find the purchase order
+    const purchaseOrder = await PurchaseOrder.findOne({
+      _id: purchaseOrderId,
       vendorId: vendorId
     }).session(session);
 
-    if (invoices.length !== invoiceIds.length) {
+    if (!purchaseOrder) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: 'One or more invoices not found or do not belong to this vendor'
+        message: 'Purchase order not found or does not belong to this vendor'
       });
     }
 
-    // Validate payment amounts don't exceed remaining
-    let grossAmount = 0;
-    const processedInvoicePayments = [];
+    const balanceDue = purchaseOrder.totalAmount - (parseFloat(purchaseOrder.paymentAmount) || 0);
 
-    for (const ip of invoicePayments) {
-      const invoice = invoices.find(inv => inv._id.toString() === ip.invoiceId);
-      
-      if (ip.amountPaid > invoice.remainingAmount) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          success: false,
-          message: `Payment amount ($${ip.amountPaid}) exceeds remaining balance ($${invoice.remainingAmount}) for invoice ${invoice.invoiceNumber}`
-        });
-      }
-
-      grossAmount += ip.amountPaid;
-      processedInvoicePayments.push({
-        invoiceId: invoice._id,
-        invoiceNumber: invoice.invoiceNumber,
-        invoiceAmount: invoice.totalAmount,
-        amountPaid: ip.amountPaid,
-        remainingAfterPayment: invoice.remainingAmount - ip.amountPaid
+    if (amount > balanceDue) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: `Payment amount (${amount}) exceeds remaining balance (${balanceDue}) for PO ${purchaseOrder.purchaseOrderNumber}`
       });
     }
 
-    // Calculate early payment discount if requested
-    let earlyPaymentDiscountTaken = 0;
-    let earlyPaymentDiscountDetails = null;
+    let grossAmount = amount;
+    const processedPurchaseOrderPayments = [{
+      purchaseOrderId: purchaseOrder._id,
+      purchaseOrderNumber: purchaseOrder.purchaseOrderNumber,
+      orderAmount: purchaseOrder.totalAmount,
+      amountPaid: amount,
+      remainingAfterPayment: balanceDue - amount
+    }];
 
-    if (applyEarlyPaymentDiscount) {
-      const discountCalc = calculateEarlyPaymentDiscount(vendor, invoices, paymentDate);
-      earlyPaymentDiscountTaken = discountCalc.discountAmount;
-      earlyPaymentDiscountDetails = discountCalc;
-    }
-
-    // Process applied credits
     let totalCreditsApplied = 0;
     const processedCredits = [];
 
     if (appliedCredits && appliedCredits.length > 0) {
       for (const credit of appliedCredits) {
         const creditMemo = await VendorCreditMemo.findById(credit.creditMemoId).session(session);
-        
+
         if (!creditMemo) {
           await session.abortTransaction();
           return res.status(400).json({
@@ -142,7 +132,7 @@ const createVendorPayment = async (req, res) => {
           await session.abortTransaction();
           return res.status(400).json({
             success: false,
-            message: `Credit memo ${creditMemo.memoNumber} cannot be applied (status: ${creditMemo.status}, remaining: $${creditMemo.remainingAmount})`
+            message: `Credit memo ${creditMemo.memoNumber} cannot be applied (status: ${creditMemo.status}, remaining: ${creditMemo.remainingAmount})`
           });
         }
 
@@ -150,7 +140,7 @@ const createVendorPayment = async (req, res) => {
           await session.abortTransaction();
           return res.status(400).json({
             success: false,
-            message: `Credit amount ($${credit.amount}) exceeds remaining credit ($${creditMemo.remainingAmount}) for memo ${creditMemo.memoNumber}`
+            message: `Credit amount (${credit.amount}) exceeds remaining credit (${creditMemo.remainingAmount}) for memo ${creditMemo.memoNumber}`
           });
         }
 
@@ -163,8 +153,7 @@ const createVendorPayment = async (req, res) => {
       }
     }
 
-    // Calculate net amount
-    const netAmount = grossAmount - totalCreditsApplied - earlyPaymentDiscountTaken;
+    const netAmount = grossAmount - totalCreditsApplied;
 
     if (netAmount < 0) {
       await session.abortTransaction();
@@ -174,49 +163,42 @@ const createVendorPayment = async (req, res) => {
       });
     }
 
-    // Generate payment number
     const paymentNumber = await VendorPayment.generatePaymentNumber();
 
-    // Create payment
     const payment = new VendorPayment({
       paymentNumber,
       vendorId,
-      invoicePayments: processedInvoicePayments,
+      purchaseOrderPayments: processedPurchaseOrderPayments,
       grossAmount,
       appliedCredits: processedCredits,
       totalCreditsApplied,
-      earlyPaymentDiscountTaken,
-      earlyPaymentDiscountDetails,
       netAmount,
       method,
       checkNumber: method === 'check' ? checkNumber : undefined,
       checkClearanceStatus: method === 'check' ? 'pending' : undefined,
       transactionId,
       bankReference,
-      paymentDate: new Date(paymentDate),
+      paymentDate: new Date(paymentDate || Date.now()),
       notes,
       createdBy: req.user?._id
     });
 
     await payment.save({ session });
 
-    // Update invoices
-    for (const ip of processedInvoicePayments) {
-      const invoice = invoices.find(inv => inv._id.toString() === ip.invoiceId.toString());
-      invoice.paidAmount += ip.amountPaid;
-      invoice.remainingAmount = invoice.totalAmount - invoice.paidAmount;
-      invoice.paymentIds.push(payment._id);
-      
-      if (invoice.remainingAmount <= 0) {
-        invoice.status = 'paid';
-      } else if (invoice.status !== 'paid') {
-        invoice.status = 'approved'; // Keep as approved if partially paid
-      }
-      
-      await invoice.save({ session });
+    // Update the purchase order
+    const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+    purchaseOrder.paymentAmount = String(currentPaid + amount);
+    
+    const newBalance = purchaseOrder.totalAmount - (currentPaid + amount);
+    if (newBalance <= 0) {
+      purchaseOrder.paymentStatus = 'paid';
+    } else if ((currentPaid + amount) > 0) {
+      purchaseOrder.paymentStatus = 'partial';
     }
 
-    // Update credit memos
+    await purchaseOrder.save({ session });
+
+    // Apply credit memos
     for (const credit of processedCredits) {
       const creditMemo = await VendorCreditMemo.findById(credit.creditMemoId).session(session);
       creditMemo.applyToPayment(payment._id, credit.amount);
@@ -225,10 +207,8 @@ const createVendorPayment = async (req, res) => {
 
     await session.commitTransaction();
 
-    // Populate for response
     const populatedPayment = await VendorPayment.findById(payment._id)
-      .populate('vendorId', 'name')
-      .populate('invoicePayments.invoiceId', 'invoiceNumber totalAmount');
+      .populate('vendorId', 'name');
 
     res.status(201).json({
       success: true,
@@ -246,7 +226,7 @@ const createVendorPayment = async (req, res) => {
   } finally {
     session.endSession();
   }
-};
+}
 
 // ✅ Get All Vendor Payments
 const getAllVendorPayments = async (req, res) => {
@@ -416,6 +396,7 @@ const getVendorPaymentById = async (req, res) => {
     const payment = await VendorPayment.findById(id)
       .populate('vendorId', 'name email phone paymentTerms')
       .populate('invoicePayments.invoiceId', 'invoiceNumber totalAmount invoiceDate dueDate paymentIds')
+      .populate('purchaseOrderPayments.purchaseOrderId', 'purchaseOrderNumber totalAmount purchaseDate')
       .populate('appliedCredits.creditMemoId', 'memoNumber amount type')
       .populate('createdBy', 'name email');
 
@@ -535,8 +516,32 @@ const updateCheckStatus = async (req, res) => {
     payment.updateCheckStatus(status, reason);
     await payment.save({ session });
 
-    // If check bounced, reverse the invoice payments
+    // If check bounced, reverse the payments
     if (status === 'bounced') {
+      // Reverse purchase order payments
+      if (payment.purchaseOrderPayments && payment.purchaseOrderPayments.length > 0) {
+        for (const pop of payment.purchaseOrderPayments) {
+          const purchaseOrder = await PurchaseOrder.findById(pop.purchaseOrderId).session(session);
+          if (purchaseOrder) {
+            const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+            const newPaid = currentPaid - pop.amountPaid;
+            purchaseOrder.paymentAmount = String(Math.max(0, newPaid));
+            
+            const newBalance = purchaseOrder.totalAmount - newPaid;
+            if (newPaid <= 0) {
+              purchaseOrder.paymentStatus = 'pending';
+            } else if (newBalance > 0) {
+              purchaseOrder.paymentStatus = 'partial';
+            } else {
+              purchaseOrder.paymentStatus = 'paid';
+            }
+            
+            await purchaseOrder.save({ session });
+          }
+        }
+      }
+
+      // Reverse invoice payments
       for (const ip of payment.invoicePayments) {
         const invoice = await Invoice.findById(ip.invoiceId).session(session);
         if (invoice) {
@@ -625,6 +630,29 @@ const voidVendorPayment = async (req, res) => {
         success: false,
         message: 'This payment cannot be voided (check may have already cleared)'
       });
+    }
+
+    // Reverse purchase order payments
+    if (payment.purchaseOrderPayments && payment.purchaseOrderPayments.length > 0) {
+      for (const pop of payment.purchaseOrderPayments) {
+        const purchaseOrder = await PurchaseOrder.findById(pop.purchaseOrderId).session(session);
+        if (purchaseOrder) {
+          const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+          const newPaid = currentPaid - pop.amountPaid;
+          purchaseOrder.paymentAmount = String(Math.max(0, newPaid));
+          
+          const newBalance = purchaseOrder.totalAmount - newPaid;
+          if (newPaid <= 0) {
+            purchaseOrder.paymentStatus = 'pending';
+          } else if (newBalance > 0) {
+            purchaseOrder.paymentStatus = 'partial';
+          } else {
+            purchaseOrder.paymentStatus = 'paid';
+          }
+          
+          await purchaseOrder.save({ session });
+        }
+      }
     }
 
     // Reverse invoice payments
@@ -797,8 +825,69 @@ const updateVendorPayment = async (req, res) => {
     if (newAmount !== undefined && newAmount !== payment.grossAmount) {
       const amountDiff = newAmount - payment.grossAmount;
       
-      // Get the first invoice payment (for simple single-invoice payments)
-      if (payment.invoicePayments.length === 1) {
+      // Handle Purchase Order Payments
+      if (payment.purchaseOrderPayments && payment.purchaseOrderPayments.length > 0) {
+        if (payment.purchaseOrderPayments.length === 1) {
+          const poPayment = payment.purchaseOrderPayments[0];
+          const purchaseOrder = await PurchaseOrder.findById(poPayment.purchaseOrderId).session(session);
+          
+          if (!purchaseOrder) {
+            await session.abortTransaction();
+            return res.status(404).json({
+              success: false,
+              message: 'Linked purchase order not found'
+            });
+          }
+
+          // Calculate new amount for this PO
+          const newPOPaymentAmount = poPayment.amountPaid + amountDiff;
+          
+          // Validate: can't be negative
+          if (newPOPaymentAmount < 0) {
+            await session.abortTransaction();
+            return res.status(400).json({
+              success: false,
+              message: 'Payment amount cannot be negative'
+            });
+          }
+
+          // Calculate current paid amount (excluding this payment)
+          const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+          const otherPaymentsTotal = currentPaid - poPayment.amountPaid;
+          const maxAllowed = purchaseOrder.totalAmount - otherPaymentsTotal;
+          
+          if (newPOPaymentAmount > maxAllowed) {
+            await session.abortTransaction();
+            return res.status(400).json({
+              success: false,
+              message: `Payment amount ($${newPOPaymentAmount.toFixed(2)}) exceeds remaining balance ($${maxAllowed.toFixed(2)}) for PO ${purchaseOrder.purchaseOrderNumber}`
+            });
+          }
+
+          // Update purchase order amounts
+          const newTotalPaid = otherPaymentsTotal + newPOPaymentAmount;
+          purchaseOrder.paymentAmount = String(newTotalPaid);
+          
+          const newBalance = purchaseOrder.totalAmount - newTotalPaid;
+          if (newBalance <= 0) {
+            purchaseOrder.paymentStatus = 'paid';
+          } else if (newTotalPaid > 0) {
+            purchaseOrder.paymentStatus = 'partial';
+          } else {
+            purchaseOrder.paymentStatus = 'pending';
+          }
+          
+          await purchaseOrder.save({ session });
+
+          // Update payment record
+          payment.purchaseOrderPayments[0].amountPaid = newPOPaymentAmount;
+          payment.purchaseOrderPayments[0].remainingAfterPayment = newBalance;
+          payment.grossAmount = newAmount;
+          payment.netAmount = newAmount - payment.totalCreditsApplied;
+        }
+      }
+      // Handle Invoice Payments
+      else if (payment.invoicePayments.length === 1) {
         const invoicePayment = payment.invoicePayments[0];
         const invoice = await Invoice.findById(invoicePayment.invoiceId).session(session);
         

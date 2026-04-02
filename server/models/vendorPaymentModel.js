@@ -29,6 +29,21 @@ const InvoicePaymentSchema = new mongoose.Schema({
   remainingAfterPayment: Number
 }, { _id: true });
 
+const PurchaseOrderPaymentSchema = new mongoose.Schema({
+  purchaseOrderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'PurchaseOrder',
+    required: true
+  },
+  purchaseOrderNumber: String,
+  orderAmount: Number,
+  amountPaid: {
+    type: Number,
+    required: true
+  },
+  remainingAfterPayment: Number
+}, { _id: true });
+
 const VendorPaymentSchema = new mongoose.Schema({
   paymentNumber: { 
     type: String, 
@@ -42,6 +57,7 @@ const VendorPaymentSchema = new mongoose.Schema({
     index: true
   },
   invoicePayments: [InvoicePaymentSchema],
+  purchaseOrderPayments: [PurchaseOrderPaymentSchema],
   // Legacy field for backward compatibility
   invoiceIds: [{ 
     type: mongoose.Schema.Types.ObjectId, 

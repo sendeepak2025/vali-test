@@ -135,17 +135,27 @@ const getAllInvoices = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
+    console.log("📥 getAllInvoices called with params:", {
+      vendorId,
+      status,
+      search,
+      page,
+      limit
+    });
+
     // Pre-lookup match stage (for fields that exist before $lookup)
     const preLookupMatch = {};
     
     // Filter by vendor - must be done BEFORE $lookup transforms vendorId
     if (vendorId) {
       preLookupMatch.vendorId = new mongoose.Types.ObjectId(vendorId);
+      console.log("🔍 Filtering by vendorId:", vendorId);
     }
 
     // Filter by status
     if (status && status !== 'all') {
       preLookupMatch.status = status;
+      console.log("🔍 Filtering by status:", status);
     }
 
     // Filter by date range
@@ -256,6 +266,19 @@ const getAllInvoices = async (req, res) => {
     result[0].statusCounts.forEach(s => {
       statusCounts[s._id] = s.count;
     });
+
+    console.log("📊 Query results:", {
+      totalInvoices,
+      returnedInvoices: invoices.length,
+      vendorIdFilter: vendorId || 'none'
+    });
+    
+    if (invoices.length > 0) {
+      console.log("📋 Sample invoices:");
+      invoices.slice(0, 3).forEach((inv, idx) => {
+        console.log(`  ${idx + 1}. ${inv.invoiceNumber} - Status: ${inv.status}, Remaining: ${inv.remainingAmount}`);
+      });
+    }
 
     res.status(200).json({
       success: true,

@@ -264,7 +264,7 @@ const VendorManagementContent = () => {
   const [paymentCreateModalOpen, setPaymentCreateModalOpen] = useState(false)
   const [paymentForm, setPaymentForm] = useState({
     vendorId: "",
-    invoiceIds: [] as string[],
+    purchaseOrderId: "", // Changed from invoiceIds array to single purchaseOrderId
     amount: "",
     method: "check" as "check" | "ach" | "wire" | "cash" | "credit_card",
     checkNumber: "",
@@ -1462,7 +1462,7 @@ const VendorManagementContent = () => {
   const openPaymentCreateModal = () => {
     setPaymentForm({
       vendorId: "",
-      invoiceIds: [],
+      purchaseOrderId: "",
       amount: "",
       method: "check",
       checkNumber: "",
@@ -1483,32 +1483,17 @@ const VendorManagementContent = () => {
       toast({ variant: "destructive", title: "Error", description: "Please enter a valid amount" })
       return
     }
-    if (paymentForm.invoiceIds.length === 0) {
-      toast({ variant: "destructive", title: "Error", description: "Please select at least one invoice" })
+    if (!paymentForm.purchaseOrderId) {
+      toast({ variant: "destructive", title: "Error", description: "Please select a purchase order" })
       return
     }
     
     setPaymentCreateLoading(true)
     try {
-      // Transform invoiceIds to invoicePayments format expected by backend
-      const totalAmount = parseFloat(paymentForm.amount)
-      const selectedInvoices = invoices.filter(inv => paymentForm.invoiceIds.includes(inv._id))
-      
-      // Distribute payment amount across selected invoices
-      let remainingAmount = totalAmount
-      const invoicePayments = selectedInvoices.map(inv => {
-        const invoiceRemaining = inv.remainingAmount || inv.totalAmount - (inv.paidAmount || 0)
-        const amountToPay = Math.min(remainingAmount, invoiceRemaining)
-        remainingAmount -= amountToPay
-        return {
-          invoiceId: inv._id,
-          amountPaid: amountToPay
-        }
-      }).filter(ip => ip.amountPaid > 0)
-      
       const paymentData = {
         vendorId: paymentForm.vendorId,
-        invoicePayments,
+        purchaseOrderId: paymentForm.purchaseOrderId,
+        amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
         checkNumber: paymentForm.checkNumber,
         paymentDate: new Date().toISOString(),
@@ -1521,7 +1506,7 @@ const VendorManagementContent = () => {
         setPaymentCreateModalOpen(false)
         setPaymentForm({
           vendorId: "",
-          invoiceIds: [],
+          purchaseOrderId: "",
           amount: "",
           method: "check",
           checkNumber: "",
@@ -1530,12 +1515,14 @@ const VendorManagementContent = () => {
           notes: ""
         })
         fetchPayments()
-        fetchInvoices()
+        fetchPurchaseOrders()
         fetchCreditMemos()
         fetchDashboard()
+        toast({ title: "Success", description: "Payment recorded successfully" })
       }
     } catch (error) {
       console.error("Error creating payment:", error)
+      toast({ variant: "destructive", title: "Error", description: error?.response?.data?.message || "Failed to record payment" })
     } finally {
       setPaymentCreateLoading(false)
     }
@@ -1695,13 +1682,78 @@ const VendorManagementContent = () => {
     return matchesSearch
   })
 
-  // Get available invoices for payment (unpaid/partially paid for selected vendor)
-  const getAvailableInvoicesForPayment = () => {
-    return invoices.filter(inv => 
-      (paymentForm.vendorId ? inv.vendorId?._id === paymentForm.vendorId : true) &&
-      (inv.status === 'approved' || inv.status === 'partially_paid') &&
-      (inv.remainingAmount > 0 || inv.totalAmount > (inv.paidAmount || 0))
-    )
+  // State for vendor-specific unpaid purchase orders
+  const [vendorUnpaidOrders, setVendorUnpaidOrders] = useState<any[]>([])
+  const [loadingVendorOrders, setLoadingVendorOrders] = useState(false)
+
+  // Fetch unpaid purchase orders for a specific vendor (for payment modal)
+  const fetchVendorUnpaidOrders = async (vendorId: string) => {
+      if (!vendorId) {
+        console.log("No vendorId provided")
+        setVendorUnpaidOrders([])
+        return
+      }
+
+      console.log("Fetching unpaid purchase orders for vendor:", vendorId)
+      setLoadingVendorOrders(true)
+      try {
+        console.log("Fetching vendor details with orders for vendorId:", vendorId)
+        const vendorData = await vendorWithOrderDetails(vendorId)
+        console.log("Vendor data response:", vendorData)
+
+        const orders = vendorData?.purchaseOrders || []
+        console.log("Total orders received:", orders.length)
+
+        // Log all orders with their details
+        if (orders.length > 0) {
+          console.log("All orders from API:")
+          orders.forEach((order: any, idx: number) => {
+            console.log(`  ${idx + 1}. Order: ${order.purchaseOrderNumber}`)
+            console.log(`     Status: ${order.status}`)
+            console.log(`     Payment Status: ${order.paymentStatus}`)
+            console.log(`     Total: ${order.totalAmount}`)
+            console.log(`     Paid: ${order.totalPay || 0}`)
+            console.log(`     Balance: ${order.balanceDue || (order.totalAmount - (order.totalPay || 0))}`)
+          })
+        }
+
+        // Filter for unpaid/partially paid orders
+        const unpaidOrders = orders.filter((order: any) => {
+          const balanceDue = order.balanceDue || (order.totalAmount - (order.totalPay || 0))
+          const hasBalance = balanceDue > 0
+          const isNotCancelled = order.status?.toLowerCase() !== 'cancelled'
+
+          console.log(`Checking order ${order.purchaseOrderNumber}:`)
+          console.log(`   Balance due: ${balanceDue}`)
+          console.log(`   Has balance: ${hasBalance}`)
+          console.log(`   Not cancelled: ${isNotCancelled}`)
+          console.log(`   Include: ${hasBalance && isNotCancelled}`)
+
+          return hasBalance && isNotCancelled
+        })
+
+        console.log("Filtered unpaid orders:", unpaidOrders.length)
+        console.log("Unpaid orders:", unpaidOrders.map((order: any) => ({
+          number: order.purchaseOrderNumber,
+          status: order.status,
+          balance: order.balanceDue || (order.totalAmount - (order.totalPay || 0))
+        })))
+
+        setVendorUnpaidOrders(unpaidOrders)
+      } catch (error) {
+        console.error("Error fetching vendor unpaid orders:", error)
+        setVendorUnpaidOrders([])
+      } finally {
+        setLoadingVendorOrders(false)
+      }
+    }
+
+  // Get available orders for payment (unpaid/partially paid for selected vendor)
+  const getAvailableOrdersForPayment = () => {
+    console.log("📋 getAvailableOrdersForPayment called")
+    console.log("   vendorUnpaidOrders length:", vendorUnpaidOrders.length)
+    console.log("   vendorUnpaidOrders:", vendorUnpaidOrders)
+    return vendorUnpaidOrders
   }
 
   // Get available credits for payment (approved/partially applied for selected vendor)
@@ -2888,24 +2940,7 @@ const VendorManagementContent = () => {
                                 <Edit className="h-4 w-4 mr-2" />
                                 Edit Invoice
                               </DropdownMenuItem>
-                              {invoice.status !== 'paid' && invoice.remainingAmount > 0 && (
-                                <DropdownMenuItem onClick={() => {
-                                  setPaymentForm({
-                                    vendorId: invoice.vendorId?._id || invoice.vendorId,
-                                    invoiceIds: [invoice._id],
-                                    amount: String(invoice.remainingAmount || invoice.totalAmount || 0),
-                                    method: "check",
-                                    checkNumber: "",
-                                    referenceNumber: "",
-                                    appliedCredits: [],
-                                    notes: `Payment for invoice ${invoice.invoiceNumber}`
-                                  })
-                                  setPaymentCreateModalOpen(true)
-                                }}>
-                                  <DollarSign className="h-4 w-4 mr-2" />
-                                  Record Payment
-                                </DropdownMenuItem>
-                              )}
+                              {/* Payment for invoices removed - use purchase orders instead */}
                               <DropdownMenuItem onClick={() => openMatchingModal(invoice)}>
                                 <FileCheck className="h-4 w-4 mr-2" />
                                 Three-Way Match
@@ -5364,25 +5399,7 @@ const VendorManagementContent = () => {
             <Button variant="outline" onClick={() => setPaymentHistoryModalOpen(false)}>
               Close
             </Button>
-            {selectedInvoiceForHistory && selectedInvoiceForHistory.status !== 'paid' && selectedInvoiceForHistory.remainingAmount > 0 && (
-              <Button onClick={() => {
-                setPaymentHistoryModalOpen(false)
-                setPaymentForm({
-                  vendorId: selectedInvoiceForHistory.vendorId?._id || selectedInvoiceForHistory.vendorId,
-                  invoiceIds: [selectedInvoiceForHistory._id],
-                  amount: String(selectedInvoiceForHistory.remainingAmount || 0),
-                  method: "check",
-                  checkNumber: "",
-                  referenceNumber: "",
-                  appliedCredits: [],
-                  notes: `Payment for invoice ${selectedInvoiceForHistory.invoiceNumber}`
-                })
-                setPaymentCreateModalOpen(true)
-              }}>
-                <DollarSign className="h-4 w-4 mr-2" />
-                Record Payment
-              </Button>
-            )}
+            {/* Payment button removed - use purchase orders tab for payments */}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -5677,7 +5694,13 @@ const VendorManagementContent = () => {
       </Dialog>
 
       {/* Payment Create Modal */}
-      <Dialog open={paymentCreateModalOpen} onOpenChange={setPaymentCreateModalOpen}>
+      <Dialog open={paymentCreateModalOpen} onOpenChange={(open) => {
+        setPaymentCreateModalOpen(open)
+        if (!open) {
+          // Clear vendor unpaid orders when modal closes
+          setVendorUnpaidOrders([])
+        }
+      }}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -5694,12 +5717,19 @@ const VendorManagementContent = () => {
                 <Label>Vendor *</Label>
                 <VendorSelect
                   value={paymentForm.vendorId}
-                  onValueChange={(value) => setPaymentForm(prev => ({ 
-                    ...prev, 
-                    vendorId: value,
-                    invoiceIds: [],
-                    appliedCredits: []
-                  }))}
+                  onValueChange={(value) => {
+                    console.log("🎯 Vendor selected:", value)
+                    setPaymentForm(prev => ({ 
+                      ...prev, 
+                      vendorId: value,
+                      purchaseOrderId: "",
+                      appliedCredits: []
+                    }))
+                    console.log("📝 Payment form updated with vendorId:", value)
+                    // Fetch unpaid purchase orders for the selected vendor
+                    console.log("🚀 Calling fetchVendorUnpaidOrders with:", value)
+                    fetchVendorUnpaidOrders(value)
+                  }}
                   placeholder="Select vendor"
                   className="w-full"
                 />
@@ -5758,57 +5788,59 @@ const VendorManagementContent = () => {
               )}
             </div>
 
-            {/* Select Invoices to Pay */}
+            {/* Select Purchase Order to Pay */}
             {paymentForm.vendorId && (
               <div className="space-y-2">
-                <Label>Apply to Invoices</Label>
-                <div className="border rounded-lg max-h-40 overflow-y-auto">
-                  {getAvailableInvoicesForPayment().length === 0 ? (
-                    <p className="p-3 text-sm text-muted-foreground">No unpaid invoices for this vendor</p>
-                  ) : (
-                    getAvailableInvoicesForPayment().map((inv) => (
-                      <div 
-                        key={inv._id} 
-                        className={`flex items-center justify-between p-3 border-b last:border-b-0 cursor-pointer hover:bg-muted/50 ${
-                          paymentForm.invoiceIds.includes(inv._id) ? 'bg-blue-50' : ''
-                        }`}
-                        onClick={() => {
-                          setPaymentForm(prev => ({
-                            ...prev,
-                            invoiceIds: prev.invoiceIds.includes(inv._id)
-                              ? prev.invoiceIds.filter(id => id !== inv._id)
-                              : [...prev.invoiceIds, inv._id]
-                          }))
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="checkbox" 
-                            checked={paymentForm.invoiceIds.includes(inv._id)}
-                            onChange={() => {}}
-                            className="rounded"
-                          />
-                          <div>
-                            <span className="font-medium">{inv.invoiceNumber}</span>
-                            <span className="text-xs text-muted-foreground ml-2">
-                              Due: {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-bold">{formatCurrency(inv.totalAmount || 0)}</div>
-                          <div className="text-xs text-orange-600">
-                            Due: {formatCurrency(inv.remainingAmount || inv.totalAmount || 0)}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-                {paymentForm.invoiceIds.length > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    {paymentForm.invoiceIds.length} invoice(s) selected
-                  </p>
+                <Label>Select Purchase Order *</Label>
+                {loadingVendorOrders ? (
+                  <div className="flex items-center gap-2 p-3 border rounded-lg">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Loading orders...</span>
+                  </div>
+                ) : getAvailableOrdersForPayment().length === 0 ? (
+                  <div className="p-3 border rounded-lg">
+                    <p className="text-sm text-muted-foreground">No unpaid orders for this vendor</p>
+                  </div>
+                ) : (
+                  <Select
+                    value={paymentForm.purchaseOrderId}
+                    onValueChange={(value) => {
+                      const selectedOrder = getAvailableOrdersForPayment().find(o => o._id === value)
+                      const balanceDue = selectedOrder ? (selectedOrder.balanceDue || (selectedOrder.totalAmount - (selectedOrder.totalPay || 0))) : 0
+                      setPaymentForm(prev => ({
+                        ...prev,
+                        purchaseOrderId: value,
+                        amount: balanceDue.toString()
+                      }))
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a purchase order" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getAvailableOrdersForPayment().map((order) => {
+                        const balanceDue = order.balanceDue || (order.totalAmount - (order.totalPay || 0))
+                        return (
+                          <SelectItem key={order._id} value={order._id}>
+                            <div className="flex items-center justify-between w-full">
+                              <div>
+                                <span className="font-medium">{order.purchaseOrderNumber}</span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                                </span>
+                              </div>
+                              <div className="ml-4 text-right">
+                                <div className="font-bold">{formatCurrency(order.totalAmount || 0)}</div>
+                                <div className="text-xs text-orange-600">
+                                  Due: {formatCurrency(balanceDue)}
+                                </div>
+                              </div>
+                            </div>
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
             )}
@@ -6209,6 +6241,43 @@ const VendorManagementContent = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Purchase Orders Paid */}
+              {selectedPaymentDetails.purchaseOrderPayments && selectedPaymentDetails.purchaseOrderPayments.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Purchase Orders Paid ({selectedPaymentDetails.purchaseOrderPayments.length})</h4>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>PO #</TableHead>
+                          <TableHead className="text-right">Order Total</TableHead>
+                          <TableHead className="text-right">Amount Paid</TableHead>
+                          <TableHead className="text-right">Remaining</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPaymentDetails.purchaseOrderPayments.map((pop: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">
+                              {pop.purchaseOrderNumber || "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(pop.orderAmount || 0)}
+                            </TableCell>
+                            <TableCell className="text-right text-green-600 font-medium">
+                              {formatCurrency(pop.amountPaid || 0)}
+                            </TableCell>
+                            <TableCell className="text-right text-orange-600">
+                              {formatCurrency(pop.remainingAfterPayment || 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
 
               {/* Invoices Paid */}
               {selectedPaymentDetails.invoicePayments && selectedPaymentDetails.invoicePayments.length > 0 && (
