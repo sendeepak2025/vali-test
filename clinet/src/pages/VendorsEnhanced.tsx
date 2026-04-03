@@ -264,8 +264,7 @@ const VendorManagementContent = () => {
   const [paymentCreateModalOpen, setPaymentCreateModalOpen] = useState(false)
   const [paymentForm, setPaymentForm] = useState({
     vendorId: "",
-    purchaseOrderId: "", // Changed from invoiceIds array to single purchaseOrderId
-    amount: "",
+    purchaseOrderPayments: [] as { purchaseOrderId: string; amountPaid: number }[], // Multiple POs with amounts
     method: "check" as "check" | "ach" | "wire" | "cash" | "credit_card",
     checkNumber: "",
     referenceNumber: "",
@@ -283,7 +282,7 @@ const VendorManagementContent = () => {
     transactionId: "",
     bankReference: "",
     notes: "",
-    newAmount: ""
+    purchaseOrderPayments: [] as { purchaseOrderId: string; purchaseOrderNumber: string; orderAmount: number; amountPaid: number; remainingAfterPayment: number }[]
   })
   const [paymentEditLoading, setPaymentEditLoading] = useState(false)
 
@@ -1462,8 +1461,7 @@ const VendorManagementContent = () => {
   const openPaymentCreateModal = () => {
     setPaymentForm({
       vendorId: "",
-      purchaseOrderId: "",
-      amount: "",
+      purchaseOrderPayments: [],
       method: "check",
       checkNumber: "",
       referenceNumber: "",
@@ -1479,12 +1477,15 @@ const VendorManagementContent = () => {
       toast({ variant: "destructive", title: "Error", description: "Please select a vendor" })
       return
     }
-    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
-      toast({ variant: "destructive", title: "Error", description: "Please enter a valid amount" })
+    if (paymentForm.purchaseOrderPayments.length === 0) {
+      toast({ variant: "destructive", title: "Error", description: "Please select at least one purchase order" })
       return
     }
-    if (!paymentForm.purchaseOrderId) {
-      toast({ variant: "destructive", title: "Error", description: "Please select a purchase order" })
+    
+    // Validate all amounts are greater than 0
+    const invalidPayments = paymentForm.purchaseOrderPayments.filter(pop => pop.amountPaid <= 0)
+    if (invalidPayments.length > 0) {
+      toast({ variant: "destructive", title: "Error", description: "All payment amounts must be greater than 0" })
       return
     }
     
@@ -1492,8 +1493,7 @@ const VendorManagementContent = () => {
     try {
       const paymentData = {
         vendorId: paymentForm.vendorId,
-        purchaseOrderId: paymentForm.purchaseOrderId,
-        amount: parseFloat(paymentForm.amount),
+        purchaseOrderPayments: paymentForm.purchaseOrderPayments,
         method: paymentForm.method,
         checkNumber: paymentForm.checkNumber,
         paymentDate: new Date().toISOString(),
@@ -1506,8 +1506,7 @@ const VendorManagementContent = () => {
         setPaymentCreateModalOpen(false)
         setPaymentForm({
           vendorId: "",
-          purchaseOrderId: "",
-          amount: "",
+          purchaseOrderPayments: [],
           method: "check",
           checkNumber: "",
           referenceNumber: "",
@@ -1597,14 +1596,26 @@ const VendorManagementContent = () => {
       transactionId: payment.transactionId || "",
       bankReference: payment.bankReference || "",
       notes: payment.notes || "",
-      newAmount: String(payment.grossAmount || payment.netAmount || 0)
+      purchaseOrderPayments: payment.purchaseOrderPayments || []
     })
+    // Fetch unpaid purchase orders for the vendor
+    if (payment.vendorId?._id) {
+      fetchVendorUnpaidOrders(payment.vendorId._id)
+    }
     setPaymentEditModalOpen(true)
   }
 
   // Handle update payment
   const handleUpdatePayment = async () => {
     if (!selectedPaymentForEdit) return
+    
+    // Validate amounts
+    const invalidPayments = paymentEditForm.purchaseOrderPayments.filter(pop => pop.amountPaid <= 0)
+    if (invalidPayments.length > 0) {
+      toast({ variant: "destructive", title: "Error", description: "All payment amounts must be greater than 0" })
+      return
+    }
+    
     setPaymentEditLoading(true)
     try {
       const updateData: any = {
@@ -1612,14 +1623,8 @@ const VendorManagementContent = () => {
         checkNumber: paymentEditForm.checkNumber,
         transactionId: paymentEditForm.transactionId,
         bankReference: paymentEditForm.bankReference,
-        notes: paymentEditForm.notes
-      }
-      
-      // Include amount if changed
-      const originalAmount = selectedPaymentForEdit.grossAmount || selectedPaymentForEdit.netAmount || 0
-      const newAmount = parseFloat(paymentEditForm.newAmount) || 0
-      if (newAmount !== originalAmount && newAmount > 0) {
-        updateData.newAmount = newAmount
+        notes: paymentEditForm.notes,
+        purchaseOrderPayments: paymentEditForm.purchaseOrderPayments
       }
       
       const result = await updateVendorPaymentAPI(selectedPaymentForEdit._id, updateData, token)
@@ -1627,12 +1632,13 @@ const VendorManagementContent = () => {
         setPaymentEditModalOpen(false)
         setSelectedPaymentForEdit(null)
         fetchPayments()
-        fetchInvoices() // Refresh invoices as amounts may have changed
+        fetchPurchaseOrders()
         fetchDashboard()
         toast({ title: "Success", description: "Payment updated successfully" })
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating payment:", error)
+      toast({ variant: "destructive", title: "Error", description: error?.response?.data?.message || "Failed to update payment" })
     } finally {
       setPaymentEditLoading(false)
     }
@@ -5722,7 +5728,7 @@ const VendorManagementContent = () => {
                     setPaymentForm(prev => ({ 
                       ...prev, 
                       vendorId: value,
-                      purchaseOrderId: "",
+                      purchaseOrderPayments: [],
                       appliedCredits: []
                     }))
                     console.log("📝 Payment form updated with vendorId:", value)
@@ -5754,93 +5760,129 @@ const VendorManagementContent = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {paymentForm.method === 'check' && (
               <div className="space-y-2">
-                <Label>Amount *</Label>
+                <Label>Check Number</Label>
                 <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={paymentForm.amount}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
-                  placeholder="Enter amount"
+                  value={paymentForm.checkNumber}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, checkNumber: e.target.value }))}
+                  placeholder="Enter check number"
                 />
               </div>
-              {paymentForm.method === 'check' && (
-                <div className="space-y-2">
-                  <Label>Check Number</Label>
-                  <Input
-                    value={paymentForm.checkNumber}
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, checkNumber: e.target.value }))}
-                    placeholder="Enter check number"
-                  />
-                </div>
-              )}
-              {paymentForm.method !== 'check' && paymentForm.method !== 'cash' && (
-                <div className="space-y-2">
-                  <Label>Reference Number</Label>
-                  <Input
-                    value={paymentForm.referenceNumber}
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, referenceNumber: e.target.value }))}
-                    placeholder="Enter reference number"
-                  />
-                </div>
-              )}
-            </div>
+            )}
+            {paymentForm.method !== 'check' && paymentForm.method !== 'cash' && (
+              <div className="space-y-2">
+                <Label>Reference Number</Label>
+                <Input
+                  value={paymentForm.referenceNumber}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, referenceNumber: e.target.value }))}
+                  placeholder="Enter reference number"
+                />
+              </div>
+            )}
 
-            {/* Select Purchase Order to Pay */}
+            {/* Select Purchase Orders to Pay */}
             {paymentForm.vendorId && (
               <div className="space-y-2">
-                <Label>Select Purchase Order *</Label>
-                {loadingVendorOrders ? (
-                  <div className="flex items-center gap-2 p-3 border rounded-lg">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Loading orders...</span>
-                  </div>
-                ) : getAvailableOrdersForPayment().length === 0 ? (
-                  <div className="p-3 border rounded-lg">
-                    <p className="text-sm text-muted-foreground">No unpaid orders for this vendor</p>
-                  </div>
-                ) : (
-                  <Select
-                    value={paymentForm.purchaseOrderId}
-                    onValueChange={(value) => {
-                      const selectedOrder = getAvailableOrdersForPayment().find(o => o._id === value)
-                      const balanceDue = selectedOrder ? (selectedOrder.balanceDue || (selectedOrder.totalAmount - (selectedOrder.totalPay || 0))) : 0
-                      setPaymentForm(prev => ({
-                        ...prev,
-                        purchaseOrderId: value,
-                        amount: balanceDue.toString()
-                      }))
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a purchase order" />
-                    </SelectTrigger>
-                    <SelectContent>
+                <Label>Select Purchase Orders to Pay</Label>
+                <div className="border rounded-lg max-h-80 overflow-y-auto">
+                  {loadingVendorOrders ? (
+                    <div className="flex items-center gap-2 p-3">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span className="text-sm text-muted-foreground">Loading orders...</span>
+                    </div>
+                  ) : getAvailableOrdersForPayment().length === 0 ? (
+                    <div className="p-3">
+                      <p className="text-sm text-muted-foreground">No unpaid orders for this vendor</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y">
                       {getAvailableOrdersForPayment().map((order) => {
                         const balanceDue = order.balanceDue || (order.totalAmount - (order.totalPay || 0))
+                        const existingPayment = paymentForm.purchaseOrderPayments.find(p => p.purchaseOrderId === order._id)
+                        const isSelected = !!existingPayment
+                        
                         return (
-                          <SelectItem key={order._id} value={order._id}>
-                            <div className="flex items-center justify-between w-full">
-                              <div>
-                                <span className="font-medium">{order.purchaseOrderNumber}</span>
-                                <span className="text-xs text-muted-foreground ml-2">
-                                  {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
-                                </span>
-                              </div>
-                              <div className="ml-4 text-right">
-                                <div className="font-bold">{formatCurrency(order.totalAmount || 0)}</div>
-                                <div className="text-xs text-orange-600">
-                                  Due: {formatCurrency(balanceDue)}
+                          <div 
+                            key={order._id} 
+                            className={`p-3 ${isSelected ? 'bg-blue-50' : 'hover:bg-muted/50'}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setPaymentForm(prev => ({
+                                      ...prev,
+                                      purchaseOrderPayments: [
+                                        ...prev.purchaseOrderPayments,
+                                        { purchaseOrderId: order._id, amountPaid: balanceDue }
+                                      ]
+                                    }))
+                                  } else {
+                                    setPaymentForm(prev => ({
+                                      ...prev,
+                                      purchaseOrderPayments: prev.purchaseOrderPayments.filter(p => p.purchaseOrderId !== order._id)
+                                    }))
+                                  }
+                                }}
+                                className="mt-1 rounded"
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div>
+                                    <span className="font-medium">{order.purchaseOrderNumber}</span>
+                                    <span className="text-xs text-muted-foreground ml-2">
+                                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                                    </span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-bold">{formatCurrency(order.totalAmount || 0)}</div>
+                                    <div className="text-xs text-orange-600">
+                                      Due: {formatCurrency(balanceDue)}
+                                    </div>
+                                  </div>
                                 </div>
+                                {isSelected && (
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs">Pay Amount:</Label>
+                                    <Input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      max={balanceDue}
+                                      value={existingPayment?.amountPaid || 0}
+                                      onChange={(e) => {
+                                        const newAmount = parseFloat(e.target.value) || 0
+                                        setPaymentForm(prev => ({
+                                          ...prev,
+                                          purchaseOrderPayments: prev.purchaseOrderPayments.map(p =>
+                                            p.purchaseOrderId === order._id
+                                              ? { ...p, amountPaid: newAmount }
+                                              : p
+                                          )
+                                        }))
+                                      }}
+                                      className="h-8 w-32"
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                      of {formatCurrency(balanceDue)}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          </SelectItem>
+                          </div>
                         )
                       })}
-                    </SelectContent>
-                  </Select>
+                    </div>
+                  )}
+                </div>
+                {paymentForm.purchaseOrderPayments.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {paymentForm.purchaseOrderPayments.length} order(s) selected
+                  </p>
                 )}
               </div>
             )}
@@ -5900,12 +5942,12 @@ const VendorManagementContent = () => {
             </div>
 
             {/* Payment Summary */}
-            {paymentForm.amount && (
+            {paymentForm.purchaseOrderPayments.length > 0 && (
               <div className="p-4 bg-muted/50 rounded-lg space-y-2">
                 <p className="text-sm font-medium">Payment Summary</p>
                 <div className="flex justify-between text-sm">
                   <span>Payment Amount:</span>
-                  <span className="font-medium">{formatCurrency(parseFloat(paymentForm.amount) || 0)}</span>
+                  <span className="font-medium">{formatCurrency(paymentForm.purchaseOrderPayments.reduce((sum, p) => sum + p.amountPaid, 0))}</span>
                 </div>
                 {paymentForm.appliedCredits.length > 0 && (
                   <div className="flex justify-between text-sm text-green-600">
@@ -5916,7 +5958,7 @@ const VendorManagementContent = () => {
                 <div className="flex justify-between text-sm font-bold border-t pt-2">
                   <span>Net Payment:</span>
                   <span>{formatCurrency(
-                    (parseFloat(paymentForm.amount) || 0) - 
+                    paymentForm.purchaseOrderPayments.reduce((sum, p) => sum + p.amountPaid, 0) - 
                     paymentForm.appliedCredits.reduce((sum, c) => sum + c.amount, 0)
                   )}</span>
                 </div>
@@ -6044,8 +6086,14 @@ const VendorManagementContent = () => {
       </Dialog>
 
       {/* Edit Payment Modal */}
-      <Dialog open={paymentEditModalOpen} onOpenChange={setPaymentEditModalOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={paymentEditModalOpen} onOpenChange={(open) => {
+        setPaymentEditModalOpen(open)
+        if (!open) {
+          // Clear vendor unpaid orders when modal closes
+          setVendorUnpaidOrders([])
+        }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit className="h-5 w-5" />
@@ -6067,21 +6115,6 @@ const VendorManagementContent = () => {
                     <span className="text-muted-foreground">Original Amount:</span>
                     <span className="font-medium">{formatCurrency(selectedPaymentForEdit.grossAmount || 0)}</span>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Amount</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={paymentEditForm.newAmount}
-                    onChange={(e) => setPaymentEditForm(prev => ({ ...prev, newAmount: e.target.value }))}
-                    placeholder="Enter amount"
-                  />
-                  {selectedPaymentForEdit.method === 'check' && selectedPaymentForEdit.checkClearanceStatus === 'cleared' && (
-                    <p className="text-xs text-muted-foreground">Amount cannot be changed for cleared checks</p>
-                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -6135,6 +6168,120 @@ const VendorManagementContent = () => {
                   </>
                 )}
 
+                {/* Select Purchase Orders to Pay */}
+                <div className="space-y-2">
+                  <Label>Select Purchase Orders to Pay</Label>
+                  <div className="border rounded-lg max-h-80 overflow-y-auto">
+                    {loadingVendorOrders ? (
+                      <div className="flex items-center gap-2 p-3">
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <span className="text-sm text-muted-foreground">Loading orders...</span>
+                      </div>
+                    ) : getAvailableOrdersForPayment().length === 0 ? (
+                      <div className="p-3">
+                        <p className="text-sm text-muted-foreground">No unpaid orders for this vendor</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y">
+                        {getAvailableOrdersForPayment().map((order) => {
+                          const balanceDue = order.balanceDue || (order.totalAmount - (order.totalPay || 0))
+                          const existingPayment = paymentEditForm.purchaseOrderPayments.find(p => p.purchaseOrderId === order._id)
+                          const isSelected = !!existingPayment
+                          
+                          return (
+                            <div 
+                              key={order._id} 
+                              className={`p-3 ${isSelected ? 'bg-blue-50' : 'hover:bg-muted/50'}`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setPaymentEditForm(prev => ({
+                                        ...prev,
+                                        purchaseOrderPayments: [
+                                          ...prev.purchaseOrderPayments,
+                                          { 
+                                            purchaseOrderId: order._id, 
+                                            purchaseOrderNumber: order.purchaseOrderNumber,
+                                            orderAmount: order.totalAmount,
+                                            amountPaid: balanceDue,
+                                            remainingAfterPayment: 0
+                                          }
+                                        ]
+                                      }))
+                                    } else {
+                                      setPaymentEditForm(prev => ({
+                                        ...prev,
+                                        purchaseOrderPayments: prev.purchaseOrderPayments.filter(p => p.purchaseOrderId !== order._id)
+                                      }))
+                                    }
+                                  }}
+                                  className="mt-1 rounded"
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div>
+                                      <span className="font-medium">{order.purchaseOrderNumber}</span>
+                                      <span className="text-xs text-muted-foreground ml-2">
+                                        {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                                      </span>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="font-bold">{formatCurrency(order.totalAmount || 0)}</div>
+                                      <div className="text-xs text-orange-600">
+                                        Due: {formatCurrency(balanceDue)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {isSelected && (
+                                    <div className="flex items-center gap-2">
+                                      <Label className="text-xs">Pay Amount:</Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        max={balanceDue}
+                                        value={existingPayment?.amountPaid || 0}
+                                        onChange={(e) => {
+                                          const newAmount = parseFloat(e.target.value) || 0
+                                          setPaymentEditForm(prev => ({
+                                            ...prev,
+                                            purchaseOrderPayments: prev.purchaseOrderPayments.map(p =>
+                                              p.purchaseOrderId === order._id
+                                                ? { 
+                                                    ...p, 
+                                                    amountPaid: newAmount,
+                                                    remainingAfterPayment: balanceDue - newAmount
+                                                  }
+                                                : p
+                                            )
+                                          }))
+                                        }}
+                                        className="h-8 w-32"
+                                      />
+                                      <span className="text-xs text-muted-foreground">
+                                        of {formatCurrency(balanceDue)}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {paymentEditForm.purchaseOrderPayments.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      {paymentEditForm.purchaseOrderPayments.length} order(s) selected
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <Label>Notes</Label>
                   <Textarea
@@ -6144,6 +6291,21 @@ const VendorManagementContent = () => {
                     rows={2}
                   />
                 </div>
+
+                {/* Payment Summary */}
+                {paymentEditForm.purchaseOrderPayments.length > 0 && (
+                  <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                    <p className="text-sm font-medium">Payment Summary</p>
+                    <div className="flex justify-between text-sm">
+                      <span>Payment Amount:</span>
+                      <span className="font-medium">{formatCurrency(paymentEditForm.purchaseOrderPayments.reduce((sum, p) => sum + p.amountPaid, 0))}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold border-t pt-2">
+                      <span>Total Payment:</span>
+                      <span>{formatCurrency(paymentEditForm.purchaseOrderPayments.reduce((sum, p) => sum + p.amountPaid, 0))}</span>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>

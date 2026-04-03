@@ -44,8 +44,7 @@ const createVendorPayment = async (req, res) => {
   try {
     const {
       vendorId,
-      purchaseOrderId,
-      amount,
+      purchaseOrderPayments, // Array of { purchaseOrderId, amountPaid }
       method,
       checkNumber,
       transactionId,
@@ -64,54 +63,66 @@ const createVendorPayment = async (req, res) => {
       });
     }
 
-    if (!purchaseOrderId) {
+    if (!purchaseOrderPayments || purchaseOrderPayments.length === 0) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: 'Purchase order is required'
+        message: 'At least one purchase order payment is required'
       });
     }
 
-    if (!amount || amount <= 0) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: 'Valid payment amount is required'
-      });
-    }
-
-    // Find the purchase order
-    const purchaseOrder = await PurchaseOrder.findOne({
-      _id: purchaseOrderId,
+    // Validate all purchase orders belong to vendor
+    const poIds = purchaseOrderPayments.map(pop => pop.purchaseOrderId);
+    const purchaseOrders = await PurchaseOrder.find({
+      _id: { $in: poIds },
       vendorId: vendorId
     }).session(session);
 
-    if (!purchaseOrder) {
+    if (purchaseOrders.length !== poIds.length) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: 'Purchase order not found or does not belong to this vendor'
+        message: 'One or more purchase orders not found or do not belong to this vendor'
       });
     }
 
-    const balanceDue = purchaseOrder.totalAmount - (parseFloat(purchaseOrder.paymentAmount) || 0);
+    let grossAmount = 0;
+    const processedPurchaseOrderPayments = [];
 
-    if (amount > balanceDue) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: `Payment amount (${amount}) exceeds remaining balance (${balanceDue}) for PO ${purchaseOrder.purchaseOrderNumber}`
+    // Validate and process each purchase order payment
+    for (const pop of purchaseOrderPayments) {
+      const purchaseOrder = purchaseOrders.find(po => po._id.toString() === pop.purchaseOrderId);
+      
+      if (!purchaseOrder) continue;
+
+      const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+      const balanceDue = purchaseOrder.totalAmount - currentPaid;
+
+      if (pop.amountPaid <= 0) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: `Payment amount must be greater than 0 for PO ${purchaseOrder.purchaseOrderNumber}`
+        });
+      }
+
+      if (pop.amountPaid > balanceDue) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: `Payment amount ($${pop.amountPaid.toFixed(2)}) exceeds remaining balance ($${balanceDue.toFixed(2)}) for PO ${purchaseOrder.purchaseOrderNumber}`
+        });
+      }
+
+      grossAmount += pop.amountPaid;
+      processedPurchaseOrderPayments.push({
+        purchaseOrderId: purchaseOrder._id,
+        purchaseOrderNumber: purchaseOrder.purchaseOrderNumber,
+        orderAmount: purchaseOrder.totalAmount,
+        amountPaid: pop.amountPaid,
+        remainingAfterPayment: balanceDue - pop.amountPaid
       });
     }
-
-    let grossAmount = amount;
-    const processedPurchaseOrderPayments = [{
-      purchaseOrderId: purchaseOrder._id,
-      purchaseOrderNumber: purchaseOrder.purchaseOrderNumber,
-      orderAmount: purchaseOrder.totalAmount,
-      amountPaid: amount,
-      remainingAfterPayment: balanceDue - amount
-    }];
 
     let totalCreditsApplied = 0;
     const processedCredits = [];
@@ -185,18 +196,24 @@ const createVendorPayment = async (req, res) => {
 
     await payment.save({ session });
 
-    // Update the purchase order
-    const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
-    purchaseOrder.paymentAmount = String(currentPaid + amount);
-    
-    const newBalance = purchaseOrder.totalAmount - (currentPaid + amount);
-    if (newBalance <= 0) {
-      purchaseOrder.paymentStatus = 'paid';
-    } else if ((currentPaid + amount) > 0) {
-      purchaseOrder.paymentStatus = 'partial';
-    }
+    // Update all purchase orders
+    for (const pop of processedPurchaseOrderPayments) {
+      const purchaseOrder = purchaseOrders.find(po => po._id.toString() === pop.purchaseOrderId.toString());
+      if (!purchaseOrder) continue;
 
-    await purchaseOrder.save({ session });
+      const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+      const newPaid = currentPaid + pop.amountPaid;
+      purchaseOrder.paymentAmount = String(newPaid);
+      
+      const newBalance = purchaseOrder.totalAmount - newPaid;
+      if (newBalance <= 0) {
+        purchaseOrder.paymentStatus = 'paid';
+      } else if (newPaid > 0) {
+        purchaseOrder.paymentStatus = 'partial';
+      }
+
+      await purchaseOrder.save({ session });
+    }
 
     // Apply credit memos
     for (const credit of processedCredits) {
@@ -792,7 +809,7 @@ const updateVendorPayment = async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { method, checkNumber, transactionId, bankReference, notes, newAmount } = req.body;
+    const { method, checkNumber, transactionId, bankReference, notes, newAmount, purchaseOrderPayments } = req.body;
 
     const payment = await VendorPayment.findById(id).session(session);
     
@@ -813,7 +830,7 @@ const updateVendorPayment = async (req, res) => {
     }
 
     // If check is already cleared, don't allow amount changes
-    if (newAmount !== undefined && payment.method === 'check' && payment.checkClearanceStatus === 'cleared') {
+    if ((newAmount !== undefined || purchaseOrderPayments) && payment.method === 'check' && payment.checkClearanceStatus === 'cleared') {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
@@ -821,8 +838,99 @@ const updateVendorPayment = async (req, res) => {
       });
     }
 
-    // Handle amount change
-    if (newAmount !== undefined && newAmount !== payment.grossAmount) {
+    // Handle purchase order payments update (new approach)
+    if (purchaseOrderPayments && Array.isArray(purchaseOrderPayments)) {
+      // Validate all purchase order payments
+      for (const pop of purchaseOrderPayments) {
+        if (pop.amountPaid <= 0) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            message: 'All payment amounts must be greater than 0'
+          });
+        }
+      }
+
+      // First, reverse the old payments
+      if (payment.purchaseOrderPayments && payment.purchaseOrderPayments.length > 0) {
+        for (const oldPop of payment.purchaseOrderPayments) {
+          const purchaseOrder = await PurchaseOrder.findById(oldPop.purchaseOrderId).session(session);
+          if (purchaseOrder) {
+            const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+            const newPaid = currentPaid - oldPop.amountPaid;
+            purchaseOrder.paymentAmount = String(Math.max(0, newPaid));
+            
+            const newBalance = purchaseOrder.totalAmount - newPaid;
+            if (newPaid <= 0) {
+              purchaseOrder.paymentStatus = 'pending';
+            } else if (newBalance > 0) {
+              purchaseOrder.paymentStatus = 'partial';
+            } else {
+              purchaseOrder.paymentStatus = 'paid';
+            }
+            
+            await purchaseOrder.save({ session });
+          }
+        }
+      }
+
+      // Now apply the new payments
+      let newGrossAmount = 0;
+      const processedPurchaseOrderPayments = [];
+
+      for (const pop of purchaseOrderPayments) {
+        const purchaseOrder = await PurchaseOrder.findById(pop.purchaseOrderId).session(session);
+        
+        if (!purchaseOrder) {
+          await session.abortTransaction();
+          return res.status(404).json({
+            success: false,
+            message: `Purchase order ${pop.purchaseOrderId} not found`
+          });
+        }
+
+        const currentPaid = parseFloat(purchaseOrder.paymentAmount) || 0;
+        const balanceDue = purchaseOrder.totalAmount - currentPaid;
+
+        if (pop.amountPaid > balanceDue) {
+          await session.abortTransaction();
+          return res.status(400).json({
+            success: false,
+            message: `Payment amount (${pop.amountPaid.toFixed(2)}) exceeds remaining balance (${balanceDue.toFixed(2)}) for PO ${purchaseOrder.purchaseOrderNumber}`
+          });
+        }
+
+        newGrossAmount += pop.amountPaid;
+
+        // Update purchase order
+        const newPaid = currentPaid + pop.amountPaid;
+        purchaseOrder.paymentAmount = String(newPaid);
+        
+        const newBalance = purchaseOrder.totalAmount - newPaid;
+        if (newBalance <= 0) {
+          purchaseOrder.paymentStatus = 'paid';
+        } else if (newPaid > 0) {
+          purchaseOrder.paymentStatus = 'partial';
+        }
+
+        await purchaseOrder.save({ session });
+
+        processedPurchaseOrderPayments.push({
+          purchaseOrderId: purchaseOrder._id,
+          purchaseOrderNumber: purchaseOrder.purchaseOrderNumber,
+          orderAmount: purchaseOrder.totalAmount,
+          amountPaid: pop.amountPaid,
+          remainingAfterPayment: newBalance
+        });
+      }
+
+      // Update payment record
+      payment.purchaseOrderPayments = processedPurchaseOrderPayments;
+      payment.grossAmount = newGrossAmount;
+      payment.netAmount = newGrossAmount - payment.totalCreditsApplied;
+    }
+    // Handle amount change (old approach for backward compatibility)
+    else if (newAmount !== undefined && newAmount !== payment.grossAmount) {
       const amountDiff = newAmount - payment.grossAmount;
       
       // Handle Purchase Order Payments
