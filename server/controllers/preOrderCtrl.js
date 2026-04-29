@@ -377,12 +377,30 @@ const Product = require("../models/productModel");
 const confirmOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
-    const pre = await PreOrder.findById(id);
-    if (!pre) return res.status(404).json({ success: false, message: "PreOrder not found" });
+    // Atomic claim to avoid duplicate confirmation in parallel requests
+    const pre = await PreOrder.findOneAndUpdate(
+      {
+        _id: id,
+        confirmed: { $ne: true },
+        orderId: { $exists: false }
+      },
+      {
+        $set: { confirmed: true }
+      },
+      { new: true }
+    );
 
-    // --- Check if already confirmed ---
-    if (pre.confirmed) {
-      return res.status(400).json({ success: false, message: "PreOrder is already confirmed" });
+    if (!pre) {
+      const existing = await PreOrder.findById(id).select("confirmed orderId");
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "PreOrder not found" });
+      }
+      return res.status(400).json({
+        success: false,
+        message: existing.orderId || existing.confirmed
+          ? "PreOrder is already confirmed"
+          : "PreOrder confirmation is in progress, please retry"
+      });
     }
 
     // --- Deduplicate items by productId (merge quantities if same product) ---
@@ -603,6 +621,11 @@ const confirmOrderCtrl = async (req, res) => {
 
     // Check if order creation failed
     if (responseStatusCode !== 201 && responseStatusCode !== 200) {
+      // Rollback atomic claim if order creation failed
+      await PreOrder.findByIdAndUpdate(pre._id, {
+        $set: { confirmed: false, status: "pending" },
+        $unset: { orderId: 1 }
+      });
       return res.status(responseStatusCode).json({
         success: false,
         message: responseData?.message || "Order creation failed",
@@ -612,11 +635,15 @@ const confirmOrderCtrl = async (req, res) => {
     }
 
     if (!createdOrderData || !createdOrderData._id) {
+      // Rollback atomic claim if order payload is invalid
+      await PreOrder.findByIdAndUpdate(pre._id, {
+        $set: { confirmed: false, status: "pending" },
+        $unset: { orderId: 1 }
+      });
       return res.status(500).json({ success: false, message: "Order creation failed - no order data returned" });
     }
 
     // --- Update PreOrder ---
-    pre.confirmed = true;
     pre.status = "confirmed";
     pre.orderId = createdOrderData._id;
     await pre.save();
@@ -672,6 +699,13 @@ const confirmOrderCtrl = async (req, res) => {
     });
   } catch (error) {
     console.error("ConfirmOrder Error:", error);
+    if (req?.params?.id) {
+      // Best-effort rollback to avoid stuck "confirmed" flag on unexpected crash
+      await PreOrder.findByIdAndUpdate(req.params.id, {
+        $set: { confirmed: false, status: "pending" },
+        $unset: { orderId: 1 }
+      }).catch(() => {});
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 };
