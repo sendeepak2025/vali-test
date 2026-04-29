@@ -58,7 +58,7 @@ import {
   Edit3,
   Send,
 } from "lucide-react"
-import { searchProductsForOrderAPI, getProductByShortCodeAPI, getAllProductAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI, getProductByShortCodeAPI, getPreOrderCatalogAPI } from "@/services2/operations/product"
 import { getSinglePreOrderAPI, updatePreOrderAPI, confirmPreOrderAPI } from "@/services2/operations/preOrder"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { cn } from "@/lib/utils"
@@ -169,12 +169,12 @@ const UpdatePreOrder = () => {
   const [productSearch, setProductSearch] = useState("")
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [displayedProducts, setDisplayedProducts] = useState<ProductType[]>([])
-  const [productsPerPage] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
   const [categories, setCategories] = useState<string[]>([])
   const [hasMoreProducts, setHasMoreProducts] = useState(true)
   const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
   const [productSearchLoading, setProductSearchLoading] = useState(false)
+  const [productSkip, setProductSkip] = useState(0)
 
   // Address states
   const [billingAddress, setBillingAddress] = useState<AddressType>({
@@ -274,6 +274,23 @@ const UpdatePreOrder = () => {
     // Fallback: if no price list, return 0
     return 0
   }, [storePriceCategory, order])
+
+  const fetchCatalog = useCallback(async (opts?: { search?: string; category?: string; reset?: boolean; skipOverride?: number }) => {
+    const reset = opts?.reset ?? true
+    const skip = reset ? 0 : (opts?.skipOverride ?? productSkip)
+    const response = await getPreOrderCatalogAPI({
+      search: opts?.search ?? "",
+      category: opts?.category ?? "all",
+      limit: 20,
+      skip,
+    })
+
+    const incoming = response.products || []
+    setProducts((prev) => (reset ? incoming : [...prev, ...incoming]))
+    setDisplayedProducts((prev) => (reset ? incoming : [...prev, ...incoming]))
+    setHasMoreProducts(Boolean(response.hasMore))
+    setProductSkip(response.nextSkip || 0)
+  }, [productSkip])
 
   // Handle quick add input change - search from backend
   const handleQuickAddChange = useCallback((value: string) => {
@@ -404,25 +421,12 @@ const UpdatePreOrder = () => {
         const storeCategory = res?.store?.priceCategory || "aPrice"
         setStorePriceCategory(storeCategory as PriceCategory)
         
-        // Check if preorder has a price list linked
-        let formattedProducts: ProductType[] = []
-        
-        // Always fetch all products for display
-        const allProductsData = await getAllProductAPI()
-        formattedProducts = allProductsData.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          _id: p._id || p.id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both",
-          pricePerBox: p.pricePerBox || 0,
-          price: p.price || 0,
-          shippinCost: p.shippinCost || 0
-        }))
-        setHasMoreProducts(false) // All products loaded at once
-        
-        setProducts(formattedProducts)
-        setDisplayedProducts(formattedProducts)
+        // Initial product catalog page (optimized)
+        const catalog = await getPreOrderCatalogAPI({ search: "", category: "all", limit: 20, skip: 0 })
+        setProducts(catalog.products || [])
+        setDisplayedProducts(catalog.products || [])
+        setHasMoreProducts(Boolean(catalog.hasMore))
+        setProductSkip(catalog.nextSkip || 0)
 
         // Set categories from backend
         const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
@@ -485,141 +489,63 @@ const UpdatePreOrder = () => {
   const handleProductSearchChange = useCallback(async (value: string) => {
     setProductSearch(value)
     setCurrentPage(1)
+    setProductSkip(0)
     
     // Clear previous timeout
     if (productSearchTimeoutRef.current) {
       clearTimeout(productSearchTimeoutRef.current)
     }
     
-    // Filter from all products locally
     productSearchTimeoutRef.current = setTimeout(async () => {
       setProductSearchLoading(true)
       try {
-        // Get all products and filter locally
-        const allProducts = await getAllProductAPI()
-        const searchLower = value.toLowerCase()
-        
-        let filtered = allProducts
-        if (value.trim()) {
-          filtered = allProducts.filter((p: any) => 
-            p.name?.toLowerCase().includes(searchLower) ||
-            p.shortCode?.toLowerCase().includes(searchLower)
-          )
-        }
-        
-        // Also filter by category if selected
-        if (selectedCategory !== "all") {
-          filtered = filtered.filter((p: any) => p.category === selectedCategory)
-        }
-        
-        const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both",
-          pricePerBox: p.pricePerBox || 0,
-          price: p.price || 0,
-          shippinCost: p.shippinCost || 0
-        }))
-        setProducts(formattedProducts)
-        setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(false)
+        await fetchCatalog({ search: value, category: selectedCategory, reset: true })
       } catch (error) {
         console.error("Error searching products:", error)
       } finally {
         setProductSearchLoading(false)
       }
     }, 300)
-  }, [selectedCategory])
+  }, [selectedCategory, fetchCatalog])
 
   // Handle category change - filter from all inventory products
   const handleCategoryChange = useCallback(async (category: string) => {
     setSelectedCategory(category)
     setCurrentPage(1)
+    setProductSkip(0)
     
-    // Filter from all inventory products
     setProductSearchLoading(true)
     try {
-      const allProducts = await getAllProductAPI()
-      const searchLower = productSearch.toLowerCase()
-      
-      let filtered = allProducts
-      
-      // Filter by search term
-      if (productSearch.trim()) {
-        filtered = filtered.filter((p: any) => 
-          p.name?.toLowerCase().includes(searchLower) ||
-          p.shortCode?.toLowerCase().includes(searchLower)
-        )
-      }
-      
-      // Filter by category
-      if (category !== "all") {
-        filtered = filtered.filter((p: any) => p.category === category)
-      }
-      
-      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-        ...p,
-        id: p._id || p.id,
-        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "both",
-        pricePerBox: p.pricePerBox || 0,
-        price: p.price || 0,
-        shippinCost: p.shippinCost || 0
-      }))
-      setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false)
+      await fetchCatalog({ search: productSearch, category, reset: true })
     } catch (error) {
       console.error("Error fetching products by category:", error)
     } finally {
       setProductSearchLoading(false)
     }
-  }, [productSearch])
+  }, [productSearch, fetchCatalog])
 
   // Filter products - now just returns products from backend search
   const filteredProducts = products
 
-  // Load more products from backend (infinite scroll) - only for non-price-list case
+  // Load more products from backend (infinite scroll)
   const loadMoreProducts = useCallback(async () => {
-    // If preorder has a price list, don't load more (all products already shown)
-    if (order?.priceListId && order.priceListId.products && order.priceListId.products.length > 0) {
-      return
-    }
-    
     if (loadingMoreProducts || !hasMoreProducts) return
     
     setLoadingMoreProducts(true)
     try {
-      const skip = displayedProducts.length
-      const results = await searchProductsForOrderAPI(
-        productSearch, 
-        10, 
-        selectedCategory === "all" ? "" : selectedCategory,
-        skip
-      )
-      
-      if (results.length > 0) {
-        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          shortCode: p.shortCode || String(skip + index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
-        }))
-        setDisplayedProducts(prev => [...prev, ...formattedProducts])
-        setCurrentPage(prev => prev + 1)
-      }
-      
-      // If less than 10 results, no more products available
-      if (results.length < 10) {
-        setHasMoreProducts(false)
-      }
+      await fetchCatalog({
+        search: productSearch,
+        category: selectedCategory,
+        reset: false,
+        skipOverride: productSkip,
+      })
+      setCurrentPage(prev => prev + 1)
     } catch (error) {
       console.error("Error loading more products:", error)
     } finally {
       setLoadingMoreProducts(false)
     }
-  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory, order])
+  }, [loadingMoreProducts, hasMoreProducts, productSearch, selectedCategory, productSkip, fetchCatalog])
 
   // Handle scroll in product modal - load more on scroll
   const handleProductModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -638,23 +564,11 @@ const UpdatePreOrder = () => {
     setProductSearch("")
     setSelectedCategory("all")
     setCurrentPage(1)
+    setProductSkip(0)
     
-    // Always show all inventory products
     setProductSearchLoading(true)
     try {
-      const allProducts = await getAllProductAPI()
-      const formattedProducts: ProductType[] = allProducts.map((p: any, index: number) => ({
-        ...p,
-        id: p._id || p.id,
-        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "both",
-        pricePerBox: p.pricePerBox || 0,
-        price: p.price || 0,
-        shippinCost: p.shippinCost || 0
-      }))
-      setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false) // All products loaded at once
+      await fetchCatalog({ search: "", category: "all", reset: true })
     } catch (error) {
       console.error("Error fetching products:", error)
     } finally {

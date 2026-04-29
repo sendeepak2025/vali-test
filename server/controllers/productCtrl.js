@@ -4,6 +4,7 @@ const categoryModel = require("../models/categoryModel")
 const Order = require("../models/orderModle");
 const Product = require("../models/productModel");
 const IncomingStock = require("../models/incomingStockModel");
+const PriceListTemplate = require("../models/PriceListTemplate");
 const mongoose = require("mongoose");
 const { calculateInventoryPallets } = require("../utils/palletCalculator");
 
@@ -2398,6 +2399,112 @@ const searchProductsCtrl = async (req, res) => {
     }
 };
 
+// Optimized catalog for pre-order creation:
+// paginated product search + active price list pricing metadata
+const getPreOrderCatalogCtrl = async (req, res) => {
+    try {
+        const { search = "", category = "", skip = 0 } = req.query;
+        const parsedSkip = Math.max(parseInt(skip, 10) || 0, 0);
+        const parsedLimit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+
+        const query = {};
+
+        if (search.trim()) {
+            const searchRegex = new RegExp(search.trim(), "i");
+            query.$or = [{ name: searchRegex }, { shortCode: searchRegex }];
+        }
+
+        if (category && category !== "all" && category !== "") {
+            const categoryDoc = await categoryModel.findOne({
+                categoryName: { $regex: new RegExp(`^${category}$`, "i") },
+            }).select("_id");
+            if (categoryDoc?._id) {
+                query.category = categoryDoc._id;
+            } else {
+                return res.status(200).json({
+                    success: true,
+                    products: [],
+                    hasMore: false,
+                    nextSkip: parsedSkip,
+                    activePriceList: null,
+                });
+            }
+        }
+
+        const products = await productModel.find(query)
+            .populate({ path: "category", select: "categoryName" })
+            .select("_id name price pricePerBox aPrice bPrice cPrice restaurantPrice shippinCost shortCode salesMode image")
+            .sort({ name: 1 })
+            .skip(parsedSkip)
+            .limit(parsedLimit + 1)
+            .lean();
+
+        const hasMore = products.length > parsedLimit;
+        const pageProducts = hasMore ? products.slice(0, parsedLimit) : products;
+
+        const activePriceList = await PriceListTemplate.findOne({ status: "active" })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .select("_id name status updatedAt products")
+            .lean();
+
+        const priceListById = {};
+        const priceListByName = {};
+        if (activePriceList?.products?.length) {
+            for (const p of activePriceList.products) {
+                const pid = p?._id || p?.id || p?.productId;
+                if (pid) priceListById[String(pid)] = p;
+                if (p?.name) priceListByName[String(p.name).toLowerCase()] = p;
+            }
+        }
+
+        const formattedProducts = pageProducts.map((product) => {
+            const plProduct =
+                priceListById[String(product._id)] ||
+                priceListByName[String(product.name || "").toLowerCase()] ||
+                null;
+
+            return {
+                ...product,
+                id: product._id,
+                category: product.category?.categoryName || null,
+                salesMode: product.salesMode || "both",
+                priceListPricing: plProduct
+                    ? {
+                        price: plProduct.price ?? 0,
+                        pricePerBox: plProduct.pricePerBox ?? 0,
+                        aPrice: plProduct.aPrice ?? 0,
+                        bPrice: plProduct.bPrice ?? 0,
+                        cPrice: plProduct.cPrice ?? 0,
+                        restaurantPrice: plProduct.restaurantPrice ?? 0,
+                    }
+                    : null,
+            };
+        });
+
+        return res.status(200).json({
+            success: true,
+            products: formattedProducts,
+            hasMore,
+            nextSkip: parsedSkip + formattedProducts.length,
+            activePriceList: activePriceList
+                ? {
+                    _id: activePriceList._id,
+                    name: activePriceList.name,
+                    status: activePriceList.status,
+                    updatedAt: activePriceList.updatedAt,
+                    productCount: Array.isArray(activePriceList.products) ? activePriceList.products.length : 0,
+                }
+                : null,
+        });
+    } catch (error) {
+        console.error("Error in getPreOrderCatalogCtrl:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error fetching pre-order catalog",
+        });
+    }
+};
+
 // Export all products to Excel - optimized for price list
 const exportProductsExcelCtrl = async (req, res) => {
     try {
@@ -2496,5 +2603,6 @@ module.exports = {
     generateShortCodesCtrl,
     getProductByShortCodeCtrl,
     searchProductsCtrl,
+    getPreOrderCatalogCtrl,
     exportProductsExcelCtrl
 };

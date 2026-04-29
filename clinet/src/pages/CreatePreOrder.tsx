@@ -56,11 +56,10 @@ import {
   Keyboard,
   Edit3,
 } from "lucide-react"
-import { searchProductsForOrderAPI, getProductByShortCodeAPI, getAllProductAPI } from "@/services2/operations/product"
+import { searchProductsForOrderAPI, getProductByShortCodeAPI, getPreOrderCatalogAPI } from "@/services2/operations/product"
 import { createPreOrderAPI } from "@/services2/operations/preOrder"
 import { fetchCategoriesAPI } from "@/services2/operations/category"
 import { searchStoresAPI } from "@/services2/operations/auth"
-import { getAllPriceListAPI } from "@/services2/operations/priceList"
 import { cn } from "@/lib/utils"
 
 type SalesMode = "case" | "unit" | "both"
@@ -82,6 +81,14 @@ interface ProductType {
   stock?: number
   shortCode?: string
   salesMode?: SalesMode
+  priceListPricing?: {
+    price?: number
+    pricePerBox?: number
+    aPrice?: number
+    bPrice?: number
+    cPrice?: number
+    restaurantPrice?: number
+  } | null
 }
 
 interface PriceListProduct {
@@ -136,11 +143,10 @@ interface StoreType {
 }
 
 interface PriceListType {
-  id: string
   _id: string
   name: string
   status: string
-  products: PriceListProduct[]
+  productCount?: number
 }
 
 const CreatePreOrder = () => {
@@ -183,6 +189,7 @@ const CreatePreOrder = () => {
   const [hasMoreProducts, setHasMoreProducts] = useState(true)
   const [loadingMoreProducts, setLoadingMoreProducts] = useState(false)
   const [productSearchLoading, setProductSearchLoading] = useState(false)
+  const [productSkip, setProductSkip] = useState(0)
 
   // Address states
   const [billingAddress, setBillingAddress] = useState<AddressType>({
@@ -226,63 +233,41 @@ const CreatePreOrder = () => {
     }
   }, [])
 
-  // Helper function to get correct price from price list
+  // Helper function to get correct price from active price list pricing attached to each product
   const getProductPrice = useCallback((product: ProductType | PriceListProduct, pricingType: "box" | "unit" = "box"): number => {
-    // If no price list is selected, return 0
-    if (!selectedPriceList || !selectedPriceList.products) {
-      return 0
-    }
-    
-    // Find product in price list by matching ID or name
-    const priceListProduct = selectedPriceList.products.find(p => 
-      (p.id === product.id) || 
-      (p._id === product.id) || 
-      (p._id === product._id) || 
-      (p.id === product._id) ||
-      (p.name === product.name) // Also match by name as fallback
-    )
-    
-    if (priceListProduct) {
-      // Product found in price list, use price list pricing based on store's price category
-      if (pricingType === "unit") {
-        // For unit pricing, use the store's price category
-        switch (storePriceCategory) {
-          case "aPrice":
-            return priceListProduct.aPrice || priceListProduct.price || 0
-          case "bPrice":
-            return priceListProduct.bPrice || priceListProduct.price || 0
-          case "cPrice":
-            return priceListProduct.cPrice || priceListProduct.price || 0
-          case "restaurantPrice":
-            return priceListProduct.restaurantPrice || priceListProduct.price || 0
-          default:
-            return priceListProduct.price || 0
-        }
-      } else {
-        // For box pricing, use pricePerBox or fallback to store's price category
-        if (priceListProduct.pricePerBox) {
-          return priceListProduct.pricePerBox
-        } else {
-          // Fallback to store's price category for box pricing
-          switch (storePriceCategory) {
-            case "aPrice":
-              return priceListProduct.aPrice || 0
-            case "bPrice":
-              return priceListProduct.bPrice || 0
-            case "cPrice":
-              return priceListProduct.cPrice || 0
-            case "restaurantPrice":
-              return priceListProduct.restaurantPrice || 0
-            default:
-              return 0
-          }
-        }
+    const pricing = (product as ProductType).priceListPricing
+    if (!pricing) return 0
+
+    if (pricingType === "unit") {
+      switch (storePriceCategory) {
+        case "aPrice":
+          return pricing.aPrice || pricing.price || 0
+        case "bPrice":
+          return pricing.bPrice || pricing.price || 0
+        case "cPrice":
+          return pricing.cPrice || pricing.price || 0
+        case "restaurantPrice":
+          return pricing.restaurantPrice || pricing.price || 0
+        default:
+          return pricing.price || 0
       }
-    } else {
-      // Product not found in price list, return 0
-      return 0
     }
-  }, [selectedPriceList, storePriceCategory])
+
+    if (pricing.pricePerBox) return pricing.pricePerBox
+
+    switch (storePriceCategory) {
+      case "aPrice":
+        return pricing.aPrice || 0
+      case "bPrice":
+        return pricing.bPrice || 0
+      case "cPrice":
+        return pricing.cPrice || 0
+      case "restaurantPrice":
+        return pricing.restaurantPrice || 0
+      default:
+        return 0
+    }
+  }, [storePriceCategory])
 
   // Fetch stores with debounce
   const handleStoreSearch = useCallback(async (value: string) => {
@@ -335,46 +320,24 @@ const CreatePreOrder = () => {
     toast({ title: "Store Selected", description: `${store.storeName} - Price Category: ${store.priceCategory || "aPrice"}` })
   }, [toast])
 
-  // Fetch all products and active price list separately
-  const fetchPriceLists = useCallback(async () => {
+  // Fetch paginated catalog (products + active price list metadata)
+  const fetchCatalog = useCallback(async (opts?: { search?: string; category?: string; reset?: boolean; skipOverride?: number }) => {
     setPriceListLoading(true)
     try {
-      // Fetch all products first (complete product list)
-      const allProductsResponse = await getAllProductAPI()
-      console.log("All products fetched:", allProductsResponse?.length || 0)
-      
-      // Fetch active price list separately
-      const priceListResponse = await getAllPriceListAPI("status=active&limit=1")
-      console.log("Price list fetched:", priceListResponse?.data?.length || 0)
-      
-      if (allProductsResponse && allProductsResponse.length > 0) {
-        // Format all products
-        const formattedProducts: ProductType[] = allProductsResponse.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          _id: p._id || p.id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both",
-          pricePerBox: p.pricePerBox || 0,
-          price: p.price || 0,
-          shippinCost: p.shippinCost || 0
-        }))
-        setProducts(formattedProducts)
-        setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(false)
-        console.log("Products set:", formattedProducts.length)
-        
-        // Set price list if available
-        if (priceListResponse?.data && priceListResponse.data.length > 0) {
-          const activePriceList = priceListResponse.data[0]
-          setSelectedPriceList(activePriceList)
-          console.log("Price list set:", activePriceList.name, "with", activePriceList.products?.length || 0, "products")
-        } else {
-          // No active price list - prices will be 0 for all products
-          setSelectedPriceList(null)
-          console.log("No active price list found")
-        }
-      }
+      const reset = opts?.reset ?? true
+      const skip = reset ? 0 : (opts?.skipOverride ?? productSkip)
+      const response = await getPreOrderCatalogAPI({
+        search: opts?.search ?? "",
+        category: opts?.category ?? "all",
+        limit: 20,
+        skip,
+      })
+      const incoming = response.products || []
+      setProducts((prev) => (reset ? incoming : [...prev, ...incoming]))
+      setDisplayedProducts((prev) => (reset ? incoming : [...prev, ...incoming]))
+      setHasMoreProducts(Boolean(response.hasMore))
+      setProductSkip(response.nextSkip || 0)
+      setSelectedPriceList(response.activePriceList)
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -382,7 +345,7 @@ const CreatePreOrder = () => {
     }
   }, [])
 
-  // Products are loaded once from fetchPriceLists and don't need to be updated based on price category
+  // Product prices are resolved from backend-provided active price list pricing per product
   // The getProductPrice function handles price category logic
 
   // Handle quick add input change
@@ -422,15 +385,18 @@ const CreatePreOrder = () => {
         }
         
         if (!product && value.trim()) {
-          const results = await getAllProductAPI()
-          if (results && results.length > 0) {
-            const found = results.find(p => 
-              p.name.toLowerCase().includes(value.toLowerCase()) ||
+          const results = await searchProductsForOrderAPI(
+            value,
+            20,
+            selectedCategory === "all" ? "" : selectedCategory,
+            0
+          )
+          if (results?.length) {
+            const found = results.find(p =>
+              p.name?.toLowerCase().includes(value.toLowerCase()) ||
               p.shortCode === parsed?.code
             )
-            if (found) {
-              product = { ...found, id: found._id || found.id }
-            }
+            if (found) product = { ...found, id: found._id || found.id }
           }
         }
         
@@ -447,7 +413,7 @@ const CreatePreOrder = () => {
         setQuickAddLoading(false)
       }
     }, 300)
-  }, [parseQuickAddInput, selectedPriceList, products])
+  }, [parseQuickAddInput, selectedPriceList, products, selectedCategory])
 
   // Handle quick add submit
   const handleQuickAddSubmit = useCallback(() => {
@@ -522,14 +488,13 @@ const CreatePreOrder = () => {
       try {
         const [categoriesData] = await Promise.all([
           fetchCategoriesAPI(),
-          fetchPriceLists()
+          fetchCatalog({ reset: true, search: "", category: "all" })
         ])
         
         const categoryNames = categoriesData.map((c: any) => c.categoryName).filter(Boolean).sort()
         setCategories(categoryNames)
         
-        // Products are now loaded from fetchPriceLists if active price list exists
-        // No need to fetch products separately
+        // Products are loaded from paginated catalog endpoint
       } catch (error) {
         console.error("Error fetching data:", error)
         toast({ title: "Error", description: "Failed to load initial data", variant: "destructive" })
@@ -539,12 +504,13 @@ const CreatePreOrder = () => {
     }
 
     fetchData()
-  }, [fetchPriceLists, toast])
+  }, [fetchCatalog, toast])
 
   // Search products from backend with debounce
   const handleProductSearchChange = useCallback(async (value: string) => {
     setProductSearch(value)
     setHasMoreProducts(true)
+    setProductSkip(0)
     
     if (productSearchTimeoutRef.current) {
       clearTimeout(productSearchTimeoutRef.current)
@@ -553,89 +519,53 @@ const CreatePreOrder = () => {
     productSearchTimeoutRef.current = setTimeout(async () => {
       setProductSearchLoading(true)
       try {
-        // Filter from all products (not just price list products)
-        if (products && products.length > 0) {
-          // If search is empty, show all products
-          if (!value.trim()) {
-            setDisplayedProducts(products)
-          } else {
-            const filtered = products.filter(p => 
-              p.name.toLowerCase().includes(value.toLowerCase())
-            )
-            setDisplayedProducts(filtered)
-          }
-          setHasMoreProducts(false)
-        } else {
-          // Fallback to API search if no products loaded
-          const results = await getAllProductAPI()
-          if (results) {
-            const filtered = value.trim() 
-              ? results.filter(p => p.name.toLowerCase().includes(value.toLowerCase()))
-              : results
-            
-            const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-              ...p,
-              id: p._id || p.id,
-              shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-              salesMode: p.salesMode || "both"
-            }))
-            setProducts(formattedProducts)
-            setDisplayedProducts(formattedProducts)
-            setHasMoreProducts(false)
-          }
-        }
+        await fetchCatalog({ search: value, category: selectedCategory, reset: true })
       } catch (error) {
         console.error("Error searching products:", error)
       } finally {
         setProductSearchLoading(false)
       }
     }, 300)
-  }, [products])
+  }, [fetchCatalog, selectedCategory])
 
   // Handle category change
   const handleCategoryChange = useCallback(async (category: string) => {
     setSelectedCategory(category)
     setHasMoreProducts(true)
+    setProductSkip(0)
     setProductSearchLoading(true)
     try {
-      // For admin pre-orders, filter from all inventory products
-      const results = await getAllProductAPI()
-      const filtered = category === "all" 
-        ? results 
-        : results.filter(p => p.category === category)
-      
-      const formattedProducts: ProductType[] = filtered.map((p: any, index: number) => ({
-        ...p,
-        id: p._id || p.id,
-        shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-        salesMode: p.salesMode || "both"
-      }))
-      setProducts(formattedProducts)
-      setDisplayedProducts(formattedProducts)
-      setHasMoreProducts(false)
+      await fetchCatalog({ category, search: productSearch, reset: true })
     } catch (error) {
       console.error("Error fetching products by category:", error)
     } finally {
       setProductSearchLoading(false)
     }
-  }, [productSearch])
+  }, [fetchCatalog, productSearch])
 
   // Load more products
   const loadMoreProducts = useCallback(async () => {
-    // For admin pre-orders, all products are loaded at once, no pagination needed
-    if (loadingMoreProducts || !hasMoreProducts || selectedPriceList) return
+    if (loadingMoreProducts || !hasMoreProducts) return
     
     setLoadingMoreProducts(true)
     try {
-      // Since we load all products at once for admin, this shouldn't be needed
-      // But keeping for consistency
-      setHasMoreProducts(false)
+      const response = await getPreOrderCatalogAPI({
+        search: productSearch,
+        category: selectedCategory,
+        limit: 20,
+        skip: productSkip,
+      })
+      const merged = [...displayedProducts, ...(response.products || [])]
+      setProducts(merged)
+      setDisplayedProducts(merged)
+      setHasMoreProducts(response.hasMore)
+      setProductSkip(response.nextSkip || merged.length)
     } catch (error) {
       console.error("Error loading more products:", error)
     } finally {
       setLoadingMoreProducts(false)
     }
-  }, [loadingMoreProducts, hasMoreProducts, displayedProducts.length, productSearch, selectedCategory, selectedPriceList])
+  }, [loadingMoreProducts, hasMoreProducts, displayedProducts, productSearch, selectedCategory, productSkip])
 
   // Handle scroll in product modal
   const handleProductModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -652,30 +582,15 @@ const CreatePreOrder = () => {
     setShowProductModal(true)
     setProductSearch("")
     setSelectedCategory("all")
-    setHasMoreProducts(false) // All products loaded at once for admin
-    
-    // Always show all products, not just price list products
-    if (products && products.length > 0) {
-      setDisplayedProducts(products)
-      setHasMoreProducts(false)
-    } else {
-      setProductSearchLoading(true)
-      try {
-        const results = await getAllProductAPI()
-        const formattedProducts: ProductType[] = results.map((p: any, index: number) => ({
-          ...p,
-          id: p._id || p.id,
-          shortCode: p.shortCode || String(index + 1).padStart(2, '0'),
-          salesMode: p.salesMode || "both"
-        }))
-        setProducts(formattedProducts)
-        setDisplayedProducts(formattedProducts)
-        setHasMoreProducts(false)
-      } catch (error) {
-        console.error("Error fetching products:", error)
-      } finally {
-        setProductSearchLoading(false)
-      }
+    setHasMoreProducts(true)
+    setProductSkip(0)
+    setProductSearchLoading(true)
+    try {
+      await fetchCatalog({ search: "", category: "all", reset: true })
+    } catch (error) {
+      console.error("Error fetching products:", error)
+    } finally {
+      setProductSearchLoading(false)
     }
   }
 
@@ -905,14 +820,14 @@ const CreatePreOrder = () => {
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="flex items-center gap-2 text-blue-700">
                     <FileText className="h-4 w-4" />
-                    <span className="font-medium">All Products:</span>
-                    <span>{products.length} products available</span>
+                    <span className="font-medium">Products Loaded:</span>
+                    <span>{products.length}</span>
                     {selectedPriceList && (
                       <>
                         <span className="text-gray-300">•</span>
                         <span className="font-medium">Price List:</span>
                         <span>{selectedPriceList.name}</span>
-                        <Badge variant="secondary" className="text-xs">{selectedPriceList.products?.length || 0} with prices</Badge>
+                        <Badge variant="secondary" className="text-xs">{selectedPriceList.productCount || 0} with prices</Badge>
                       </>
                     )}
                     {!selectedPriceList && (

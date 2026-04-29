@@ -293,6 +293,8 @@ console.log("Current OTP", otp)
 };
 
 // Verify OTP and complete login
+const LOGIN_RESPONSE_FIELDS = "_id name ownerName storeName email role approvalStatus city state phoneNumber createdAt updatedAt";
+
 const verifyLoginOtpCtrl = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -304,11 +306,13 @@ const verifyLoginOtpCtrl = async (req, res) => {
       });
     }
 
-    const user = await authModel.findOne({ 
+    const user = await authModel.findOne({
       email,
       loginOtp: otp,
       loginOtpExpires: { $gt: Date.now() }
-    });
+    })
+      .select("_id email role approvalStatus name ownerName storeName city state phoneNumber")
+      .lean();
 
     if (!user) {
       return res.status(401).json({
@@ -317,12 +321,6 @@ const verifyLoginOtpCtrl = async (req, res) => {
       });
     }
 
-    // Clear OTP after successful verification
-    await authModel.findByIdAndUpdate(user._id, {
-      loginOtp: null,
-      loginOtpExpires: null,
-    });
-
     // Generate JWT token
     const token = jwt.sign(
       { email: user.email, id: user._id, role: user.role },
@@ -330,8 +328,10 @@ const verifyLoginOtpCtrl = async (req, res) => {
       { expiresIn: "2d" }
     );
 
-    // Update last login and add activity log
+    // Update user state in a single write (instead of two sequential updates)
     await authModel.findByIdAndUpdate(user._id, {
+      loginOtp: null,
+      loginOtpExpires: null,
       token,
       lastLogin: new Date(),
       $push: {
@@ -345,8 +345,10 @@ const verifyLoginOtpCtrl = async (req, res) => {
       }
     });
 
-    user.token = token;
-    user.password = undefined;
+    const responseUser = await authModel
+      .findById(user._id)
+      .select(LOGIN_RESPONSE_FIELDS)
+      .lean();
     const options = {
       expires: new Date(Date.now() + 2 * 1000), // 2 seconds
       httpOnly: true,
@@ -368,7 +370,7 @@ const verifyLoginOtpCtrl = async (req, res) => {
     res.cookie("token", token, options).status(200).json({
       success: true,
       token,
-      user,
+      user: responseUser,
       message: `Login Successful`,
       accessLevel,
       isPending,

@@ -58,21 +58,23 @@ const PreOrder = () => {
   try {
     const queryParams = new URLSearchParams();
     queryParams.append("page", page.toString());
+    queryParams.append("limit", "20");
     queryParams.append("isDeleted", "false");
-    if (searchQuery) queryParams.append("search", searchQuery);
+    queryParams.append("confirmed", "false");
+    const normalizedSearch = searchQuery.trim();
+    if (normalizedSearch) queryParams.append("search", normalizedSearch);
 
+    console.log("🔍 Fetching pending preorders with params:", queryParams.toString());
     const data = await getAllPreOrderAPI(token, queryParams.toString());
+    
+    console.log("📦 API Response:", data);
+    console.log("📊 Total preOrders received:", data.preOrders?.length);
 
-    // Only unconfirmed orders that are not deleted
-    const unConfirmedOrders = data.preOrders.filter(
-      (order) => order.confirmed === false && !order.isDeleted
-    );
-
-    setOrders(unConfirmedOrders);
+    setOrders(data.preOrders || []);
     setCurrentPage(data.currentPage);
     setTotalPages(data.totalPages);
   } catch (err) {
-    console.error(err);
+    console.error("❌ Error fetching orders:", err);
   } finally {
     setLoading(false);
   }
@@ -84,17 +86,14 @@ const PreOrder = () => {
     try {
       const queryParams = new URLSearchParams();
       queryParams.append("page", page.toString());
+      queryParams.append("limit", "20");
       queryParams.append("isDeleted", "false");
-      if (searchQuery) queryParams.append("search", searchQuery);
+      queryParams.append("confirmed", "true");
+      const normalizedSearch = searchQuery.trim();
+      if (normalizedSearch) queryParams.append("search", normalizedSearch);
 
       const data = await getAllPreOrderAPI(token, queryParams.toString());
-
-      // Only confirmed orders that are not deleted
-      const confirmedOrdersList = data.preOrders.filter(
-        (order) => order.confirmed === true && !order.isDeleted
-      );
-
-      setConfirmedOrders(confirmedOrdersList);
+      setConfirmedOrders(data.preOrders || []);
       setConfirmedCurrentPage(data.currentPage);
       setConfirmedTotalPages(data.totalPages);
     } catch (err) {
@@ -110,17 +109,13 @@ const PreOrder = () => {
     try {
       const queryParams = new URLSearchParams();
       queryParams.append("page", page.toString());
+      queryParams.append("limit", "20");
       queryParams.append("isDeleted", "true");
-      if (searchQuery) queryParams.append("search", searchQuery);
+      const normalizedSearch = searchQuery.trim();
+      if (normalizedSearch) queryParams.append("search", normalizedSearch);
 
       const data = await getAllPreOrderAPI(token, queryParams.toString());
-
-      // Only deleted orders
-      const deletedOrdersList = data.preOrders.filter(
-        (order) => order.isDeleted === true
-      );
-
-      setDeletedOrders(deletedOrdersList);
+      setDeletedOrders(data.preOrders || []);
       setDeletedCurrentPage(data.currentPage);
       setDeletedTotalPages(data.totalPages);
     } catch (err) {
@@ -133,13 +128,19 @@ const PreOrder = () => {
 
   useEffect(() => {
     if (activeTab === "pending") {
-      fetchOrders(currentPage);
+      fetchOrders(currentPage, search);
     } else if (activeTab === "confirmed") {
-      fetchConfirmedOrders(confirmedCurrentPage);
+      fetchConfirmedOrders(confirmedCurrentPage, confirmedSearch);
     } else if (activeTab === "deleted") {
-      fetchDeletedOrders(deletedCurrentPage);
+      fetchDeletedOrders(deletedCurrentPage, deletedSearch);
     }
-  }, [currentPage, confirmedCurrentPage, deletedCurrentPage, activeTab, token]);
+  }, [
+    currentPage,
+    confirmedCurrentPage,
+    deletedCurrentPage,
+    activeTab,
+    token,
+  ]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

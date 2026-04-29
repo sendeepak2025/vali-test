@@ -451,3 +451,43 @@ export const searchProductsForOrderAPI = async (search = "", limit = 10, categor
     return [];
   }
 };
+
+// Optimized catalog for pre-order create page (products + active price list meta)
+export const getPreOrderCatalogAPI = async (params = {}) => {
+  try {
+    const {
+      search = "",
+      limit = 20,
+      category = "",
+      skip = 0,
+    } = params;
+
+    const queryParams = new URLSearchParams({
+      search,
+      limit: String(limit),
+      category,
+      skip: String(skip),
+    }).toString();
+
+    const response = await apiConnector("GET", `${product.PREORDER_CATALOG}?${queryParams}`);
+
+    if (!response?.data?.success) {
+      throw new Error(response?.data?.message || "Something went wrong!");
+    }
+
+    return {
+      products: response?.data?.products || [],
+      hasMore: Boolean(response?.data?.hasMore),
+      nextSkip: response?.data?.nextSkip || 0,
+      activePriceList: response?.data?.activePriceList || null,
+    };
+  } catch (error) {
+    console.error("PreOrder Catalog API ERROR:", error);
+    return {
+      products: [],
+      hasMore: false,
+      nextSkip: 0,
+      activePriceList: null,
+    };
+  }
+};

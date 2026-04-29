@@ -671,6 +671,9 @@ const authSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Fast path for login OTP verification query
+authSchema.index({ email: 1, loginOtp: 1, loginOtpExpires: 1 });
+
 // Pre-save hook to generate unique registrationRef for new stores
 authSchema.pre("save", function (next) {
   // Only generate registrationRef for new store registrations

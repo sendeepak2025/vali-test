@@ -61,6 +61,7 @@ export const product = {
   GET_ALL_PRODUCT_SUMMARY: BASE_URL + "/product/getAllSummary",
   SEARCH_PRODUCTS: BASE_URL + "/product/getAllSummary",
   SEARCH_PRODUCTS_ORDER: BASE_URL + "/product/search",
+  PREORDER_CATALOG: BASE_URL + "/product/preorder-catalog",
   EXPORT_PRODUCTS_EXCEL: BASE_URL + "/product/export-excel",
   GET_PRODUCT: BASE_URL + "/product/get",
   GET_PRODUCT_PURCHASE_HISTORY: BASE_URL + "/product/purchase-history", // append /:productId

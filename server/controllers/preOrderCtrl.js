@@ -139,6 +139,8 @@ const getAllPreOrdersCtrl = async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
     const isDeleted = req.query.isDeleted === "true";
+    const hasConfirmedFilter = typeof req.query.confirmed !== "undefined";
+    const confirmed = req.query.confirmed === "true";
 
     const searchRegex = new RegExp(search, "i");
 
@@ -164,6 +166,11 @@ const getAllPreOrdersCtrl = async (req, res) => {
       if (storeId && mongoose.Types.ObjectId.isValid(storeId)) {
         filter.$and.push({ store: new mongoose.Types.ObjectId(storeId) });
       }
+    }
+
+    // Apply confirmed filter at DB level when provided
+    if (hasConfirmedFilter) {
+      filter.$and.push({ confirmed });
     }
     
     // Add search filter - search by preOrderNumber or store name
