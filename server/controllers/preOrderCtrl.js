@@ -170,7 +170,22 @@ const getAllPreOrdersCtrl = async (req, res) => {
 
     // Apply confirmed filter at DB level when provided
     if (hasConfirmedFilter) {
-      filter.$and.push({ confirmed });
+      if (confirmed) {
+        // For confirmed tab: confirmed must be true AND status should be "confirmed"
+        filter.$and.push({ 
+          confirmed: true,
+          status: "confirmed"
+        });
+      } else {
+        // For pending tab: confirmed is false OR status is not "confirmed"
+        filter.$and.push({ 
+          $or: [
+            { confirmed: false },
+            { confirmed: { $ne: true } },
+            { status: { $ne: "confirmed" } }
+          ]
+        });
+      }
     }
     
     // Add search filter - search by preOrderNumber or store name
