@@ -177,13 +177,10 @@ const getAllPreOrdersCtrl = async (req, res) => {
           status: "confirmed"
         });
       } else {
-        // For pending tab: confirmed is false OR status is not "confirmed"
+        // For pending tab: confirmed must be false AND status must be "pending"
         filter.$and.push({ 
-          $or: [
-            { confirmed: false },
-            { confirmed: { $ne: true } },
-            { status: { $ne: "confirmed" } }
-          ]
+          confirmed: { $ne: true },
+          status: "pending"
         });
       }
     }
