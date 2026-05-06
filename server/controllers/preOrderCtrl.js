@@ -171,16 +171,21 @@ const getAllPreOrdersCtrl = async (req, res) => {
     // Apply confirmed filter at DB level when provided
     if (hasConfirmedFilter) {
       if (confirmed) {
-        // For confirmed tab: confirmed must be true AND status should be "confirmed"
-        filter.$and.push({ 
+        // Confirmed tab: confirmed=true AND orderId exists AND status="confirmed"
+        filter.$and.push({
           confirmed: true,
+          orderId: { $ne: null, $exists: true },
           status: "confirmed"
         });
       } else {
-        // For pending tab: confirmed must be false AND status must be "pending"
-        filter.$and.push({ 
-          confirmed: { $ne: true },
-          status: "pending"
+        // Pending tab: anything that doesn't fully satisfy confirmed condition
+        filter.$and.push({
+          $or: [
+            { confirmed: { $ne: true } },
+            { orderId: { $in: [null, undefined] } },
+            { orderId: { $exists: false } },
+            { status: { $ne: "confirmed" } }
+          ]
         });
       }
     }
@@ -389,35 +394,31 @@ const Product = require("../models/productModel");
 const confirmOrderCtrl = async (req, res) => {
   try {
     const { id } = req.params;
-    // Atomic claim to avoid duplicate confirmation in parallel requests
-    const pre = await PreOrder.findOneAndUpdate(
-      {
-        _id: id,
-        confirmed: { $ne: true },
-        orderId: { $exists: false }
-      },
-      {
-        $set: { confirmed: true }
-      },
-      { new: true }
-    );
 
-    if (!pre) {
-      const existing = await PreOrder.findById(id).select("confirmed orderId");
-      if (!existing) {
-        return res.status(404).json({ success: false, message: "PreOrder not found" });
-      }
-      return res.status(400).json({
-        success: false,
-        message: existing.orderId || existing.confirmed
-          ? "PreOrder is already confirmed"
-          : "PreOrder confirmation is in progress, please retry"
+    // Step 1: Fetch preorder first WITHOUT marking confirmed yet
+    const preCheck = await PreOrder.findById(id);
+    if (!preCheck) {
+      return res.status(404).json({ success: false, message: "PreOrder not found" });
+    }
+
+    // If already fully confirmed (has orderId + confirmed=true + status=confirmed), block
+    if (preCheck.confirmed && preCheck.orderId && preCheck.status === "confirmed") {
+      return res.status(400).json({ success: false, message: "PreOrder is already confirmed" });
+    }
+
+    // If stuck (confirmed=true but no orderId), auto-repair and continue
+    if (preCheck.confirmed && !preCheck.orderId) {
+      await PreOrder.findByIdAndUpdate(id, {
+        $set: { confirmed: false, status: "pending" }
       });
+      preCheck.confirmed = false;
+      preCheck.status = "pending";
+      console.log(`🔧 Auto-repaired stuck preorder: ${preCheck.preOrderNumber}`);
     }
 
     // --- Deduplicate items by productId (merge quantities if same product) ---
     const itemsMap = new Map();
-    for (const item of pre.items) {
+    for (const item of preCheck.items) {
       const productId = (item.productId || item.product)?.toString();
       if (!productId) continue;
       
@@ -441,7 +442,7 @@ const confirmOrderCtrl = async (req, res) => {
     
     // Convert map back to array
     const deduplicatedItems = Array.from(itemsMap.values());
-    console.log(`PreOrder ${pre.preOrderNumber}: Original items: ${pre.items.length}, Deduplicated: ${deduplicatedItems.length}`);
+    console.log(`PreOrder ${preCheck.preOrderNumber}: Original items: ${preCheck.items.length}, Deduplicated: ${deduplicatedItems.length}`);
 
     // --- STOCK VALIDATION (Current week only) ---
     
@@ -535,6 +536,24 @@ const confirmOrderCtrl = async (req, res) => {
         success: false,
         message: "Insufficient stock for some items (current week check)",
         insufficientStock,
+      });
+    }
+
+    // Step 2: NOW do atomic claim after all validations passed
+    const pre = await PreOrder.findOneAndUpdate(
+      {
+        _id: id,
+        confirmed: { $ne: true },
+        $or: [{ orderId: { $exists: false } }, { orderId: null }]
+      },
+      { $set: { confirmed: true } },
+      { new: true }
+    );
+
+    if (!pre) {
+      return res.status(400).json({
+        success: false,
+        message: "PreOrder confirmation is in progress or already confirmed, please retry"
       });
     }
 
