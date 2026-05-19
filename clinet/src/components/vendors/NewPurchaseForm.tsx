@@ -323,12 +323,29 @@ const NewPurchaseForm = () => {
       description: mail === 1 ? "Order saved and email sent!" : "Order saved successfully.",
     })
     navigate("/vendors")
-  } catch (err) {
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: "Something went wrong while creating the purchase order.",
-    })
+  } catch (err: any) {
+    console.error("Purchase order creation error:", err)
+    
+    // Handle specific error codes
+    if (err?.errorCode === "DUPLICATE_PO_NUMBER") {
+      toast({
+        variant: "destructive",
+        title: "Duplicate Purchase Order Number",
+        description: err?.message || `Purchase Order Number "${purchaseOrderNumber}" already exists. Please use a different number.`,
+      })
+    } else if (err?.errorCode === "VALIDATION_ERROR") {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: err?.message || "Please check all required fields.",
+      })
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err?.message || "Something went wrong while creating the purchase order.",
+      })
+    }
   }
 }
 

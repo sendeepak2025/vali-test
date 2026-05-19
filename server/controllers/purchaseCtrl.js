@@ -50,6 +50,16 @@ exports.createPurchaseOrder = async (req, res) => {
 
     console.log(purchaseDate, "date");
 
+    // ✅ Check if purchase order number already exists
+    const existingOrder = await PurchaseOrder.findOne({ purchaseOrderNumber });
+    if (existingOrder) {
+      return res.status(400).json({
+        success: false,
+        message: `Purchase Order Number "${purchaseOrderNumber}" already exists. Please use a different number.`,
+        errorCode: "DUPLICATE_PO_NUMBER"
+      });
+    }
+
     // ✅ Save order
     const newOrder = new PurchaseOrder({
       vendorId,
@@ -150,7 +160,32 @@ const deliveryDateFormatted = new Date(`${deliveryDate}T00:00:00`).toLocaleDateS
     });
   } catch (error) {
     console.error("❌ Error creating purchase order:", error);
-    res.status(500).json({ success: false, message: "Internal server error", error });
+    
+    // Handle duplicate purchase order number error
+    if (error.code === 11000 && error.keyPattern?.purchaseOrderNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Purchase Order Number "${error.keyValue?.purchaseOrderNumber}" already exists. Please use a different number.`,
+        errorCode: "DUPLICATE_PO_NUMBER"
+      });
+    }
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        success: false, 
+        message: messages.join(', '),
+        errorCode: "VALIDATION_ERROR"
+      });
+    }
+    
+    // Generic error
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || "Failed to create purchase order. Please try again.",
+      errorCode: "INTERNAL_ERROR"
+    });
   }
 };
 
